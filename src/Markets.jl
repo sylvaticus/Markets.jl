@@ -7,6 +7,6 @@ module Markets
 
 include("Equilibriums.jl")
 
-greet() = print("Hello World!")
+
 
 end # module

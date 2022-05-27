@@ -1,7 +1,7 @@
-using Pkg
+#using Pkg
 cd(@__DIR__)
-Pkg.activate(".")
-using DataFrames, OdsIO, AxisArrays
+#Pkg.activate(".")
+using DataFrames, OdsIO
 
 # *** Getting input data and wrangling them ***
 inputData       = "data/data.ods"
@@ -11,30 +11,32 @@ const regions   = collect(skipmissing(sets.regions))
 (np, nr)        = length(products), length(regions)
 
 elasticities_table = ods_read(inputData;sheetName="elasticities",retType="DataFrame")
-contantTerms_table = ods_read(inputData;sheetName="constantTerms",retType="DataFrame")
+constantTerms_table = ods_read(inputData;sheetName="constantTerms",retType="DataFrame")
 init_table         = ods_read(inputData;sheetName="init",retType="DataFrame")
 
-ϵ_d = AxisArray(zeros(np,nr,np,nr), p=products, r=regions, in_p = products, in_r=regions)
-ϵ_s = AxisArray(zeros(np,nr,np,nr), p=products, r=regions, in_p = products, in_r=regions)
+elasticities_dict  = Dict( [(r.p,r.r,r.in_p,r.in_r) => (r.d_value,r.s_value) for r in eachrow(elasticities_table)])
+constantTerms_dict = Dict( [(r.p,r.r)               => (r.const_d,r.const_s) for r in eachrow(constantTerms_table)])
+init_dict          = Dict( [(r.p,r.r)               => (r.d0,r.s0,r.pr0)     for r in eachrow(init_table)])
 
-const_d = AxisArray(zeros(np,nr), p=products, r=regions)
-const_s = AxisArray(zeros(np,nr), p=products, r=regions)
-d0      = AxisArray(zeros(np,nr), p=products, r=regions)
-s0      = AxisArray(zeros(np,nr), p=products, r=regions)
-pr0     = AxisArray(zeros(np,nr), p=products, r=regions)
+ϵ_d = zeros(np,nr,np,nr)
+ϵ_s = zeros(np,nr,np,nr)
 
-for r in eachrow(elasticities_table)
-    ϵ_d[p = r.p, r = r.r, in_p = r.in_p, in_r = r.in_r] = r.d_value
-    ϵ_s[p = r.p, r = r.r, in_p = r.in_p, in_r = r.in_r] = r.s_value
-end
-for r in eachrow(contantTerms_table)
-    const_d[p = r.p, r = r.r] = r.const_d
-    const_s[p = r.p, r = r.r] = r.const_s
-end
-for r in eachrow(init_table)
-    d0[p = r.p, r = r.r]  = r.d0
-    s0[p = r.p, r = r.r]  = r.s0
-    pr0[p = r.p, r = r.r] = r.pr0
+const_d = zeros(np,nr)
+const_s = zeros(np,nr)
+d0      = zeros(np,nr)
+s0      = zeros(np,nr)
+pr0     = zeros(np,nr)
+
+for (ip,p) in enumerate(products), (ir,r) in enumerate(regions)
+    for (ip2,p2) in enumerate(products), (ir2,r2) in enumerate(regions)
+        ϵ_d[ip,ir,ip2,ir2] = get(elasticities_dict,(p,r,p2,r2),[0,0])[1]
+        ϵ_s[ip,ir,ip2,ir2] = get(elasticities_dict,(p,r,p2,r2),[0,0])[2]
+    end
+    const_d[ip,ir] = get(constantTerms_dict,(p,r),[0,0])[1]
+    const_s[ip,ir] = get(constantTerms_dict,(p,r),[0,0])[2]
+    d0[ip,ir]      = get(init_dict,(p,r),[1,1,1])[1]
+    s0[ip,ir]      = get(init_dict,(p,r),[1,1,1])[2]
+    pr0[ip,ir]     = get(init_dict,(p,r),[1,1,1])[3]
 end
 
 out = solveEquilibrium(const_d,ϵ_d,d0,const_s,ϵ_s,s0,pr0)

@@ -2,6 +2,11 @@ export solveEquilibrium
 
 using JuMP, Ipopt
 
+"""
+    solveEquilibrium
+
+Solve an economic equilibrium by passing elasticities parameters of CD-form supply/demand curves.
+"""
 function solveEquilibrium(const_d,ϵ_d,d0,const_s,ϵ_s,s0,pr0;functionalForm="constantElasticity",debug=false)
 
     (np, nr) = size(ϵ_d)
