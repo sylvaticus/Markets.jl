@@ -1,2 +1,5 @@
 [deps]
+AxisArrays = "39de3d68-74b9-583c-8d2d-e117c070f3a9"
+Markets = "759d13a6-b709-4069-9c04-8ab7b9f0e06f"
+OdsIO = "56b0d19f-0a74-5872-92bc-f48f9c5431d4"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

@@ -1,7 +1,3 @@
 using Test, Markets
 
-out = plusTwo(3)
-
-@test out ==5
-
-
+include("solve_ce_eq.jl")
