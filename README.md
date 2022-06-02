@@ -8,11 +8,11 @@ Solve a Partial Equilibrium Model for a given economic sector made of arbitrary 
 [![codecov.io](http://codecov.io/github/sylvaticus/Markets.jl/coverage.svg?branch=main)](http://codecov.io/github/sylvaticus/Markets.jl?branch=main)
 
 
-Prealpha status.
+Prealpha status. See documentation (dev version)
 
 
 TODO:
 - evaluate other functional forms (CES?)
-- add transport costs and explicit import/exports
+- add transport costs and explicit import/exports - done but doesn't work :-/
 - add policies options
 - add estimation notes

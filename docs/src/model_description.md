@@ -28,7 +28,7 @@ Todo: (a) make it working :-); (b) add transport costs, policies, exogenous regi
 - $ϵts_p$: trade elasticity of the supply of product $p$ 
 - $ϵtd_p$: trade elasticity of the demand of product $p$
 
-## Constraints (equations)
+### Constraints (equations)
 - **Composite supply [p,r]** : $sc_{p,r} = consts_{p,r} * \prod_{pin} pcs_{pin,r}^{ϵs_{p,r,pin}}$
 - **Composite demand [p,r]** : $dc_{p,r} = constd_{p,r} * \prod_{pin} pcd_{pin,r}^{ϵd_{p,r,pin}}$
 - **Composite supply aggregation [p,r]** : $sc_{p,r} =  (\sum_{rto} a_{p,r,rto}* s_{p,r,rto}^{ϵts_p})^{1/ϵts_p}$
@@ -39,13 +39,13 @@ Todo: (a) make it working :-); (b) add transport costs, policies, exogenous regi
 - **Demand monetary budget [p,r]** : $ pcd_{p,r} * dc_{p,r}  =  \sum_{rfrom} pl_{p,rfrom} * s_{p,rfrom,r}$
 - **Physical balance [p, r]** :  $\sum_{rto} s_{p,r,rto} =  \sum_{rfrom} d_{p,rfrom,r}$
 
-## Objective
+### Objective
 $\min \sum_{p,rfrom,rto} (d_{p,rfrom,rto} - s_{p,rfrom,rto})^2$
 
 
 ## Implicit regional trade version
 
-Current status: Model correctly solves (very quickly!) but it doesn't return the amount of production allocated to own region or exported not the share of demand satisfied by own production or imported
+Current status: Model correctly solves (very quickly!) but it doesn't return the information on the amount of production allocated to own region or exported not the share of demand satisfied by own production or imported.
 
 ### Sets
 - $p$: products (with alias $pin$)
@@ -64,9 +64,9 @@ Current status: Model correctly solves (very quickly!) but it doesn't return the
 - constd_{p,r}: constant coefficient of the supply function for product $p$ in region $r$
 
 
-## Constraints (equations)
+### Constraints (equations)
 - **Total supply [p,r]** : $s_{p,r} = consts_{p,r} * \prod_{pin,rin} p_{pin,r}^{ϵs_{p,r,pin,rin}}$
 - **Total demand [p,r]** : $d_{p,r} = constd_{p,r} * \prod_{pin,rin} p_{pin,r}^{ϵd_{p,r,pin,rin}}$
 
-## Objective
+### Objective
 $\min \sum_{p,r} (d_{p,r} - s_{p,r})^2$

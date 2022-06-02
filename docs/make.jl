@@ -4,6 +4,12 @@ using Markets
 push!(LOAD_PATH,"../src/")
 makedocs(
     sitename = "Markets.jl documentation",
+    author = "Antonello Lobianco",
+    pages = [
+        "Index" => "index.md",
+        "Model description" => "model_description.md",
+        "Reference API" => "markets.md"
+    ],
     format = Documenter.HTML(prettyurls = false),
 )
 
