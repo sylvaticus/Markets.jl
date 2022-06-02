@@ -7,7 +7,7 @@ using JuMP, Ipopt
 
 Solve an economic equilibrium by passing elasticities parameters of CD-form supply/demand curves.
 """
-function solveEquilibrium(const_d,ϵ_d,d0,const_s,ϵ_s,s0,pr0;functionalForm="constantElasticity",debug=false)
+function solveEquilibrium(const_s,ϵ_s,a,ϵts,sc0,s0,const_d,ϵ_d,b,ϵtd,dc0,d0,pc0,pl0;functionalForm="constantElasticity",debug=false)
 
     (np, nr) = size(ϵ_d)
 
@@ -17,22 +17,34 @@ function solveEquilibrium(const_d,ϵ_d,d0,const_s,ϵ_s,s0,pr0;functionalForm="co
 
     # *** Parameters declarations (useful to avoid model reconstruction if these changes)  ***
     #@NLparameter(m, _ϵ_d[p = 1:np, r = 1:nr, in_p = 1:np, in_r = 1:nr ] == ϵ_d[p,r,in_p,in_r])
-    #@NLparameter(m, _ϵ_s[p = 1:np, r = 1:nr, in_p = 1:np, in_r = 1:nr ] == ϵ_s[p,r,in_p,in_r])
-    #@NLparameter(m, _const_d[p = 1:np, r = 1:nr] == const_d[p,r])
-    #@NLparameter(m, _const_s[p = 1:np, r = 1:nr] == const_s[p,r])
 
     # *** Variables declaration ***
-    @variable(m, d[p = 1:np, r = 1:nr] >= 0,  start=d0[p,r])   # Demand quantity
-    @variable(m, s[p = 1:np, r = 1:nr] >= 0,  start=s0[p,r])   # Supply quantity
-    @variable(m, pr[p = 1:np, r = 1:nr] >= 0,  start=pr0[p,r]) # Price
+    @variable(m, sc[p = 1:np, r = 1:nr] >= 0,  start=sc0[p,r])   # Supply, composite quantity
+    @variable(m, dc[p = 1:np, r = 1:nr] >= 0,  start=dc0[p,r])   # Demand, composite quantity
+    @variable(m, pc[p = 1:np, r = 1:nr] >= 0,  start=pc0[p,r])   # Price, composite
+    @variable(m, s[p = 1:np, r = 1:nr, rto = 1:nr] >= 0,  start=s0[p,r,rto])      # Supply, from region r to region rto
+    @variable(m, d[p = 1:np, rfrom = 1:nr, r = 1:nr] >= 0,  start=d0[p,rfrom,r])  # Demand, from region rfrom to region r
+    @variable(m, pl[p = 1:np, r = 1:nr] >= 0,  start=pl0[p,r])    # Local market prices
+
 
     # *** Constraints declaration (and definition) ***
-    @NLconstraint(m, demand[p in 1:np, r in 1:nr],  d[p,r]  == const_d[p,r] * prod(pr[in_p,in_r]^ ϵ_d[p,r,in_p,in_r] for in_p in 1:np, in_r in 1:nr if ϵ_d[p,r,in_p,in_r] != 0.0  ) )
-    @NLconstraint(m, supply[p in 1:np, r in 1:nr],  s[p,r]  == const_s[p,r] * prod(pr[in_p,in_r]^ ϵ_s[p,r,in_p,in_r] for in_p in 1:np, in_r in 1:nr if ϵ_s[p,r,in_p,in_r] != 0.0) )
+    @NLconstraint(m, compSupply[p in 1:np, r in 1:nr],  sc[p,r]  == const_s[p,r] * prod(pc[in_p,r]^ ϵ_s[p,r,in_p] for in_p in 1:np if ϵ_s[p,r,in_p] != 0.0) )
+    @NLconstraint(m, compDemand[p in 1:np, r in 1:nr],  dc[p,r]  == const_d[p,r] * prod(pc[in_p,r]^ ϵ_d[p,r,in_p] for in_p in 1:np if ϵ_d[p,r,in_p] != 0.0) )
+    @NLconstraint(m, compSupplyAggregation[p in 1:np, r in 1:nr],  sc[p,r]  ==  sum(a[p,r,rto]   * s[p,r,rto]^   ϵts[p] for rto   in 1:nr if a[p,r,rto]   !=0 )^(1/ϵts[p]) )
+    @NLconstraint(m, compDemandAggregation[p in 1:np, r in 1:nr],  dc[p,r]  ==  sum(b[p,rfrom,r] * d[p,rfrom,r]^ ϵtd[p] for rfrom in 1:nr if b[p,rfrom,r] !=0 )^(1/ϵtd[p]) )
+
+    @NLconstraint(m, supplyByDest[p in 1:np, r in 1:nr, rto in 1:nr],   s[p,r,rto]   == a[p,r,rto]   * (pc[p,r]/pl[p,rto])   ^ (1/(1-ϵts[p])) )
+    @NLconstraint(m, demandByOrig[p in 1:np, rfrom in 1:nr, r in 1:nr], d[p,rfrom,r] == b[p,rfrom,r] * (pc[p,r]/pl[p,rfrom]) ^ (1/(1-ϵtd[p])) )
+
+    @NLconstraint(m, supplyMonetaryBalance[p in 1:np, r in 1:nr],  pc[p,r] * sc[p,r]  ==  sum(pl[p,rto] * s[p,r,rto]     for rto in 1:nr   ) )
+    @NLconstraint(m, demandMonetaryBalance[p in 1:np, r in 1:nr],  pc[p,r] * dc[p,r]  ==  sum(pl[p,rfrom] * d[p,rfrom,r] for rfrom in 1:nr ) )
+    @NLconstraint(m, physicalBalanceBalance[p in 1:np, r in 1:nr],  sum(s[p,r,r2] for r2 in 1:nr) ==  sum(d[p,rfrom,r] for rfrom in 1:nr ) )
+
+
 
     # *** Objective function ***
     @NLobjective(m, Min,
-        sum((d[p,r] - s[p,r])^2 for p in 1:np, r in 1:nr)
+        sum((d[p,rfrom,rto] - s[p,rfrom,rto])^2 for p in 1:np, rfrom in 1:nr, rto in 1:nr)
     )
 
     # *** Print human-readable version of the model ***
@@ -44,8 +56,8 @@ function solveEquilibrium(const_d,ϵ_d,d0,const_s,ϵ_s,s0,pr0;functionalForm="co
 
     # *** Printing outputs (optimal quantities/prices) ***
     if (status == MOI.OPTIMAL || status == MOI.LOCALLY_SOLVED || status == MOI.TIME_LIMIT  || status == MOI.ITERATION_LIMIT) && has_values(m)
-      return (solved=true, model=m, status=status, objective_value=objective_value(m), optD=value.(d), optS  = value.(s), optPr = value.(pr))
+      return (solved=true, model=m, status=status, objective_value=objective_value(m), optD=value.(d), optS  = value.(s), optPl = value.(pl))
     else
-      return (solved=false, model=m, status=status, objective_value=objective_value(m), optD=zeros(np,nr), optS  = zeros(np,nr), optPr = zeros(np,nr))
+      return (solved=false, model=m, status=status, objective_value=objective_value(m), optD=zeros(np,nr,nr), optS  = zeros(np,nr,nr), optPl = zeros(np,nr))
     end
 end
