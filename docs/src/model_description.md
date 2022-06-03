@@ -6,27 +6,27 @@ Current status: This model returns a "Too few degrees of freedom" error
 Todo: (a) make it working :-); (b) add transport costs, policies, exogenous region and exogenous independent variables in the supply/demand functions; (c) estimate parameters (stochastic gradient descent with norm-1 - à la Lasso - penalty for sparce coefficients ??)
 
 ### Sets
-- : $p$: products (with alias $pin$)
-- : $r$: regions (with aliases $rfrom$ and $rto$)
+- | $p$: products (with alias $pin$)
+- | $r$: regions (with aliases $rfrom$ and $rto$)
 
 ### Variables
-- : $sc_{p,r}$: Composite supply (quantity)
-- : $dc_{p,r}$: Composite demand (quantity)
-- : $pcs_{p,r}$: Composite supply price
-- : $pds_{p,r}$: Composite demand price
-- : $s_{p,rfrom,rto}$: Supply of product $p$ from region $rfrom$ to region $rto$
-- : $d_{p,rfrom,rto}$: Demmand of product $p$ coming from region $rfrom$ in region $rto$
-- : $pl_{p,r}$: Local market price for product $p$ in region $r$
+- | $sc_{p,r}$: Composite supply (quantity)
+- | $dc_{p,r}$: Composite demand (quantity)
+- | $pcs_{p,r}$: Composite supply price
+- | $pds_{p,r}$: Composite demand price
+- | $s_{p,rfrom,rto}$: Supply of product $p$ from region $rfrom$ to region $rto$
+- | $d_{p,rfrom,rto}$: Demmand of product $p$ coming from region $rfrom$ in region $rto$
+- | $pl_{p,r}$: Local market price for product $p$ in region $r$
 
 ### Parameters
-- : $ϵs_{p,r,pin}$: elasticity of the (composite) supply of $p$ with respect to the (composite) price of $pin$ in region $r$
-- : $ϵd_{p,r,pin}$: elasticity of the (composite) demand of $p$ with respect to the (composite) price of $pin$ in region $r$
-- : $consts_{p,r}$: constant coefficient of the composite supply function for product $p$ in region $r$
-- : $constd_{p,r}$: constant coefficient of the composite supply function for product $p$ in region $r$
-- : $a_{p,r,rto}$: share parameter of the supply of product $p$ from $r$ to $rto$
-- : $b_{p,rfrom,r}$: share parameter of the demand of product p in region $r$ coming from region $rfrom$
-- : $ϵts_p$: trade elasticity of the supply of product $p$ 
-- : $ϵtd_p$: trade elasticity of the demand of product $p$
+- | $ϵs_{p,r,pin}$: elasticity of the (composite) supply of $p$ with respect to the (composite) price of $pin$ in region $r$
+- | $ϵd_{p,r,pin}$: elasticity of the (composite) demand of $p$ with respect to the (composite) price of $pin$ in region $r$
+- | $consts_{p,r}$: constant coefficient of the composite supply function for product $p$ in region $r$
+- | $constd_{p,r}$: constant coefficient of the composite supply function for product $p$ in region $r$
+- | $a_{p,r,rto}$: share parameter of the supply of product $p$ from $r$ to $rto$
+- | $b_{p,rfrom,r}$: share parameter of the demand of product p in region $r$ coming from region $rfrom$
+- | $ϵts_p$: trade elasticity of the supply of product $p$ 
+- | $ϵtd_p$: trade elasticity of the demand of product $p$
 
 ### Constraints (equations)
 - **Composite supply [p,r]** : $sc_{p,r} = consts_{p,r} * \prod_{pin} pcs_{pin,r}^{ϵs_{p,r,pin}}$
@@ -49,19 +49,19 @@ Current status: Model correctly solves (very quickly!) but it doesn't return the
 
 ### Sets
 - | $p$: products (with alias $pin$)
-- . $r$: regions (with aliases $rin$ and $rto$)
+- | $r$: regions (with aliases $rin$ and $rto$)
 
 ### Variables
-- → $s_{p,r}$: Supply (quantity)
--  ▷ $d_{p,r}$: Demand (quantity)
-- ➔ $p_{p,r}$: Price
+- | $s_{p,r}$: Supply (quantity)
+- | $d_{p,r}$: Demand (quantity)
+- | $p_{p,r}$: Price
 
 
 ### Parameters
-- ➜ $ϵs_{p,r,pin,rin}$: elasticity of the (total) supply of product $p$ in region $r$ with respect to the price of product $pin$ in region $rin$
-- ➝ $ϵd_{p,r,pin,rin}$: elasticity of the (total) demand of product $p$ in region $r$ with respect to the price of product $pin$ in region $rin$
-- ➞ consts_{p,r}: constant coefficient of the supply function for product $p$ in region $r$
-- - constd_{p,r}: constant coefficient of the supply function for product $p$ in region $r$
+- | $ϵs_{p,r,pin,rin}$: elasticity of the (total) supply of product $p$ in region $r$ with respect to the price of product $pin$ in region $rin$
+- | $ϵd_{p,r,pin,rin}$: elasticity of the (total) demand of product $p$ in region $r$ with respect to the price of product $pin$ in region $rin$
+- | $consts_{p,r}$: constant coefficient of the supply function for product $p$ in region $r$
+- | $constd_{p,r}$: constant coefficient of the supply function for product $p$ in region $r$
 
 
 ### Constraints (equations)
