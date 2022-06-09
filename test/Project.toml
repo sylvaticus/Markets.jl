@@ -1,4 +1,5 @@
 [deps]
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Markets = "759d13a6-b709-4069-9c04-8ab7b9f0e06f"
 OdsIO = "56b0d19f-0a74-5872-92bc-f48f9c5431d4"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

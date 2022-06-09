@@ -13,14 +13,16 @@ Todo: (a) make it working :-); (b) add transport costs, policies, exogenous regi
 - | $sc_{p,r}$: Composite supply (quantity)
 - | $dc_{p,r}$: Composite demand (quantity)
 - | $pcs_{p,r}$: Composite supply price
-- | $pds_{p,r}$: Composite demand price
+- | $pcd_{p,r}$: Composite demand price
 - | $s_{p,rfrom,rto}$: Supply of product $p$ from region $rfrom$ to region $rto$
 - | $d_{p,rfrom,rto}$: Demmand of product $p$ coming from region $rfrom$ in region $rto$
-- | $pl_{p,r}$: Local market price for product $p$ in region $r$
+- | $pa_{p,rfrom,rto}$: Actual market price for product $p$ coming from region $rin$ and going to region $rto$
 
 ### Parameters
-- | $ϵs_{p,r,pin}$: elasticity of the (composite) supply of $p$ with respect to the (composite) price of $pin$ in region $r$
-- | $ϵd_{p,r,pin}$: elasticity of the (composite) demand of $p$ with respect to the (composite) price of $pin$ in region $r$
+- | $ϵsI_{p,r,pin}$: elasticity of the (composite) supply of $p$ with respect to the (composite) price of input product $pin$ in region $r$
+- | $ϵsO_{p,r,pout}$: elasticity of the (composite) supply of $p$ with respect to the (composite) price of output product $pout$ in region $r$
+- | $ϵdI_{p,r,pin}$: elasticity of the (composite) demand of $p$ with respect to the (composite) price of input product $pin$ in region $r$
+- | $ϵdO_{p,r,pout}$: elasticity of the (composite) demand of $p$ with respect to the (composite) price of output product $pout$ in region $r$
 - | $consts_{p,r}$: constant coefficient of the composite supply function for product $p$ in region $r$
 - | $constd_{p,r}$: constant coefficient of the composite supply function for product $p$ in region $r$
 - | $a_{p,r,rto}$: share parameter of the supply of product $p$ from $r$ to $rto$
@@ -29,14 +31,14 @@ Todo: (a) make it working :-); (b) add transport costs, policies, exogenous regi
 - | $ϵtd_p$: trade elasticity of the demand of product $p$
 
 ### Constraints (equations)
-- **Composite supply [p,r]** : $sc_{p,r} = consts_{p,r} * \prod_{pin} pcs_{pin,r}^{ϵs_{p,r,pin}}$
-- **Composite demand [p,r]** : $dc_{p,r} = constd_{p,r} * \prod_{pin} pcd_{pin,r}^{ϵd_{p,r,pin}}$
+- **Composite supply [p,r]** : $sc_{p,r} = consts_{p,r} * \prod_{pI} pcd_{pI,r}^{ϵsI_{p,r,pI}} * \prod_{pO} pcs_{pO,r}^{ϵsO_{p,r,pO}}$
+- **Composite demand [p,r]** : $dc_{p,r} = constd_{p,r} * \prod_{pI} pcd_{pI,r}^{ϵdI_{p,r,pI}} * \prod_{pO} pcs_{pO,r}^{ϵdO_{p,r,pO}}$
 - **Composite supply aggregation [p,r]** : $sc_{p,r} =  (\sum_{rto} a_{p,r,rto}* s_{p,r,rto}^{ϵts_p})^{1/ϵts_p}$
-- **Composite demand aggregation [p,r]** : $dc_{p,r} =  (\sum_{rfrom} b_{p,rfrom,r}* s_{p,rfrom,r}^{ϵtd_p})^{1/ϵtd_p}$
-- **Supply by destination [p,r]** : $s_{p,r,rto} =  a_{p,r,rto} * \frac{pcs_{p,r}}{pl_{p,rto}}^\frac{1}{1-ϵts_p}$
-- **Demand from origin [p,r]** : $d_{p,rfrom,r} =  b_{p,rfrom,r} * \frac{pcd_{p,r}}{pl_{p,rfrom}}^\frac{1}{1-ϵtd_p}$
-- **Supply monetary budget [p,r]** : $ pcs_{p,r} * sc_{p,r}  =  \sum_{rto} pl_{p,rto} * s_{p,r,rto}$
-- **Demand monetary budget [p,r]** : $ pcd_{p,r} * dc_{p,r}  =  \sum_{rfrom} pl_{p,rfrom} * s_{p,rfrom,r}$
+- **Composite demand aggregation [p,r]** : $dc_{p,r} =  (\sum_{rfrom} b_{p,rfrom,r}* d_{p,rfrom,r}^{ϵtd_p})^{1/ϵtd_p}$
+- **Supply by destination [p,r]** : $s_{p,r,rto} =  a_{p,r,rto} * \frac{pcs_{p,r}}{pa_{p,r,rto}}^\frac{1}{1-ϵts_p}$
+- **Demand from origin [p,r]** : $d_{p,rfrom,r} =  b_{p,rfrom,r} * \frac{pcd_{p,r}}{pa_{p,rfrom,r}}^\frac{1}{1-ϵtd_p}$
+- **Supply monetary budget [p,r]** : $pcs_{p,r} * sc_{p,r}  =  \sum_{rto} pa_{p,r,rto} * s_{p,r,rto}$
+- **Demand monetary budget [p,r]** : $pcd_{p,r} * dc_{p,r}  =  \sum_{rfrom} pa_{p,rfrom,r} * s_{p,rfrom,r}$
 - **Physical balance [p, r]** :  $\sum_{rto} s_{p,r,rto} =  \sum_{rfrom} d_{p,rfrom,r}$
 
 ### Objective
