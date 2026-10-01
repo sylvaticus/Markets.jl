@@ -1,21 +1,23 @@
 using Documenter
 using Markets
 
-push!(LOAD_PATH,"../src/")
 makedocs(
-    sitename = "Markets.jl documentation",
-    author = "Antonello Lobianco",
+    sitename = "Markets.jl",
+    authors  = "Antonello Lobianco",
+    modules  = [Markets],
     pages = [
-        "Index" => "index.md",
-        "Model description" => "model_description.md",
-        "Reference API" => "markets.md"
+        "Home"                => "index.md",
+        "Using the module"    => "usage.md",
+        "Modelling choices"   => "modelling.md",
+        "Code implementation" => [
+            "implementation.md",
+            "API reference" => "api.md",
+        ],
     ],
-    format = Documenter.HTML(prettyurls = false),
+    format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true"),
 )
 
-# Documenter can also automatically deploy documentation to gh-pages.
-# See "Hosting Documentation" and deploydocs() in the Documenter manual
-# for more information.
+# Deploy to gh-pages (only acts when run on CI)
 deploydocs(
     repo = "github.com/sylvaticus/Markets.jl.git",
     devbranch = "main"

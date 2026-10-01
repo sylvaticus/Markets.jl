@@ -1,15 +1,13 @@
-# The Markets Module
+# API reference
 
 ```@docs
 Markets
 ```
 
-
-## Module Index
+## Index
 
 ```@index
-Modules = [Markets]
-Order   = [:constant, :type, :function, :macro]
+Pages = ["api.md"]
 ```
 
 ## Detailed API
