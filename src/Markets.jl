@@ -28,6 +28,7 @@ A complete example (the forest-products sector) is in `examples/forest/`.
 module Markets
 
 using JuMP, Ipopt, DataFrames
+using DocStringExtensions: TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 
 export MarketData, DemandSpec, SupplySpec, Process, Nest,
        leontief, ces, solve_market, Results, for_region

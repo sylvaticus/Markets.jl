@@ -11,6 +11,10 @@ Using Markets.jl takes three steps:
 The engine never hard-codes a product, process or region name: everything
 specific to a sector lives in the data.
 
+All the types and builders below take **keyword arguments only**, so every
+number in a model description says what it is. Optional arguments have
+defaults; the others must be given.
+
 ## Describing an economy
 
 ### Regions and products
@@ -34,7 +38,7 @@ elasticity ``\eta`` and must be greater than 1 (see
 [Modelling choices](@ref "Demand and supply curves")).
 
 ```julia
-DemandSpec(:sawn_sw, :EU; p0 = 250, q0 = 90, elasticity = 1.3)
+DemandSpec(product = :sawn_sw, region = :EU, p0 = 250, q0 = 90, elasticity = 1.3)
 ```
 
 Only products with a `DemandSpec` in a region are consumed there; other
@@ -47,7 +51,7 @@ that enters the economy from outside the modelled processes — roundwood from
 the forest, ore from a mine, crops from land:
 
 ```julia
-SupplySpec(:swr, :NA; p0 = 65, q0 = 380, elasticity = 0.6)
+SupplySpec(product = :swr, region = :NA, p0 = 65, q0 = 380, elasticity = 0.6)
 ```
 
 ### Processes and input nests
@@ -66,11 +70,11 @@ chosen by the model. It has:
 
 There are two kinds of nest:
 
-* [`leontief(product, coeff)`](@ref leontief): exactly `coeff` units of a single
-  product per unit of activity.
-* [`ces(composite, products, shares; sigma)`](@ref ces): `composite` units of a
-  CES bundle of several products. `shares` are the value shares of each input
-  when all input prices are equal, and `sigma` (> 1) is the elasticity of
+* [`leontief`](@ref): exactly `coeff` units of a single `product` per unit of
+  activity.
+* [`ces`](@ref): `composite` units of a CES bundle of several `products`.
+  `shares` are the value shares of each input when all input prices are equal
+  (equal shares if omitted), and `sigma` (> 1) is the elasticity of
   substitution: the higher it is, the more the mix moves away from the
   expensive input when relative prices change.
 
@@ -79,18 +83,27 @@ lumber and 0.35 m³ of chips, and a panel mill that uses 1.3 m³ of a
 substitutable mix of chips and logs:
 
 ```julia
-Process(:sawmill_sw,
-        [leontief(:swr, 1.0)],
-        [:sawn_sw => 0.50, :chips => 0.35];
-        vacost = 40)
+Process(name    = :sawmill_sw,
+        inputs  = [leontief(product = :swr, coeff = 1.0)],
+        outputs = [:sawn_sw => 0.50, :chips => 0.35],
+        vacost  = 40)
 
-Process(:panelmill,
-        [ces(1.30, [:chips, :swr, :hwr], [0.55, 0.30, 0.15]; sigma = 2.5)],
-        [:panel => 1.0];
-        vacost = 120)
+Process(name    = :panelmill,
+        inputs  = [ces(composite = 1.30,
+                       products  = [:chips, :swr, :hwr],
+                       shares    = [0.55, 0.30, 0.15],
+                       sigma     = 2.5)],
+        outputs = [:panel => 1.0],
+        vacost  = 120)
 ```
 
-A process with two nests, e.g. `[ces(1.0, [:a, :b], [0.5, 0.5]; sigma = 2), leontief(:c, 0.2)]`,
+A process with two nests, e.g.
+
+```julia
+inputs = [ces(composite = 1.0, products = [:a, :b], shares = [0.5, 0.5], sigma = 2),
+          leontief(product = :c, coeff = 0.2)]
+```
+
 needs one unit of the ``a``/``b`` bundle *and* 0.2 units of ``c`` per unit of
 activity.
 
@@ -107,8 +120,21 @@ transport = Dict((:swr, :NA, :AS) => 13.2, (:swr, :AS, :NA) => 13.2, ...)
 ### Putting it together
 
 ```julia
-market = MarketData(; regions, products, demand, supply,
-                      processes, tradable, transport)
+market = MarketData(regions   = regions,
+                    products  = products,
+                    demand    = demand,
+                    supply    = supply,
+                    processes = processes,
+                    tradable  = tradable,
+                    transport = transport)
+```
+
+Only `regions` and `products` are required; `demand`, `supply`, `processes`,
+`tradable` and `transport` default to empty. When your variables already carry
+the field names, Julia's shorthand saves the repetition:
+
+```julia
+market = MarketData(; regions, products, demand, supply, processes, tradable, transport)
 ```
 
 ## Solving
@@ -213,10 +239,16 @@ roundwood supply at every price:
 
 ```@example forest
 sup = [s.product == :swr && s.region == :NA ?
-           SupplySpec(s.product, s.region; p0 = s.p0, q0 = 1.2 * s.q0, elasticity = s.elasticity) : s
+           SupplySpec(product = s.product, region = s.region,
+                      p0 = s.p0, q0 = 1.2 * s.q0, elasticity = s.elasticity) : s
        for s in example_market.supply]
-d2   = MarketData(example_market.regions, example_market.products, example_market.demand,
-                  sup, example_market.processes, example_market.tradable, example_market.transport)
+d2   = MarketData(regions   = example_market.regions,
+                  products  = example_market.products,
+                  demand    = example_market.demand,
+                  supply    = sup,                       # the only change
+                  processes = example_market.processes,
+                  tradable  = example_market.tradable,
+                  transport = example_market.transport)
 res2 = solve_market(d2)
 comp = innerjoin(res.prices, res2.prices, on = [:region, :product], renamecols = "_base" => "_scen")
 comp.change_pct = 100 .* (comp.price_scen ./ comp.price_base .- 1)

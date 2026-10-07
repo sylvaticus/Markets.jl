@@ -12,15 +12,27 @@ solved(res)      = JuMP.termination_status(res.model) in (JuMP.MOI.LOCALLY_SOLVE
 @testset "Markets.jl" begin
 
 @testset "Constructors" begin
-    n = leontief(:a, 2)
-    @test n.products == [:a] && n.composite == 2.0
-    c = ces(1.5, [:a, :b], [3, 1]; sigma = 2)
+    n = leontief(product = :a, coeff = 2)
+    @test n.products == [:a] && n.composite == 2.0 && n.shares == [1.0]
+    c = ces(composite = 1.5, products = [:a, :b], shares = [3, 1], sigma = 2)
     @test c.shares ≈ [0.75, 0.25]
-    @test c.sigma == 2.0 && c.phi == 1.0
-    @test_throws AssertionError ces(1.0, [:a, :b], [1.0]; sigma = 2)
-    @test_throws AssertionError ces(1.0, [:a, :b], [1.0, 1.0]; sigma = 0.5)
-    p = Process(:mill, [leontief(:a, 1)], [:b => 1, :c => 0.5]; vacost = 10)
-    @test p.outputs == [:b => 1.0, :c => 0.5] && p.regions === :all
+    @test c.composite == 1.5 && c.sigma == 2.0 && c.phi == 1.0
+    # shares default to equal ones, sigma must be > 1, shares must align
+    @test ces(composite = 1.0, products = [:a, :b, :c], sigma = 2).shares ≈ [1/3, 1/3, 1/3]
+    @test_throws AssertionError ces(composite = 1.0, products = [:a, :b], shares = [1.0], sigma = 2)
+    @test_throws AssertionError ces(composite = 1.0, products = [:a, :b], shares = [1.0, 1.0], sigma = 0.5)
+    # every field is a keyword, and the optional ones have defaults
+    nest = Nest(composite = 2.0, products = [:a, :b], sigma = 3)
+    @test nest.shares ≈ [0.5, 0.5] && nest.phi == 1.0
+    @test_throws UndefKeywordError Nest(composite = 1.0, products = [:a])
+    p = Process(name = :mill, inputs = [leontief(product = :a, coeff = 1)],
+                outputs = [:b => 1, :c => 0.5], vacost = 10)
+    @test p.outputs == [:b => 1.0, :c => 0.5] && p.regions === :all && p.vacost == 10.0
+    @test_throws UndefKeywordError Process(name = :mill, inputs = Nest[])
+    d = MarketData(regions = [:A], products = [:x])
+    @test isempty(d.demand) && isempty(d.supply) && isempty(d.processes) &&
+          isempty(d.tradable) && isempty(d.transport)
+    @test_throws UndefKeywordError DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1)
 end
 
 @testset "Spatial price equilibrium (one product, two regions)" begin
@@ -28,11 +40,10 @@ end
     d = MarketData(
         regions   = [:A, :B],
         products  = [:x],
-        demand    = [DemandSpec(:x, :A; p0 = 100, q0 = 10, elasticity = 1.5),
-                     DemandSpec(:x, :B; p0 = 100, q0 = 10, elasticity = 1.5)],
-        supply    = [SupplySpec(:x, :A; p0 = 50, q0 = 30, elasticity = 1.0),   # cheap
-                     SupplySpec(:x, :B; p0 = 150, q0 = 5, elasticity = 1.0)],  # expensive
-        processes = Process[],
+        demand    = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5),
+                     DemandSpec(product = :x, region = :B, p0 = 100, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 30, elasticity = 1.0),   # cheap
+                     SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],  # expensive
         tradable  = [:x],
         transport = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
     )
@@ -63,13 +74,15 @@ end
     d = MarketData(
         regions   = [:R],
         products  = [:in1, :in2, :mid, :out],
-        demand    = [DemandSpec(:out, :R; p0 = 500, q0 = 10, elasticity = 1.5)],
-        supply    = [SupplySpec(:in1, :R; p0 = 50, q0 = 10, elasticity = 0.8),
-                     SupplySpec(:in2, :R; p0 = 50, q0 = 10, elasticity = 0.8)],
-        processes = [Process(:stage1, [ces(2.0, [:in1, :in2], δ; sigma = σ)], [:mid => 1.0]; vacost = 20),
-                     Process(:stage2, [leontief(:mid, 1.25)], [:out => 1.0]; vacost = 30)],
-        tradable  = Symbol[],
-        transport = Dict{Tuple{Symbol,Symbol,Symbol},Float64}(),
+        demand    = [DemandSpec(product = :out, region = :R, p0 = 500, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplySpec(product = :in1, region = :R, p0 = 50, q0 = 10, elasticity = 0.8),
+                     SupplySpec(product = :in2, region = :R, p0 = 50, q0 = 10, elasticity = 0.8)],
+        processes = [Process(name = :stage1, vacost = 20,
+                             inputs  = [ces(composite = 2.0, products = [:in1, :in2], shares = δ, sigma = σ)],
+                             outputs = [:mid => 1.0]),
+                     Process(name = :stage2, vacost = 30,
+                             inputs  = [leontief(product = :mid, coeff = 1.25)],
+                             outputs = [:out => 1.0])],
     )
     res = solve_market(d)
     @test solved(res)

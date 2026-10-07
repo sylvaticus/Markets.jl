@@ -3,32 +3,41 @@
 # ----------------------------------------------------------------------------
 
 """
-    Results
+$(TYPEDEF)
 
-Holds the solved model and exposes tidy `DataFrame`s:
+The outcome of [`solve_market`](@ref): the solved model and the equilibrium
+quantities and prices, as tidy `DataFrame`s.
 
-* `production`  — region, product, quantity (primary supply + manufactured output)
-* `consumption` — region, product, quantity (final demand)
-* `trade`       — product, from, to, quantity (positive flows only)
-* `net_trade`   — region, product, exports, imports, net (= exports − imports)
-* `prices`      — region, product, price (dual of the material balance)
-* `activity`    — region, process, level
+Use [`for_region`](@ref) to slice every table for one region at once.
 
-The input data and the underlying JuMP model are kept in the `data` and `model`
-fields.  Use [`for_region`](@ref) to slice everything for one region at once.
+# Fields
+$(TYPEDFIELDS)
 """
-struct Results
+Base.@kwdef struct Results
+    "The economy that was solved"
     data::MarketData
+    "The underlying JuMP model, solved"
     model::Model
+    "Primary supply + manufactured output: `region`, `product`, `quantity`"
     production::DataFrame
+    "Final demand: `region`, `product`, `quantity`"
     consumption::DataFrame
+    "Bilateral trade flows, positive ones only: `product`, `from`, `to`, `quantity`"
     trade::DataFrame
+    "Trade by region: `region`, `product`, `exports`, `imports`, `net` (= exports − imports)"
     net_trade::DataFrame
+    """
+    Equilibrium prices, the duals of the material balances: `region`,
+    `product`, `price`
+    """
     prices::DataFrame
+    "Process activity levels: `region`, `process`, `level`"
     activity::DataFrame
 end
 
-function Results(d, m, D, S, z, T, balance)
+# Build the result tables from the solved model.  Internal: users get a
+# `Results` from `solve_market`.
+function build_results(d, m, D, S, z, T, balance)
     val(x) = value(x)
 
     # production = primary supply + summed process outputs
@@ -83,14 +92,18 @@ function Results(d, m, D, S, z, T, balance)
         lvl > 1e-6 && push!(activity, (r, proc.name, lvl))
     end
 
-    return Results(d, m, production, consumption, trade, net, prices, activity)
+    return Results(data = d, model = m, production = production,
+                   consumption = consumption, trade = trade, net_trade = net,
+                   prices = prices, activity = activity)
 end
 
 """
-    for_region(res::Results, region::Symbol) -> NamedTuple
+$(TYPEDSIGNATURES)
 
-Slice every table for a single `region` (trade keeps both incoming and outgoing
-flows).  Returns `(; production, consumption, prices, net_trade, activity, trade)`.
+Slice every table of `res` for a single `region` (trade keeps both incoming and
+outgoing flows).
+
+Returns a `NamedTuple` `(; production, consumption, prices, net_trade, activity, trade)`.
 """
 function for_region(res::Results, region::Symbol)
     f(df, col) = df[df[!, col] .== region, :]

@@ -6,11 +6,14 @@
 const QFLOOR = 1e-4
 
 """
-    solve_market(d::MarketData; optimizer=Ipopt.Optimizer, silent=true) -> Results
+$(TYPEDSIGNATURES)
 
-Build and solve the equilibrium for the economy `d` and return a [`Results`](@ref).
+Build and solve the equilibrium for the economy `d` and return a
+[`Results`](@ref).
+
 A warning is emitted if the solver does not report an optimal (or locally
-optimal) solution.
+optimal) solution. `optimizer` is any JuMP solver able to handle nonlinear
+constraints and to return duals; `silent` suppresses its output.
 """
 function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool = true)
     m = Model(optimizer)
@@ -113,5 +116,5 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     (st == MOI.LOCALLY_SOLVED || st == MOI.OPTIMAL) ||
         @warn "solver returned status $st — results may be unreliable"
 
-    return Results(d, m, D, S, z, T, balance)
+    return build_results(d, m, D, S, z, T, balance)
 end

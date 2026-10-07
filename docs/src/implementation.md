@@ -16,6 +16,14 @@ formulation are on the [Modelling choices](@ref) page.
 | `test/runtests.jl` | test suite |
 | `docs/`           | this documentation (Documenter.jl) |
 
+Every type of the data schema is declared with `Base.@kwdef`, so it is built
+with keyword arguments and its optional fields have defaults; the field
+documentation on the [API reference](@ref) page is generated from the struct
+definitions with
+[DocStringExtensions](https://github.com/JuliaDocs/DocStringExtensions.jl).
+The two nest builders, [`leontief`](@ref) and [`ces`](@ref), take keyword
+arguments too.
+
 The model is written with [JuMP](https://jump.dev) and solved by default with
 [Ipopt](https://github.com/coin-or/Ipopt), an interior-point solver for
 nonlinear programs. Variables and constraints are created only for the
@@ -131,8 +139,8 @@ sign conventions between solvers.
 
 ## Results extraction
 
-The [`Results`](@ref) constructor reads the variable values after the solve and
-builds the tables:
+`build_results` (internal) reads the variable values after the solve and fills
+a [`Results`](@ref) with the tables:
 
 * `production`: ``S_{r,p}`` plus ``\sum_k y_{k,p} z_{r,k}``, for all region and
   product pairs with a value above ``10^{-6}``;
