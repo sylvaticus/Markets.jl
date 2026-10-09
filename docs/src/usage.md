@@ -150,6 +150,52 @@ armington = [Armington(product = :paper, sigma = 4),             # equal shares
 With an Armington product, local producers and local users no longer face the
 same price, and both are reported — see [Reading the results](@ref).
 
+!!! tip "Shares or elasticity?"
+    Use the **shares** to say how much of an origin a market takes when prices
+    are equal — that is where a home bias, or a regulatory penalty against an
+    origin, belongs. Use **`sigma`** to say how readily buyers switch when
+    prices move. A low `sigma` is not a barrier: it means buyers *cannot* get
+    away from that origin, so an expensive one keeps its share rather than
+    losing it.
+
+#### Origins that are closer substitutes than others
+
+A single `sigma` makes every origin substitute equally well for every other.
+When some origins are near-interchangeable — shared grades, standards or
+certification — and others are not, group them in an [`OriginNest`](@ref) with
+its own, higher elasticity:
+
+```julia
+armington = [Armington(product = :sawn_sw, sigma = 2.5,
+                       nests = [OriginNest(sigma = 12, origins = [:EU, :NA])],
+                       shares = shares)]
+```
+
+Buyers then swap EU for NA sawnwood readily (σ = 12) and replace either with
+Asian sawnwood only slowly (σ = 2.5). Origins left out of every group are
+direct members of the composite, groups may contain groups, and a group must be
+at least as substitutable inside as it is with the outside — the engine rejects
+the reverse, which would be inconsistent.
+
+#### Different structures in different markets
+
+Standards and non-tariff measures are set by the importer, so they are
+asymmetric. Give a specification a `destination` to apply it to those markets
+only, and keep an `:all` entry as the fallback:
+
+```julia
+armington = [
+    # the EU market keeps Asian sawnwood at arm's length, EU and NA are alike
+    Armington(product = :sawn_sw, destination = :EU, sigma = 2.5,
+              nests = [OriginNest(sigma = 12, origins = [:EU, :NA])], shares = shares),
+    # every other market substitutes freely between all three origins
+    Armington(product = :sawn_sw, sigma = 8, shares = shares)]
+```
+
+The elasticity, the groups and the shares may all differ by destination. What
+may not differ is whether the product is Armington at all: it has one variety
+per origin everywhere, or none anywhere.
+
 ### Putting it together
 
 ```julia

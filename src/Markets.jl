@@ -30,7 +30,7 @@ module Markets
 using JuMP, Ipopt, DataFrames
 using DocStringExtensions: TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 
-export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington,
+export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
        leontief, ces, solve_market, Results, for_region
 
 include("types.jl")

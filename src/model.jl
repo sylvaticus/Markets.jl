@@ -8,19 +8,49 @@ const QFLOOR = 1e-4
 """
 $(TYPEDSIGNATURES)
 
-The products of `d` that have a finite Armington elasticity, i.e. whose
-regional varieties are imperfect substitutes, as a `product => `[`Armington`](@ref)
-dictionary.  Products absent from it are homogeneous.
+Resolve the [`Armington`](@ref) specifications of `d` into a
+`(product, destination) => `[`Armington`](@ref) dictionary, covering every
+destination of every product whose varieties are imperfect substitutes.
+Products absent from it are homogeneous.
+
+A product is Armington in every destination or in none, so a specification with
+a finite elasticity for some destinations must be matched either by one for
+each of the others or by an `:all` fallback.
 """
 function armington_of(d::MarketData)
-    arm = Dict{Symbol,Armington}()
+    specs    = Dict{Tuple{Symbol,Symbol},Armington}()   # (product, destination)
+    fallback = Dict{Symbol,Armington}()                 # product, from `:all`
+    products = Symbol[]
     for a in d.armington
-        isfinite(a.sigma) || continue        # σ = Inf ⇒ homogeneous: nothing to do
         a.product in d.products ||
             throw(ArgumentError("Armington specification for unknown product $(a.product)"))
-        haskey(arm, a.product) &&
-            throw(ArgumentError("duplicate Armington specification for $(a.product)"))
-        arm[a.product] = a
+        isfinite(a.sigma) && push!(products, a.product)
+        if a.destination === :all
+            haskey(fallback, a.product) && throw(ArgumentError(
+                "duplicate Armington specification for $(a.product)"))
+            fallback[a.product] = a
+        else
+            for r in (a.destination isa Symbol ? [a.destination] : a.destination)
+                r in d.regions || throw(ArgumentError(
+                    "Armington specification of $(a.product) for unknown region $r"))
+                haskey(specs, (a.product, r)) && throw(ArgumentError(
+                    "duplicate Armington specification for $(a.product) in region $r"))
+                specs[(a.product, r)] = a
+            end
+        end
+    end
+
+    arm = Dict{Tuple{Symbol,Symbol},Armington}()
+    for p in unique(products), r in d.regions
+        a = get(specs, (p, r), get(fallback, p, nothing))
+        a === nothing && throw(ArgumentError(
+            "$p is an Armington product but region $r has no specification for " *
+            "it: give one for every region, or one with destination = :all"))
+        isfinite(a.sigma) || throw(ArgumentError(
+            "$p is an Armington product in some regions but homogeneous in $r: " *
+            "a product is either homogeneous everywhere or imperfectly " *
+            "substitutable everywhere"))
+        arm[(p, r)] = a
     end
     return arm
 end
@@ -50,6 +80,84 @@ function armington_origins(d::MarketData, a::Armington, r::Symbol)
         "no origin with a positive Armington share supplies $p in region $r"))
     shares ./= sum(shares)
     return origins, shares
+end
+
+# A node of the CES tree a destination aggregates its origins with: `children`
+# are origins (`Symbol`) or deeper nodes, `shares` their value shares among
+# themselves, `sigma` the elasticity they substitute at.
+struct ArmNode
+    sigma::Float64
+    children::Vector{Any}
+    shares::Vector{Float64}
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+Lay out the origins available to destination `r` as the CES tree described by
+the groups of `a`: origins placed in a group are aggregated by it first, and
+every other origin is a direct member of the root.  Each node's shares are
+those of the origins beneath it, normalised among its siblings.  Groups that no
+available origin belongs to are dropped, and a group left with a single member
+collapses into it.
+"""
+function armington_tree(d::MarketData, a::Armington, r::Symbol)
+    origins, shares = armington_origins(d, a, r)
+    weight = Dict(zip(origins, shares))
+    # weight of everything below a child, origins being the leaves
+    subtotal(c) = c isa Symbol ? weight[c] : sum(subtotal, c.children)
+
+    # a group becomes a node over the available origins it holds, or `nothing`
+    function group(n::OriginNest)
+        members = Any[o for o in n.origins if haskey(weight, o)]
+        for sub in n.nests
+            s = group(sub)
+            s === nothing || push!(members, s)
+        end
+        isempty(members) && return nothing
+        length(members) == 1 && return members[1]    # a lone member is no group
+        return ArmNode(n.sigma, members, Float64[])  # shares filled in below
+    end
+
+    placed = collect_origins!(Symbol[], a.nests)
+    children = Any[]
+    for n in a.nests
+        s = group(n)
+        s === nothing || push!(children, s)
+    end
+    for o in origins                     # origins in no group sit at the root
+        o in placed || push!(children, o)
+    end
+
+    # give every node the shares of its children among themselves
+    function normalise(c)
+        c isa ArmNode || return c
+        total = sum(subtotal, c.children)
+        return ArmNode(c.sigma, Any[normalise(k) for k in c.children],
+                       Float64[subtotal(k) / total for k in c.children])
+    end
+    root = length(children) == 1 ? children[1] :
+           normalise(ArmNode(a.sigma, children, Float64[]))
+    return root, origins, shares
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The quantity of the composite that `node` stands for, as a variable of `m`: the
+variety of an origin when `node` is a `Symbol`, otherwise a fresh variable tied
+to its children by the CES aggregator of the group.  Called on the root of an
+[`armington_tree`](@ref), it adds one variable and one constraint per group.
+"""
+function armington_quantity(m, node, p::Symbol, r::Symbol, X)
+    node isa Symbol && return X[(p, node, r)]
+    qs = [armington_quantity(m, c, p, r, X) for c in node.children]
+    composite = @variable(m, lower_bound = QFLOOR, start = sum(start_value, qs))
+    ρ = (node.sigma - 1) / node.sigma
+    aggr = @expression(m, sum(node.shares[i]^(1 / node.sigma) * qs[i]^ρ
+                              for i in eachindex(qs)))
+    @constraint(m, aggr^(1 / ρ) >= composite)
+    return composite
 end
 
 """
@@ -89,9 +197,10 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     end
     # trade flows of the homogeneous products  T[(product, from, to)]
     arm = armington_of(d)
+    arm_products = Set(p for (p, _) in keys(arm))
     T = Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}()
     for ((p, from, to), _) in d.transport
-        haskey(arm, p) && continue       # Armington products use X instead
+        p in arm_products && continue    # Armington products use X instead
         T[(p, from, to)] = @variable(m, lower_bound = 0.0, start = 0.0)
     end
     # Armington products: quantity of the variety of each origin used in each
@@ -99,10 +208,10 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     # the destination actually uses, A[(product, destination)]
     X = Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}()
     A = Dict{Tuple{Symbol,Symbol},VariableRef}()
-    origins_of = Dict{Tuple{Symbol,Symbol},Tuple{Vector{Symbol},Vector{Float64}}}()
-    for (p, a) in arm, r in d.regions
-        origins, shares = armington_origins(d, a, r)
-        origins_of[(p, r)] = (origins, shares)
+    tree_of = Dict{Tuple{Symbol,Symbol},Any}()
+    for ((p, r), a) in arm
+        root, origins, shares = armington_tree(d, a, r)
+        tree_of[(p, r)] = root
         # a rough but useful starting point: the local reference consumption
         a0 = get(demand_of, (r, p), nothing)
         start = a0 === nothing ? 1.0 : a0.q0
@@ -159,7 +268,7 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
         haskey(S, (r, p)) && (src += S[(r, p)])
         haskey(D, (r, p)) && (use += D[(r, p)])
 
-        if haskey(arm, p)
+        if p in arm_products
             # everything region r produces goes to one of the destinations that
             # buy its variety (itself included)
             ships = @expression(m, sum(X[(p, r, dst)] for dst in d.regions
@@ -167,17 +276,9 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
             origin_balance[(r, p)] = @constraint(m, src - ships == 0.0)
             # the composite covers the local uses
             balance[(r, p)] = @constraint(m, A[(p, r)] - use == 0.0)
-            # ... and is the CES aggregate of the varieties bought
-            origins, shares = origins_of[(p, r)]
-            if length(origins) == 1
-                @constraint(m, X[(p, origins[1], r)] >= A[(p, r)])
-            else
-                σ = arm[p].sigma
-                ρ = (σ - 1) / σ
-                aggr = @expression(m, sum(shares[i]^(1 / σ) * X[(p, origins[i], r)]^ρ
-                                          for i in eachindex(origins)))
-                @constraint(m, aggr^(1 / ρ) >= A[(p, r)])
-            end
+            # ... and is the (possibly nested) CES aggregate of the varieties
+            # bought: one composite variable and one constraint per group
+            @constraint(m, armington_quantity(m, tree_of[(p, r)], p, r, X) >= A[(p, r)])
         else
             # homogeneous product: imports into r minus exports from r
             imp = @expression(m, sum(T[(p, o, r)] for o in d.regions if haskey(T, (p, o, r)); init = 0.0))

@@ -232,6 +232,79 @@ and the historical trade pattern that prices alone do not explain. Calibrate
 them on a base-year trade matrix. Left unspecified, every origin available to a
 destination gets an equal share, which is neutral but rarely realistic.
 
+### Shares and elasticity answer different questions
+
+The two parameters are easy to confuse, and they pull in different directions:
+
+* ``\delta_{o,r}`` sets **how much** of origin `o` a destination takes when
+  delivered prices are equal. A regulatory or commercial penalty against an
+  origin — a standard its products meet only partly, a certification few of its
+  producers hold — belongs here, as a low share.
+* ``\sigma`` sets **how readily buyers switch** when relative prices move. It is
+  about technical interchangeability, not about preference.
+
+A low ``\sigma`` is therefore not a barrier against an origin. It means buyers
+*cannot get away from it*: as ``\sigma \to 1`` the value shares stay at
+``\delta`` whatever the prices, so an expensive origin keeps its share instead
+of losing it. To represent a barrier, lower its share, or add its compliance
+cost to the transport cost of that route; to represent products that are hard
+to swap, lower the elasticity.
+
+### Groups of origins
+
+One ``\sigma`` per destination still says that every origin substitutes equally
+well for every other. Real markets are not like that: two regions whose
+products share grades, standards or certification are near-interchangeable,
+while a third whose products need re-grading, or meet the importer's
+non-tariff measures only partly, is a distant substitute for both.
+
+A single CES cannot express this — equal pairwise substitution is what CES
+*means*. The structure that can is a **nest of nests**: group the origins that
+are interchangeable, give the group its own higher ``\sigma``, and let the group
+as a whole substitute against the rest at the lower ``\sigma`` of the level
+above. In this package that is an [`OriginNest`](@ref) inside an
+[`Armington`](@ref):
+
+```julia
+Armington(product = :sawn_sw, destination = :EU, sigma = 2.5,
+          nests = [OriginNest(sigma = 12, origins = [:EU, :NA])])
+```
+
+Buyers in the EU swap EU for NA sawnwood readily (``\sigma = 12``) and replace
+either with Asian sawnwood only slowly (``\sigma = 2.5``).
+
+This generalises: the groups may hold groups, and the structure is a tree whose
+leaves are origins. The substitution between any two origins is then the
+elasticity of the smallest group containing both. That is not an arbitrary
+choice of representation, it is the **only** consistent one. An arbitrary matrix
+``\sigma_{o,o'}`` is not integrable to any cost function: if two origins are
+perfect substitutes they are the same good, so they must substitute identically
+against any third, and more generally, among any three origins the two that
+join higher in the tree must share the same elasticity. A tree enforces that by
+construction; a matrix does not.
+
+Two consequences worth knowing:
+
+* A group whose ``\sigma`` equals its parent's is a no-op — it says the
+  members are no closer to each other than to the outside. The package requires
+  a group to be at least as substitutable inside as outside, and rejects the
+  reverse as a specification error.
+* As a group's internal ``\sigma`` grows, its members' prices are pulled
+  together and the group behaves as one pooled variety: the Samuelson case,
+  recovered inside a nest.
+
+### Different markets, different structures
+
+Technical standards and non-tariff measures are set by the **importer**, so
+they are asymmetric: the EU may treat Asian sawnwood as a distant substitute
+while Asian buyers treat European sawnwood as a close one. A specification
+therefore applies to the destinations given in its `destination` field, with an
+`:all` entry as the fallback, and the elasticity, the groups and the shares may
+all differ between importing markets.
+
+A product is nonetheless either homogeneous everywhere or imperfectly
+substitutable everywhere: it has one variety per origin, or none.
+
 ### The limit ``\sigma \to \infty``
 
 As ``\sigma`` grows the composite becomes a plain sum of the varieties and its
@@ -251,8 +324,9 @@ a given species).
 
 The Armington formulation is bigger: a variety variable per (product, origin,
 destination), a composite variable and two balances per (product, region),
-instead of one trade variable per route and one balance. And ``\sigma`` and the
-shares are extra parameters to estimate, which is why they are opt-in per
+instead of one trade variable per route and one balance, plus one further
+variable and constraint per group of origins. And ``\sigma``, the groups and
+the shares are extra parameters to estimate, which is why they are opt-in per
 product rather than global.
 
 ## Dynamics
@@ -292,8 +366,10 @@ code remains in the git history.
 * **Recursive dynamics**: a time loop around [`solve_market`](@ref), as
   described above.
 * **Armington refinements**: a separate composite per user (final demand and
-  each process) instead of one per region, and elasticities that vary by
-  destination.
+  each process) instead of one per region, as GTAP does for the
+  domestic-versus-imported margin; and a CET nest on the export side, so that
+  redirecting output between destinations is costly for producers too, which is
+  the mirror image of the import-side nest built here.
 * **Exogenous drivers** of demand and supply (income, population, resource
   availability) as explicit shifters.
 * **Inputs with an exogenous price** inside a nest (e.g. a resin with a world

@@ -193,6 +193,59 @@ end
 """
 $(TYPEDEF)
 
+A group of origins that substitute for each other more closely than they do for
+the rest, inside an [`Armington`](@ref) composite.
+
+Regions whose products are technically interchangeable — because they share
+grades, standards or certification, or because the same non-tariff measures
+let them through — belong in one group. Within it buyers substitute with the
+group's own `sigma`; against anything outside it they substitute with the
+`sigma` of the enclosing nest, which is lower.
+
+Groups may be nested further through their own `nests` field, so the structure
+is a tree whose leaves are origins. This is the general shape an elasticity
+specification may take: the substitution between any two origins is the
+elasticity of the smallest group containing both, and a group must be at least
+as substitutable inside as it is with the outside.
+
+# Fields
+$(TYPEDFIELDS)
+
+# Example
+```julia
+# in this market, EU and NA products are near-interchangeable
+OriginNest(sigma = 12, origins = [:EU, :NA])
+```
+"""
+Base.@kwdef struct OriginNest
+    """
+    Elasticity of substitution ``\\sigma`` between the members of the group. It
+    must be `> 1`, and at least the `sigma` of the nest that encloses it
+    """
+    sigma::Float64
+    "Origins belonging to the group"
+    origins::Vector{Symbol} = Symbol[]
+    "Sub-groups of the group, for a deeper tree"
+    nests::Vector{OriginNest} = OriginNest[]
+
+    function OriginNest(sigma, origins, nests)
+        sigma > 1 || throw(ArgumentError(
+            "an origin group's elasticity must be > 1, got $sigma"))
+        isempty(origins) && isempty(nests) && throw(ArgumentError(
+            "an origin group must contain at least one origin or sub-group"))
+        for n in nests
+            n.sigma ≥ sigma || throw(ArgumentError(
+                "the sub-group of elasticity $(n.sigma) is less substitutable " *
+                "inside than with the outside ($sigma): a group's members must " *
+                "substitute for each other at least as easily as for non-members"))
+        end
+        new(sigma, origins, nests)
+    end
+end
+
+"""
+$(TYPEDEF)
+
 Imperfect substitution between the regional varieties of one product
 (Armington, 1969).
 
@@ -220,18 +273,36 @@ which tends to the cheapest delivered price as `σ → ∞`: `sigma = Inf` is
 exactly the homogeneous (Samuelson spatial price equilibrium) case, and a large
 finite `sigma` approaches it.
 
+A single `sigma` makes every origin substitute equally well for every other,
+which is the defining restriction of a flat CES. Two ways out, both available
+here:
+
+* **Groups of origins** ([`OriginNest`](@ref)): origins whose products are
+  mutually interchangeable are nested together with a higher `sigma`, and
+  substitute with the rest at the lower `sigma` of this specification.
+* **One specification per destination** (`destination`): the structure may
+  differ from one importing market to the next, which is what technical
+  standards and non-tariff measures actually do, since the importer sets them.
+
 # Fields
 $(TYPEDFIELDS)
 
 # Example
 ```julia
-# moderate substitution, equal shares
+# moderate substitution, equal shares, same in every market
 Armington(product = :paper, sigma = 4)
 
 # calibrated shares: 70% domestic, the rest split between the two other regions
 Armington(product = :paper, sigma = 4,
-          shares = Dict((r, r) => 0.7 for r in regions) ∪
-                   Dict((o, r) => 0.15 for o in regions, r in regions if o != r))
+          shares = merge(Dict((r, r) => 0.7 for r in regions),
+                         Dict((o, r) => 0.15 for o in regions, r in regions if o != r)))
+
+# in the EU market, EU and NA sawnwood are near-interchangeable (shared grading
+# rules) while AS sawnwood is a distant substitute; elsewhere everything
+# substitutes freely
+Armington(product = :sawn_sw, destination = :EU, sigma = 2.5,
+          nests = [OriginNest(sigma = 12, origins = [:EU, :NA])])
+Armington(product = :sawn_sw, destination = [:NA, :AS], sigma = 8)
 ```
 """
 Base.@kwdef struct Armington
@@ -252,15 +323,49 @@ Base.@kwdef struct Armington
     a destination gets an equal share
     """
     shares::Dict{Tuple{Symbol,Symbol},Float64} = Dict{Tuple{Symbol,Symbol},Float64}()
+    """
+    Importing regions this specification applies to, or `:all` (the default)
+    for every region without one of their own. A product may have one
+    specification per destination plus an `:all` fallback, which is how the
+    structure, the elasticity and the shares can differ between importing
+    markets
+    """
+    destination::Union{Symbol,Vector{Symbol}} = :all
+    """
+    Groups of origins that substitute for each other more closely than for the
+    rest, as a vector of [`OriginNest`](@ref)s. Every available origin not
+    placed in a group stays a direct member of the composite. Empty (the
+    default) gives the flat CES in which all origins substitute equally
+    """
+    nests::Vector{OriginNest} = OriginNest[]
 
-    function Armington(product, sigma, shares)
+    function Armington(product, sigma, shares, destination, nests)
         sigma > 1 || throw(ArgumentError(
             "the Armington elasticity of $product must be > 1 (or Inf for a " *
             "homogeneous product), got $sigma"))
         all(≥(0), values(shares)) || throw(ArgumentError(
             "the Armington shares of $product must not be negative"))
-        new(product, sigma, shares)
+        for n in nests
+            n.sigma ≥ sigma || throw(ArgumentError(
+                "a group of origins of $product substitutes less inside " *
+                "($(n.sigma)) than with the outside ($sigma): a group's members " *
+                "must substitute for each other at least as easily as for non-members"))
+        end
+        grouped = Symbol[]
+        collect_origins!(grouped, nests)
+        allunique(grouped) || throw(ArgumentError(
+            "an origin appears in more than one group of $product"))
+        new(product, sigma, shares, destination, nests)
     end
+end
+
+"Append every origin appearing anywhere in `nests` to `acc`."
+function collect_origins!(acc::Vector{Symbol}, nests::Vector{OriginNest})
+    for n in nests
+        append!(acc, n.origins)
+        collect_origins!(acc, n.nests)
+    end
+    return acc
 end
 
 """

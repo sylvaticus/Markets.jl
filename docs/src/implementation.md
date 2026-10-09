@@ -9,7 +9,7 @@ formulation are on the [Modelling choices](@ref) page.
 | File | Content |
 |:-----|:--------|
 | `src/Markets.jl`  | module definition, exports |
-| `src/types.jl`    | data schema: [`DemandSpec`](@ref), [`SupplySpec`](@ref), [`Nest`](@ref), [`leontief`](@ref), [`ces`](@ref), [`Process`](@ref), [`Armington`](@ref), [`MarketData`](@ref) |
+| `src/types.jl`    | data schema: [`DemandSpec`](@ref), [`SupplySpec`](@ref), [`Nest`](@ref), [`leontief`](@ref), [`ces`](@ref), [`Process`](@ref), [`Armington`](@ref), [`OriginNest`](@ref), [`MarketData`](@ref) |
 | `src/model.jl`    | [`solve_market`](@ref): builds and solves the JuMP model |
 | `src/results.jl`  | [`Results`](@ref) and [`for_region`](@ref): extraction of the result tables |
 | `examples/forest/` | the forest-products example economy (`example_data.jl`) and a driver printing all tables (`run_example.jl`) |
@@ -47,7 +47,8 @@ combinations present in the data, and stored in dictionaries keyed by symbols
 | ``p_0, q_0, \eta, \varepsilon`` | reference price, reference quantity, demand and supply elasticities |
 | ``y_{k,p}`` | yield of output ``p`` per unit of activity of ``k`` |
 | ``\bar a_n, \delta_{n,i}, \sigma_n, \phi_n`` | composite requirement, shares, elasticity of substitution and scale of nest ``n`` |
-| ``\sigma_p, \delta_{p,o,r}`` | Armington elasticity of ``p \in P^A`` and the value share of origin ``o`` in destination ``r`` (normalised over ``O_{p,r}``) |
+| ``\delta_{p,o,r}`` | value share of origin ``o`` in destination ``r`` (normalised over ``O_{p,r}``) |
+| ``\mathcal{N}_{p,r}`` | the CES tree destination ``r`` aggregates the origins of ``p`` with: leaves are origins, each node ``\nu`` carrying an elasticity ``\sigma_\nu`` and shares over its children |
 | ``c_k`` | value-added cost per unit of activity of ``k`` (`vacost`) |
 | ``\tau_{p,r,r'}`` | unit transport cost on a route |
 
@@ -62,6 +63,7 @@ combinations present in the data, and stored in dictionaries keyed by symbols
 | ``T_{p,r,r'} \ge 0`` | ``(p,r,r') \in \mathcal{T}``, ``p \in P^H`` | trade flow from ``r`` to ``r'`` |
 | ``X_{p,o,r} \ge q_{min}`` | ``p \in P^A``, ``o \in O_{p,r}`` | quantity of the variety of origin ``o`` used in ``r`` |
 | ``A_{p,r} \ge q_{min}`` | ``p \in P^A``, ``r \in R`` | composite of ``p`` available to the users of ``r`` |
+| ``C_{\nu} \ge q_{min}`` | internal nodes ``\nu`` of ``\mathcal{N}_{p,r}`` | quantity of the sub-composite of a group of origins |
 
 ``q_{min} = 10^{-4}`` is the constant `QFLOOR` (see
 [Numerical details](@ref)).
@@ -132,27 +134,56 @@ A_{p,r} = \text{use}_{r,p}
 ```
 
 ```math
-\left( \sum_{o \in O_{p,r}} \delta_{p,o,r}^{\,1/\sigma_p}\, X_{p,o,r}^{\,\rho_p} \right)^{1/\rho_p} \;\ge\; A_{p,r},
-\qquad \rho_p = \frac{\sigma_p - 1}{\sigma_p}
-\qquad\text{(CES over origins)}
+\left( \sum_{c \,\in\, \mathrm{children}(\nu)} \delta_{\nu,c}^{\,1/\sigma_\nu}\, q_c^{\,\rho_\nu} \right)^{1/\rho_\nu} \;\ge\; q_\nu,
+\qquad \rho_\nu = \frac{\sigma_\nu - 1}{\sigma_\nu}
+\qquad\text{(CES at each node)}
 ```
 
-Note that ``o = r`` is in ``O_{p,r}``: a region's own variety goes through the
-composite like any other, and ``X_{p,r,r}`` is its domestic use. A destination
-with a single origin gets the linear constraint ``X_{p,o,r} \ge A_{p,r}``
-instead, avoiding the powers.
+one per internal node ``\nu`` of the tree, where ``q_c`` is ``X_{p,o,r}`` for a
+leaf and ``C_c`` for a group, and ``q_\nu`` is ``A_{p,r}`` at the root and
+``C_\nu`` below it. With no groups the tree is one node and this is a single
+CES over the origins.
 
-The aggregator is the same calibrated CES as the input nests, so the implied
-composite price is the standard price index
+Note that ``o = r`` is in ``O_{p,r}``: a region's own variety goes through the
+composite like any other, and ``X_{p,r,r}`` is its domestic use. A node left
+with one child contributes no variable and no constraint; in particular a
+destination with a single origin gets the linear constraint
+``X_{p,o,r} \ge A_{p,r}``, avoiding the powers.
+
+The aggregator is the same calibrated CES as the input nests, so the price of
+each node is the standard CES index over its children,
+
+```math
+\pi_\nu = \left( \sum_{c \,\in\, \mathrm{children}(\nu)} \delta_{\nu,c}\,
+          \pi_c^{\,1-\sigma_\nu} \right)^{1/(1-\sigma_\nu)}
+```
+
+with ``\pi_c = \pi^s_{p,o} + \tau_{p,o,r}`` at a leaf — the delivered price of
+that origin — and ``\pi^c_{p,r} = \pi_{\text{root}}`` the price the users of
+``r`` pay. Flattened to a single node this is
 
 ```math
 \pi^c_{p,r} = \left( \sum_{o \in O_{p,r}} \delta_{p,o,r}\,
-              \bigl(\pi^s_{p,o} + \tau_{p,o,r}\bigr)^{1-\sigma_p} \right)^{1/(1-\sigma_p)}
+              \bigl(\pi^s_{p,o} + \tau_{p,o,r}\bigr)^{1-\sigma} \right)^{1/(1-\sigma)}
 ```
 
-which tends to ``\min_o (\pi^s_{p,o} + \tau_{p,o,r})`` as ``\sigma_p \to
-\infty``. At ``\sigma_p = \infty`` the engine does not build these constraints
+which tends to ``\min_o (\pi^s_{p,o} + \tau_{p,o,r})`` as ``\sigma \to
+\infty``. At ``\sigma = \infty`` the engine does not build these constraints
 at all: the product is treated as homogeneous, which is the same model.
+
+### How the tree is built
+
+`armington_tree` turns the groups of a specification into the tree for one
+destination. The origins available to the destination are collected first, each
+with its share; every group is then reduced to the available origins it holds,
+groups that keep none are dropped and groups left with one member collapse into
+it. Each node's shares are the summed shares of the origins beneath each child,
+normalised among siblings — so the data stays a plain bilateral matrix and the
+nesting only says how it is read.
+
+The specification applied to a (product, destination) pair is the one whose
+`destination` names it, or the `:all` one otherwise, which is what lets the
+elasticity, the groups and the shares differ between importing markets.
 
 ### Convexity
 
@@ -240,6 +271,11 @@ equilibrium:
   output price equals coefficient × input price + value-added cost, the CES
   input ratio satisfies the cost-minimisation condition, and the CES output price
   equals the composite unit cost + value-added cost;
+* origin groups: a group as substitutable as its parent changes nothing, the
+  composite price matches the two-level CES index, a tightening group pulls its
+  members' prices together, structures and elasticities differ by destination
+  as specified, the `:all` entry serves as the fallback, and inconsistent
+  groupings are rejected;
 * Armington trade: ``\sigma = \infty`` reproduces the homogeneous solution
   exactly, the error against it falls monotonically as ``\sigma`` grows, a
   finite ``\sigma`` produces cross-hauling and producer-price gaps wider than

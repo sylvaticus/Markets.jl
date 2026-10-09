@@ -240,6 +240,122 @@ end
     end
 end
 
+@testset "Origin groups (nested substitution)" begin
+    regions   = [:EU, :NA, :AS]
+    transport = Dict((:x, o, r) => 6.0 for o in regions, r in regions if o != r)
+    shares    = Dict((:EU, :EU) => 0.5,  (:NA, :EU) => 0.3,  (:AS, :EU) => 0.2,
+                     (:NA, :NA) => 0.6,  (:EU, :NA) => 0.25, (:AS, :NA) => 0.15,
+                     (:AS, :AS) => 0.55, (:EU, :AS) => 0.2,  (:NA, :AS) => 0.25)
+    economy(arm) = MarketData(
+        regions  = regions, products = [:x],
+        demand   = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
+                    for r in regions],
+        supply   = [SupplySpec(product = :x, region = :EU, p0 = 60, q0 = 20, elasticity = 1.0),
+                    SupplySpec(product = :x, region = :NA, p0 = 55, q0 = 25, elasticity = 1.0),
+                    SupplySpec(product = :x, region = :AS, p0 = 70, q0 = 15, elasticity = 1.0)],
+        tradable = [:x], transport = transport, armington = arm)
+
+    @testset "a group as substitutable as its parent changes nothing" begin
+        flat   = solve_market(economy([Armington(product = :x, sigma = 3, shares = shares)]))
+        redund = solve_market(economy([Armington(product = :x, sigma = 3, shares = shares,
+                                       nests = [OriginNest(sigma = 3, origins = [:EU, :NA])])]))
+        @test solved(redund)
+        for r in regions
+            @test price(redund, r, :x) ≈ price(flat, r, :x) rtol = 1e-5
+            @test pprice(redund, r, :x) ≈ pprice(flat, r, :x) rtol = 1e-5
+        end
+    end
+
+    @testset "the price index is the two-level CES one" begin
+        σt, σg = 2.0, 9.0
+        res = solve_market(economy([Armington(product = :x, sigma = σt, shares = shares,
+                                    nests = [OriginNest(sigma = σg, origins = [:EU, :NA])])]))
+        @test solved(res)
+        for r in regions
+            q(o)  = pprice(res, o, :x) + (o == r ? 0.0 : 6.0)
+            raw   = Dict(o => shares[(o, r)] for o in regions)
+            group = raw[:EU] + raw[:NA]
+            # price of the EU/NA bundle, then of the composite over bundle and AS
+            Pg = sum(raw[o] / group * q(o)^(1 - σg) for o in (:EU, :NA))^(1 / (1 - σg))
+            P  = (group * Pg^(1 - σt) + raw[:AS] * q(:AS)^(1 - σt))^(1 / (1 - σt))
+            @test price(res, r, :x) ≈ P rtol = 1e-6
+        end
+    end
+
+    @testset "a tightening group converges to a single pooled good" begin
+        gap(σg) = begin
+            res = solve_market(economy([Armington(product = :x, sigma = 2.0, shares = shares,
+                                        nests = [OriginNest(sigma = σg, origins = [:EU, :NA])])]))
+            @test solved(res)
+            abs(pprice(res, :EU, :x) - pprice(res, :NA, :x))
+        end
+        @test gap(3.0) > gap(20.0) > gap(200.0)      # the two prices are pulled together
+    end
+
+    @testset "structures and elasticities may differ by destination" begin
+        res = solve_market(economy([
+            # the EU market keeps AS at arm's length but treats EU and NA alike
+            Armington(product = :x, destination = :EU, sigma = 1.5, shares = shares,
+                      nests = [OriginNest(sigma = 12, origins = [:EU, :NA])]),
+            # the others substitute freely between all three
+            Armington(product = :x, destination = [:NA, :AS], sigma = 8, shares = shares)]))
+        @test solved(res)
+        # the EU price index uses σ = 1.5 over {EU,NA bundle, AS} ...
+        q(o, r) = pprice(res, o, :x) + (o == r ? 0.0 : 6.0)
+        group = shares[(:EU, :EU)] + shares[(:NA, :EU)]
+        Pg = sum(shares[(o, :EU)] / group * q(o, :EU)^(1 - 12) for o in (:EU, :NA))^(1 / (1 - 12))
+        @test price(res, :EU, :x) ≈
+              (group * Pg^(1 - 1.5) + shares[(:AS, :EU)] * q(:AS, :EU)^(1 - 1.5))^(1 / (1 - 1.5)) rtol = 1e-6
+        # ... while the AS price index is the flat one with σ = 8
+        @test price(res, :AS, :x) ≈
+              sum(shares[(o, :AS)] * q(o, :AS)^(1 - 8) for o in regions)^(1 / (1 - 8)) rtol = 1e-6
+    end
+
+    @testset "an :all specification is the fallback for the other destinations" begin
+        res = solve_market(economy([
+            Armington(product = :x, destination = :EU, sigma = 1.8, shares = shares),
+            Armington(product = :x, sigma = 5, shares = shares)]))
+        @test solved(res)
+        for (r, σ) in ((:EU, 1.8), (:NA, 5), (:AS, 5))
+            q(o) = pprice(res, o, :x) + (o == r ? 0.0 : 6.0)
+            @test price(res, r, :x) ≈
+                  sum(shares[(o, r)] * q(o)^(1 - σ) for o in regions)^(1 / (1 - σ)) rtol = 1e-6
+        end
+    end
+
+    @testset "a group with one available origin collapses" begin
+        res = solve_market(economy([Armington(product = :x, sigma = 3, shares = shares,
+                                    nests = [OriginNest(sigma = 9, origins = [:NA])])]))
+        @test solved(res)
+        flat = solve_market(economy([Armington(product = :x, sigma = 3, shares = shares)]))
+        @test price(res, :EU, :x) ≈ price(flat, :EU, :x) rtol = 1e-5
+    end
+
+    @testset "specification errors" begin
+        # a group must hold together at least as tightly as it does to the outside
+        @test_throws ArgumentError Armington(product = :x, sigma = 5,
+                                             nests = [OriginNest(sigma = 2, origins = [:EU, :NA])])
+        @test_throws ArgumentError OriginNest(sigma = 4,
+                                              nests = [OriginNest(sigma = 2, origins = [:EU, :NA])])
+        @test_throws ArgumentError OriginNest(sigma = 0.5, origins = [:EU])
+        @test_throws ArgumentError OriginNest(sigma = 4)                     # empty group
+        @test_throws ArgumentError Armington(product = :x, sigma = 2,        # origin in two groups
+                                             nests = [OriginNest(sigma = 9, origins = [:EU, :NA]),
+                                                      OriginNest(sigma = 9, origins = [:NA, :AS])])
+        # unknown region, duplicates, and incomplete destination coverage
+        @test_throws ArgumentError solve_market(economy([
+            Armington(product = :x, destination = :XX, sigma = 2)]))
+        @test_throws ArgumentError solve_market(economy([
+            Armington(product = :x, destination = :EU, sigma = 2),
+            Armington(product = :x, destination = [:EU, :NA], sigma = 3)]))
+        @test_throws ArgumentError solve_market(economy([        # nothing for NA and AS
+            Armington(product = :x, destination = :EU, sigma = 2)]))
+        @test_throws ArgumentError solve_market(economy([        # homogeneous in AS only
+            Armington(product = :x, destination = [:EU, :NA], sigma = 2),
+            Armington(product = :x, destination = :AS, sigma = Inf)]))
+    end
+end
+
 @testset "Forest example" begin
     ex = Module(:ForestExample)
     Base.include(ex, joinpath(@__DIR__, "..", "examples", "forest", "example_data.jl"))
