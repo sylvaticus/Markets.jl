@@ -8,6 +8,53 @@ const QFLOOR = 1e-4
 """
 $(TYPEDSIGNATURES)
 
+The products of `d` that have a finite Armington elasticity, i.e. whose
+regional varieties are imperfect substitutes, as a `product => `[`Armington`](@ref)
+dictionary.  Products absent from it are homogeneous.
+"""
+function armington_of(d::MarketData)
+    arm = Dict{Symbol,Armington}()
+    for a in d.armington
+        isfinite(a.sigma) || continue        # σ = Inf ⇒ homogeneous: nothing to do
+        a.product in d.products ||
+            throw(ArgumentError("Armington specification for unknown product $(a.product)"))
+        haskey(arm, a.product) &&
+            throw(ArgumentError("duplicate Armington specification for $(a.product)"))
+        arm[a.product] = a
+    end
+    return arm
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The origins that destination `r` can buy product `a.product` from — itself,
+plus every origin with a transport route into `r` — together with their
+normalised value shares.  Origins without a positive share are left out.
+"""
+function armington_origins(d::MarketData, a::Armington, r::Symbol)
+    p = a.product
+    available = [r; [o for o in d.regions if o != r && haskey(d.transport, (p, o, r))]]
+    if isempty(a.shares)
+        return available, fill(1 / length(available), length(available))
+    end
+    origins = Symbol[]
+    shares  = Float64[]
+    for o in available
+        s = get(a.shares, (o, r), 0.0)
+        s > 0 || continue
+        push!(origins, o)
+        push!(shares, s)
+    end
+    isempty(origins) && throw(ArgumentError(
+        "no origin with a positive Armington share supplies $p in region $r"))
+    shares ./= sum(shares)
+    return origins, shares
+end
+
+"""
+$(TYPEDSIGNATURES)
+
 Build and solve the equilibrium for the economy `d` and return a
 [`Results`](@ref).
 
@@ -40,10 +87,29 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     for proc in d.processes, r in regions_of(proc, d)
         z[(r, proc.name)] = @variable(m, lower_bound = 0.0, start = 1.0)
     end
-    # trade flows  T[(product, from, to)]
+    # trade flows of the homogeneous products  T[(product, from, to)]
+    arm = armington_of(d)
     T = Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}()
     for ((p, from, to), _) in d.transport
+        haskey(arm, p) && continue       # Armington products use X instead
         T[(p, from, to)] = @variable(m, lower_bound = 0.0, start = 0.0)
+    end
+    # Armington products: quantity of the variety of each origin used in each
+    # destination, X[(product, origin, destination)], and the composite that
+    # the destination actually uses, A[(product, destination)]
+    X = Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}()
+    A = Dict{Tuple{Symbol,Symbol},VariableRef}()
+    origins_of = Dict{Tuple{Symbol,Symbol},Tuple{Vector{Symbol},Vector{Float64}}}()
+    for (p, a) in arm, r in d.regions
+        origins, shares = armington_origins(d, a, r)
+        origins_of[(p, r)] = (origins, shares)
+        # a rough but useful starting point: the local reference consumption
+        a0 = get(demand_of, (r, p), nothing)
+        start = a0 === nothing ? 1.0 : a0.q0
+        A[(p, r)] = @variable(m, lower_bound = QFLOOR, start = start)
+        for (i, o) in pairs(origins)
+            X[(p, o, r)] = @variable(m, lower_bound = QFLOOR, start = shares[i] * start)
+        end
     end
 
     # --- assemble per-(region,product) sources & uses -----------------------
@@ -79,17 +145,45 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
         end
     end
 
-    # --- material balance per (region, product)  → duals are the prices -----
-    balance = Dict{Tuple{Symbol,Symbol},ConstraintRef}()
+    # --- balances per (region, product)  → duals are the prices -------------
+    # `balance` is what a region's users face (its dual is the price they pay),
+    # `origin_balance` is what its producers sell (its dual is the price they
+    # get).  For a homogeneous product the two coincide and only `balance` is
+    # built; for an Armington product they differ by the composition of the
+    # CES bundle, and both are built.
+    balance        = Dict{Tuple{Symbol,Symbol},ConstraintRef}()
+    origin_balance = Dict{Tuple{Symbol,Symbol},ConstraintRef}()
     for r in d.regions, p in d.products
         src = get(produced, (r, p), 0.0)
         use = get(used, (r, p), 0.0)
         haskey(S, (r, p)) && (src += S[(r, p)])
         haskey(D, (r, p)) && (use += D[(r, p)])
-        # imports into r minus exports from r
-        imp = @expression(m, sum(T[(p, o, r)] for o in d.regions if haskey(T, (p, o, r)); init = 0.0))
-        exp = @expression(m, sum(T[(p, r, o)] for o in d.regions if haskey(T, (p, r, o)); init = 0.0))
-        balance[(r, p)] = @constraint(m, src + imp - use - exp == 0.0)
+
+        if haskey(arm, p)
+            # everything region r produces goes to one of the destinations that
+            # buy its variety (itself included)
+            ships = @expression(m, sum(X[(p, r, dst)] for dst in d.regions
+                                       if haskey(X, (p, r, dst)); init = 0.0))
+            origin_balance[(r, p)] = @constraint(m, src - ships == 0.0)
+            # the composite covers the local uses
+            balance[(r, p)] = @constraint(m, A[(p, r)] - use == 0.0)
+            # ... and is the CES aggregate of the varieties bought
+            origins, shares = origins_of[(p, r)]
+            if length(origins) == 1
+                @constraint(m, X[(p, origins[1], r)] >= A[(p, r)])
+            else
+                σ = arm[p].sigma
+                ρ = (σ - 1) / σ
+                aggr = @expression(m, sum(shares[i]^(1 / σ) * X[(p, origins[i], r)]^ρ
+                                          for i in eachindex(origins)))
+                @constraint(m, aggr^(1 / ρ) >= A[(p, r)])
+            end
+        else
+            # homogeneous product: imports into r minus exports from r
+            imp = @expression(m, sum(T[(p, o, r)] for o in d.regions if haskey(T, (p, o, r)); init = 0.0))
+            exp = @expression(m, sum(T[(p, r, o)] for o in d.regions if haskey(T, (p, r, o)); init = 0.0))
+            balance[(r, p)] = @constraint(m, src + imp - use - exp == 0.0)
+        end
     end
 
     # --- objective: net social surplus --------------------------------------
@@ -107,7 +201,9 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
         end for k in keys(S)))
     conv_cost = @expression(m, sum(proc.vacost * z[(r, proc.name)]
                                    for proc in d.processes for r in regions_of(proc, d)))
-    trans_cost = @expression(m, sum(d.transport[key] * T[key] for key in keys(T); init = 0.0))
+    trans_cost = @expression(m,
+        sum(d.transport[key] * T[key] for key in keys(T); init = 0.0) +
+        sum(d.transport[key] * X[key] for key in keys(X) if key[2] != key[3]; init = 0.0))
 
     @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost)
 
@@ -116,5 +212,5 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     (st == MOI.LOCALLY_SOLVED || st == MOI.OPTIMAL) ||
         @warn "solver returned status $st — results may be unreliable"
 
-    return build_results(d, m, D, S, z, T, balance)
+    return build_results(d, m, D, S, z, T, X, balance, origin_balance)
 end

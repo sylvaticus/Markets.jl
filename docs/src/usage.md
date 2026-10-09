@@ -117,6 +117,39 @@ allowed route `(product, from, to)` to a unit transport cost, per unit of
 transport = Dict((:swr, :NA, :AS) => 13.2, (:swr, :AS, :NA) => 13.2, ...)
 ```
 
+By default a traded product is **homogeneous**: the same good wherever it comes
+from. Regional prices then differ by at most the transport cost and no region
+imports and exports it at once.
+
+### Imperfect substitution between origins (optional)
+
+Listing a product in [`Armington`](@ref) makes the varieties of the different
+origins imperfect substitutes instead: each region uses a CES composite of
+them, so it can import and export the same product at once and its price
+responds to supply and demand everywhere rather than only to the cheapest
+source.
+
+```julia
+armington = [Armington(product = :paper, sigma = 4),             # equal shares
+             Armington(product = :panel, sigma = 6,
+                       shares = Dict((:EU, :EU) => 0.7, (:NA, :EU) => 0.2, (:AS, :EU) => 0.1,
+                                     (:NA, :NA) => 0.8, (:EU, :NA) => 0.1, (:AS, :NA) => 0.1,
+                                     (:AS, :AS) => 0.9, (:EU, :AS) => 0.05, (:NA, :AS) => 0.05))]
+```
+
+* `sigma` is the elasticity of substitution between origins. It must be `> 1`;
+  the lower it is, the more buyers stick to their usual origin when prices
+  move.
+* `shares` are keyed `(origin, destination)` and are the shares that would be
+  observed if all delivered prices were equal, so they carry the home bias.
+  Calibrate them on a base-year trade matrix. Omitted, every origin available
+  to a destination gets an equal share. An origin with no share (or a share of
+  0) is left out of that destination's composite.
+* `sigma = Inf`, and any product not listed, is the homogeneous case above.
+
+With an Armington product, local producers and local users no longer face the
+same price, and both are reported — see [Reading the results](@ref).
+
 ### Putting it together
 
 ```julia
@@ -158,8 +191,12 @@ A [`Results`](@ref) holds six `DataFrame`s:
 | `consumption` | region, product, quantity | final demand |
 | `trade`       | product, from, to, quantity | bilateral flows (positive only) |
 | `net_trade`   | region, product, exports, imports, net | net = exports − imports |
-| `prices`      | region, product, price | equilibrium price of every product in every region |
+| `prices`      | region, product, price, producer\_price | what local users pay, and what local producers get |
 | `activity`    | region, process, level | process activity levels |
+
+`price` and `producer_price` differ only for an [`Armington`](@ref) product,
+where local users buy a composite of all origins' varieties while local
+producers sell their own; for every other product the two columns are equal.
 
 [`for_region`](@ref) slices all tables for one region at once. The input data
 and the underlying JuMP model are kept in `res.data` and `res.model`.
@@ -234,25 +271,76 @@ julia --project=. examples/forest/run_example.jl
 ### Running a scenario
 
 Results are plain data, so scenarios are written by changing the data and
-solving again. For example, a 20% increase in North American softwood
-roundwood supply at every price:
+solving again. A three-line helper that copies an economy with some fields
+replaced makes this comfortable:
+
+```@example forest
+reconfigure(d; kwargs...) =
+    MarketData(; regions = d.regions, products = d.products, demand = d.demand,
+                 supply = d.supply, processes = d.processes, tradable = d.tradable,
+                 transport = d.transport, armington = d.armington, kwargs...)
+nothing # hide
+```
+
+For example, a 20% increase in North American softwood roundwood supply at
+every price:
 
 ```@example forest
 sup = [s.product == :swr && s.region == :NA ?
            SupplySpec(product = s.product, region = s.region,
                       p0 = s.p0, q0 = 1.2 * s.q0, elasticity = s.elasticity) : s
        for s in example_market.supply]
-d2   = MarketData(regions   = example_market.regions,
-                  products  = example_market.products,
-                  demand    = example_market.demand,
-                  supply    = sup,                       # the only change
-                  processes = example_market.processes,
-                  tradable  = example_market.tradable,
-                  transport = example_market.transport)
-res2 = solve_market(d2)
+res2 = solve_market(reconfigure(example_market, supply = sup))
 comp = innerjoin(res.prices, res2.prices, on = [:region, :product], renamecols = "_base" => "_scen")
 comp.change_pct = 100 .* (comp.price_scen ./ comp.price_base .- 1)
-comp[comp.product .== :swr, :]
+comp[comp.product .== :swr, [:region, :product, :price_base, :price_scen, :change_pct]]
+```
+
+### Imperfect substitution between origins
+
+In the solution above, paper is not traded at all: regional paper prices differ
+by less than the cost of shipping it, so no shipment pays for itself.
+
+```@example forest
+res.trade[res.trade.product .== :paper, :]
+```
+
+That is the homogeneous-product logic. Making paper an [`Armington`](@ref)
+product instead — buyers mildly prefer their usual origin, 85% of a region's
+paper coming from home at equal delivered prices — gives the two-way trade that
+is actually observed:
+
+```@example forest
+home   = 0.85
+shares = Dict((o, r) => (o == r ? home : (1 - home) / (length(regions) - 1))
+              for o in regions, r in regions)
+res_a  = solve_market(reconfigure(example_market,
+             armington = [Armington(product = :paper, sigma = 4, shares = shares)]))
+res_a.trade[res_a.trade.product .== :paper, :]
+```
+
+Every region now both imports and exports paper, and local producers no longer
+face the price local users pay:
+
+```@example forest
+res_a.prices[res_a.prices.product .== :paper, :]
+```
+
+Raising `sigma` tightens the varieties together again, and the solution walks
+back to the homogeneous one — which is what `sigma = Inf`, the default, builds
+exactly:
+
+```@example forest
+homog  = res.prices[res.prices.product .== :paper, :price]
+ladder = DataFrame(sigma = Float64[], paper_trade = Float64[], max_price_gap_pct = Float64[])
+for σ in [4, 20, 150, Inf]
+    a = solve_market(reconfigure(example_market,
+            armington = [Armington(product = :paper, sigma = σ, shares = shares)]))
+    traded = sum(a.trade[a.trade.product .== :paper, :quantity])
+    gap    = maximum(abs.(a.prices[a.prices.product .== :paper, :price] ./ homog .- 1))
+    push!(ladder, (σ, traded, 100gap))
+end
+ladder
 ```
 
 ## How to amend an economy
@@ -266,8 +354,11 @@ comp[comp.product .== :swr, :]
   input.
 * **Add a region**: add it to `regions` and give it demand, supply and transport
   data.
-* **Change substitutability**: change the `sigma` of a CES nest. Values near 1
-  give a near Cobb–Douglas mix; large values make the inputs close to perfect
-  substitutes.
+* **Change substitutability between inputs**: change the `sigma` of a CES nest.
+  Values near 1 give a near Cobb–Douglas mix; large values make the inputs close
+  to perfect substitutes.
+* **Change substitutability between origins**: add or amend an `Armington`
+  entry. Leave a product out of `armington` (or give it `sigma = Inf`) for the
+  homogeneous, spatial-equilibrium treatment.
 
 No change to the package code is needed for any of these.

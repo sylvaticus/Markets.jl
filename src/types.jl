@@ -193,6 +193,79 @@ end
 """
 $(TYPEDEF)
 
+Imperfect substitution between the regional varieties of one product
+(Armington, 1969).
+
+By default a product is **homogeneous**: it is the same good wherever it comes
+from, regional prices differ by at most the transport cost, and a region never
+both imports and exports it. Listing a product here instead makes the varieties
+from the different origins imperfect substitutes: each region uses a CES
+composite of them, so a region can import and export the same product at once
+and its price responds to supply and demand everywhere, not only to the cost of
+the cheapest source.
+
+Each destination `r` draws on the varieties of the origins it can buy from: its
+own, plus every origin `o` with a transport route `(product, o, r)`. The
+composite is
+
+    A ≤ ( Σₒ δₒ^(1/σ) · Xₒ^ρ )^(1/ρ),     ρ = (σ-1)/σ
+
+with `Xₒ` the quantity bought from origin `o` and `δₒ` its value share. The
+price a region pays for the composite is then the CES price index of the
+delivered prices,
+
+    Pᶜ = ( Σₒ δₒ · (Pₒ + τₒ)^(1-σ) )^(1/(1-σ))
+
+which tends to the cheapest delivered price as `σ → ∞`: `sigma = Inf` is
+exactly the homogeneous (Samuelson spatial price equilibrium) case, and a large
+finite `sigma` approaches it.
+
+# Fields
+$(TYPEDFIELDS)
+
+# Example
+```julia
+# moderate substitution, equal shares
+Armington(product = :paper, sigma = 4)
+
+# calibrated shares: 70% domestic, the rest split between the two other regions
+Armington(product = :paper, sigma = 4,
+          shares = Dict((r, r) => 0.7 for r in regions) ∪
+                   Dict((o, r) => 0.15 for o in regions, r in regions if o != r))
+```
+"""
+Base.@kwdef struct Armington
+    "Product whose regional varieties are imperfect substitutes"
+    product::Symbol
+    """
+    Elasticity of substitution ``\\sigma`` between the varieties of the
+    different origins. It must be `> 1`; `Inf` (the default for every product
+    not listed) means perfect substitutes, i.e. a homogeneous product
+    """
+    sigma::Float64 = Inf
+    """
+    Value shares ``\\delta`` of each origin in each destination's composite,
+    keyed `(origin, destination)` — the shares that would be observed if the
+    delivered prices of all origins were equal. They are normalised per
+    destination. An origin with no share given (or a share of 0) is left out of
+    that destination's composite. When this is empty, every origin available to
+    a destination gets an equal share
+    """
+    shares::Dict{Tuple{Symbol,Symbol},Float64} = Dict{Tuple{Symbol,Symbol},Float64}()
+
+    function Armington(product, sigma, shares)
+        sigma > 1 || throw(ArgumentError(
+            "the Armington elasticity of $product must be > 1 (or Inf for a " *
+            "homogeneous product), got $sigma"))
+        all(≥(0), values(shares)) || throw(ArgumentError(
+            "the Armington shares of $product must not be negative"))
+        new(product, sigma, shares)
+    end
+end
+
+"""
+$(TYPEDEF)
+
 The complete description of an economy, to be passed to [`solve_market`](@ref).
 
 # Fields
@@ -222,6 +295,12 @@ Base.@kwdef struct MarketData
     processes::Vector{Process} = Process[]
     "Products that may be traded between regions"
     tradable::Vector{Symbol} = Symbol[]
+    """
+    Products whose regional varieties are imperfect substitutes, as a vector of
+    [`Armington`](@ref) specifications. A product that is not listed here (the
+    default) is homogeneous: the same good wherever it comes from
+    """
+    armington::Vector{Armington} = Armington[]
     """
     Unit transport costs, mapping `(product, from_region, to_region)` to the
     cost per unit of quantity shipped. A route that is missing from this

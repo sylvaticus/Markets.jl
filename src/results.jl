@@ -27,8 +27,10 @@ Base.@kwdef struct Results
     "Trade by region: `region`, `product`, `exports`, `imports`, `net` (= exports − imports)"
     net_trade::DataFrame
     """
-    Equilibrium prices, the duals of the material balances: `region`,
-    `product`, `price`
+    Equilibrium prices, the duals of the balances: `region`, `product`,
+    `price` (what local users pay) and `producer_price` (what local producers
+    get). The two differ only for an [`Armington`](@ref) product, where users
+    buy a composite of the regional varieties
     """
     prices::DataFrame
     "Process activity levels: `region`, `process`, `level`"
@@ -37,8 +39,15 @@ end
 
 # Build the result tables from the solved model.  Internal: users get a
 # `Results` from `solve_market`.
-function build_results(d, m, D, S, z, T, balance)
+function build_results(d, m, D, S, z, T, X, balance, origin_balance)
     val(x) = value(x)
+    # bilateral flows: the trade variables of the homogeneous products and the
+    # cross-border varieties of the Armington ones
+    flows = Dict{Tuple{Symbol,Symbol,Symbol},Any}(T)
+    for (key, v) in X
+        key[2] == key[3] && continue      # domestic variety, not trade
+        flows[key] = v
+    end
 
     # production = primary supply + summed process outputs
     prod = Dict{Tuple{Symbol,Symbol},Float64}()
@@ -64,7 +73,7 @@ function build_results(d, m, D, S, z, T, balance)
     sort!(consumption, [:region, :product])
 
     trade = DataFrame(product = Symbol[], from = Symbol[], to = Symbol[], quantity = Float64[])
-    for ((p, from, to), v) in T
+    for ((p, from, to), v) in flows
         q = val(v)
         q > 1e-6 && push!(trade, (p, from, to, q))
     end
@@ -73,15 +82,20 @@ function build_results(d, m, D, S, z, T, balance)
     net = DataFrame(region = Symbol[], product = Symbol[],
                     exports = Float64[], imports = Float64[], net = Float64[])
     for r in d.regions, p in d.products
-        ex = sum((val(T[(p, r, o)]) for o in d.regions if haskey(T, (p, r, o))); init = 0.0)
-        im = sum((val(T[(p, o, r)]) for o in d.regions if haskey(T, (p, o, r))); init = 0.0)
+        ex = sum((val(flows[(p, r, o)]) for o in d.regions if haskey(flows, (p, r, o))); init = 0.0)
+        im = sum((val(flows[(p, o, r)]) for o in d.regions if haskey(flows, (p, o, r))); init = 0.0)
         (ex > 1e-6 || im > 1e-6) && push!(net, (r, p, ex, im, ex - im))
     end
 
-    prices = DataFrame(region = Symbol[], product = Symbol[], price = Float64[])
+    prices = DataFrame(region = Symbol[], product = Symbol[],
+                       price = Float64[], producer_price = Float64[])
     if has_duals(m)
         for r in d.regions, p in d.products
-            push!(prices, (r, p, abs(dual(balance[(r, p)]))))
+            # what users pay, and what local producers get: the same thing
+            # unless the product is an Armington one
+            user = abs(dual(balance[(r, p)]))
+            prod = haskey(origin_balance, (r, p)) ? abs(dual(origin_balance[(r, p)])) : user
+            push!(prices, (r, p, user, prod))
         end
         sort!(prices, [:region, :product])
     end

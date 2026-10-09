@@ -173,10 +173,87 @@ products therefore have high transport costs relative to their value, which
 limits their trade.
 
 Since products are identical whatever their origin, two regions never ship the
-same product to each other (no cross-hauling), and trade patterns
-can be more extreme than observed ones. Making products from different
-origins imperfect substitutes (Armington, 1969) is a planned extension; see
-[Planned extensions](@ref).
+same product to each other — there is no cross-hauling — and each region buys
+from the cheapest source available to it. Trade patterns are therefore sharper
+than observed ones: a small cost advantage can capture an entire market. This
+is the default; the next section is the way out of it.
+
+## Imperfect substitution between origins (Armington)
+
+Observed trade does not look like that. Countries import and export the same
+product at the same time, market shares move gradually when prices change, and
+a region's own product keeps a share of its home market even when it is not
+the cheapest. The standard answer (Armington, 1969) is to treat the varieties
+of a product coming from different origins as **imperfect substitutes**:
+"paper from Europe" and "paper from Asia" are related but distinct goods.
+
+Listing a product in the [`Armington`](@ref) specifications of the economy
+turns this on for it. Each destination `r` then buys quantities ``X_o`` of the
+variety of every origin `o` it can buy from (its own, plus every origin with a
+transport route into it) and uses them through a CES composite
+
+```math
+A_r \le \left( \sum_o \delta_{o,r}^{1/\sigma}\, X_{o,r}^{\rho} \right)^{1/\rho},
+\qquad \rho = \frac{\sigma - 1}{\sigma}
+```
+
+which is the same aggregator as a CES input nest, applied to origins instead of
+input products. Final demand and the processes of region `r` then draw on the
+composite ``A_r``, not on the individual varieties.
+
+Three things change.
+
+**There are now two prices per product and region.** Local producers are paid
+``\pi^s_r``, the value of their own variety, while local users pay ``\pi^c_r``,
+the price of the composite, which is the CES price index of the delivered
+prices of all origins:
+
+```math
+\pi^c_r = \left( \sum_o \delta_{o,r} \left(\pi^s_o + \tau_{o,r}\right)^{1-\sigma} \right)^{1/(1-\sigma)}
+```
+
+The two are reported side by side in the `prices` table as `producer_price` and
+`price`. They differ because a region blends its own variety with imported
+ones: an expensive producer can keep selling at a high price while its
+customers pay much less on average.
+
+**Regions cross-haul, and their prices are linked everywhere.** Because each
+destination wants some of every variety, a region usually imports and exports
+the same product at once, and market shares respond smoothly to relative
+prices with elasticity ``\sigma``. Prices are no longer tied together by the
+transport cost: a shift in supply or demand anywhere passes into every other
+region's composite price, with a strength set by ``\sigma`` and by the shares,
+and producer prices can differ across regions by far more than the cost of
+shipping between them.
+
+**The shares matter.** ``\delta_{o,r}`` is the share origin `o` would have in
+destination `r` if all delivered prices were equal, so it carries the home bias
+and the historical trade pattern that prices alone do not explain. Calibrate
+them on a base-year trade matrix. Left unspecified, every origin available to a
+destination gets an equal share, which is neutral but rarely realistic.
+
+### The limit ``\sigma \to \infty``
+
+As ``\sigma`` grows the composite becomes a plain sum of the varieties and its
+price index tends to the cheapest delivered price: the model returns to the
+homogeneous, Samuelson spatial price equilibrium of the previous section. This
+is not an approximation — at ``\sigma = \infty``, which is the default for
+every product not listed, the engine builds exactly the homogeneous
+formulation, with one balance and one price per region and product.
+
+So the two regimes are the ends of one scale, and ``\sigma`` is where a product
+sits on it: low ``\sigma`` for goods whose origin matters to buyers (branded
+or quality-differentiated products, appearance-grade timber), high ``\sigma``
+for commodities that are graded and interchangeable (pulp, chips, roundwood of
+a given species).
+
+### What it costs
+
+The Armington formulation is bigger: a variety variable per (product, origin,
+destination), a composite variable and two balances per (product, region),
+instead of one trade variable per route and one balance. And ``\sigma`` and the
+shares are extra parameters to estimate, which is why they are opt-in per
+product rather than global.
 
 ## Dynamics
 
@@ -212,10 +289,11 @@ code remains in the git history.
 
 ## Planned extensions
 
-* **Armington trade**: imperfect substitution between origins, through a second
-  CES nest over origins in each region's consumption.
 * **Recursive dynamics**: a time loop around [`solve_market`](@ref), as
   described above.
+* **Armington refinements**: a separate composite per user (final demand and
+  each process) instead of one per region, and elasticities that vary by
+  destination.
 * **Exogenous drivers** of demand and supply (income, population, resource
   availability) as explicit shifters.
 * **Inputs with an exogenous price** inside a nest (e.g. a resin with a world

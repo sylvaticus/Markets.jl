@@ -14,6 +14,11 @@ consumption, trade and prices** for every region and product. The equilibrium
 is computed as the maximum of net social surplus (JuMP + Ipopt); prices are the
 duals of the material balances.
 
+Products are homogeneous by default (Samuelson spatial price equilibrium), or
+imperfect substitutes by origin where you give them an **Armington** elasticity,
+which lets regions cross-haul and links every region's price to supply and
+demand everywhere.
+
 The engine is sector-agnostic. The forest-products sector is the example
 shipped in [`examples/forest/`](examples/forest/).
 

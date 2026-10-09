@@ -9,7 +9,7 @@ formulation are on the [Modelling choices](@ref) page.
 | File | Content |
 |:-----|:--------|
 | `src/Markets.jl`  | module definition, exports |
-| `src/types.jl`    | data schema: [`DemandSpec`](@ref), [`SupplySpec`](@ref), [`Nest`](@ref), [`leontief`](@ref), [`ces`](@ref), [`Process`](@ref), [`MarketData`](@ref) |
+| `src/types.jl`    | data schema: [`DemandSpec`](@ref), [`SupplySpec`](@ref), [`Nest`](@ref), [`leontief`](@ref), [`ces`](@ref), [`Process`](@ref), [`Armington`](@ref), [`MarketData`](@ref) |
 | `src/model.jl`    | [`solve_market`](@ref): builds and solves the JuMP model |
 | `src/results.jl`  | [`Results`](@ref) and [`for_region`](@ref): extraction of the result tables |
 | `examples/forest/` | the forest-products example economy (`example_data.jl`) and a driver printing all tables (`run_example.jl`) |
@@ -42,9 +42,12 @@ combinations present in the data, and stored in dictionaries keyed by symbols
 | ``n \in N_k`` | input nests of process ``k``; ``I_n`` the products of nest ``n`` |
 | ``\mathcal{D}, \mathcal{S} \subseteq R \times P`` | (region, product) pairs with a demand / supply curve |
 | ``\mathcal{T}`` | trade routes ``(p, r, r')`` present in `transport` |
+| ``P^A \subseteq P`` | products with a finite Armington elasticity; ``P^H = P \setminus P^A`` the homogeneous ones |
+| ``O_{p,r} \subseteq R`` | origins destination ``r`` buys ``p \in P^A`` from: itself, plus every origin with a route into ``r`` and a positive share |
 | ``p_0, q_0, \eta, \varepsilon`` | reference price, reference quantity, demand and supply elasticities |
 | ``y_{k,p}`` | yield of output ``p`` per unit of activity of ``k`` |
 | ``\bar a_n, \delta_{n,i}, \sigma_n, \phi_n`` | composite requirement, shares, elasticity of substitution and scale of nest ``n`` |
+| ``\sigma_p, \delta_{p,o,r}`` | Armington elasticity of ``p \in P^A`` and the value share of origin ``o`` in destination ``r`` (normalised over ``O_{p,r}``) |
 | ``c_k`` | value-added cost per unit of activity of ``k`` (`vacost`) |
 | ``\tau_{p,r,r'}`` | unit transport cost on a route |
 
@@ -56,7 +59,9 @@ combinations present in the data, and stored in dictionaries keyed by symbols
 | ``S_{r,p} \ge q_{min}`` | ``(r,p) \in \mathcal{S}`` | primary supply |
 | ``z_{r,k} \ge 0`` | ``k \in K, r \in R_k`` | process activity |
 | ``x_{r,k,n,i} \ge q_{min}`` | CES nests ``n``, ``i \in I_n`` | quantity of input ``i`` used in nest ``n`` |
-| ``T_{p,r,r'} \ge 0`` | ``(p,r,r') \in \mathcal{T}`` | trade flow from ``r`` to ``r'`` |
+| ``T_{p,r,r'} \ge 0`` | ``(p,r,r') \in \mathcal{T}``, ``p \in P^H`` | trade flow from ``r`` to ``r'`` |
+| ``X_{p,o,r} \ge q_{min}`` | ``p \in P^A``, ``o \in O_{p,r}`` | quantity of the variety of origin ``o`` used in ``r`` |
+| ``A_{p,r} \ge q_{min}`` | ``p \in P^A``, ``r \in R`` | composite of ``p`` available to the users of ``r`` |
 
 ``q_{min} = 10^{-4}`` is the constant `QFLOOR` (see
 [Numerical details](@ref)).
@@ -69,6 +74,7 @@ combinations present in the data, and stored in dictionaries keyed by symbols
        \;-\; \sum_{(r,p) \in \mathcal{S}} \frac{b_{r,p}}{1 + 1/\varepsilon_{r,p}}\, S_{r,p}^{\,1 + 1/\varepsilon_{r,p}} \\
        & \;-\; \sum_{k} \sum_{r \in R_k} c_k\, z_{r,k}
        \;-\; \sum_{(p,r,r') \in \mathcal{T}} \tau_{p,r,r'}\, T_{p,r,r'}
+       \;-\; \sum_{p \in P^A} \sum_{r} \sum_{o \in O_{p,r},\, o \ne r} \tau_{p,o,r}\, X_{p,o,r}
 \end{aligned}
 ```
 
@@ -91,9 +97,9 @@ optimum it is binding because inputs are costly. A nest with a single product
 (Leontief) creates no variable and no constraint: the input use
 ``\bar a_n z_{r,k}`` enters the material balance directly.
 
-### Material balance
+### Material balance of a homogeneous product
 
-For every region ``r \in R`` and product ``p \in P``:
+For every region ``r \in R`` and product ``p \in P^H``:
 
 ```math
 \begin{aligned}
@@ -108,6 +114,46 @@ Terms are present only where defined (e.g. ``S_{r,p}`` only if
 ``(r,p) \in \mathcal{S}``). In the code the constraint is written as
 `sources + imports − uses − exports == 0`.
 
+### Balances of an Armington product
+
+For ``p \in P^A`` the single balance splits in two, because what a region
+produces and what its users consume are no longer the same good. Writing
+``\text{src}_{r,p}`` and ``\text{use}_{r,p}`` for the source and use sides
+above (without the trade terms), for every ``r \in R``:
+
+```math
+\text{src}_{r,p} = \sum_{r' :\, r \in O_{p,r'}} X_{p,r,r'}
+\qquad\text{(origin balance: all local output is shipped somewhere)}
+```
+
+```math
+A_{p,r} = \text{use}_{r,p}
+\qquad\text{(absorption balance: the composite covers all local use)}
+```
+
+```math
+\left( \sum_{o \in O_{p,r}} \delta_{p,o,r}^{\,1/\sigma_p}\, X_{p,o,r}^{\,\rho_p} \right)^{1/\rho_p} \;\ge\; A_{p,r},
+\qquad \rho_p = \frac{\sigma_p - 1}{\sigma_p}
+\qquad\text{(CES over origins)}
+```
+
+Note that ``o = r`` is in ``O_{p,r}``: a region's own variety goes through the
+composite like any other, and ``X_{p,r,r}`` is its domestic use. A destination
+with a single origin gets the linear constraint ``X_{p,o,r} \ge A_{p,r}``
+instead, avoiding the powers.
+
+The aggregator is the same calibrated CES as the input nests, so the implied
+composite price is the standard price index
+
+```math
+\pi^c_{p,r} = \left( \sum_{o \in O_{p,r}} \delta_{p,o,r}\,
+              \bigl(\pi^s_{p,o} + \tau_{p,o,r}\bigr)^{1-\sigma_p} \right)^{1/(1-\sigma_p)}
+```
+
+which tends to ``\min_o (\pi^s_{p,o} + \tau_{p,o,r})`` as ``\sigma_p \to
+\infty``. At ``\sigma_p = \infty`` the engine does not build these constraints
+at all: the product is treated as homogeneous, which is the same model.
+
 ### Convexity
 
 The first term of the objective is concave (exponent ``1 - 1/\eta`` in
@@ -119,17 +165,29 @@ the local optimum found by Ipopt is the global one.
 
 ## From the solution to prices
 
-Each material-balance constraint is stored in `balance[(r, p)]`, and the
-price of product ``p`` in region ``r`` is read as the dual of that constraint:
+The balance faced by the users of a region is stored in `balance[(r, p)]`, and
+the price those users pay is the dual of that constraint:
 
 ```julia
-abs(dual(balance[(r, p)]))
+abs(dual(balance[(r, p)]))        # the `price` column
 ```
 
-The dual is the change in the objective per extra unit of product available in
-that region, i.e. the competitive price. In the forest example solved with
-Ipopt the duals are already positive; `abs` guards against differences in
-sign conventions between solvers.
+The dual is the change in the objective per extra unit of product available to
+them, i.e. the competitive price. In the forest example solved with Ipopt the
+duals are already positive; `abs` guards against differences in sign
+conventions between solvers.
+
+For an Armington product the origin balance is stored as well, in
+`origin_balance[(r, p)]`, and its dual is what local producers are paid:
+
+```julia
+abs(dual(origin_balance[(r, p)])) # the `producer_price` column
+```
+
+The two prices differ by the composition of the CES bundle: local users pay the
+price index of all the varieties they buy, local producers are paid the value
+of their own. For a homogeneous product there is no origin balance and
+`producer_price` repeats `price`.
 
 !!! note
     Because there is no free disposal, the economic price of a product in
@@ -145,13 +203,15 @@ a [`Results`](@ref) with the tables:
 * `production`: ``S_{r,p}`` plus ``\sum_k y_{k,p} z_{r,k}``, for all region and
   product pairs with a value above ``10^{-6}``;
 * `consumption`: ``D_{r,p}`` for every pair in ``\mathcal{D}``;
-* `trade`: ``T_{p,r,r'}`` above ``10^{-6}``;
+* `trade`: ``T_{p,r,r'}`` and the cross-border ``X_{p,o,r}`` (``o \ne r``) above ``10^{-6}``;
 * `net_trade`: exports and imports summed over routes, for pairs with any trade;
-* `prices`: one row for every region and product, if the solver returned duals;
+* `prices`: one row for every region and product, if the solver returned duals,
+  with `price` and `producer_price` as above;
 * `activity`: ``z_{r,k}`` above ``10^{-6}``.
 
-Intermediate input use (the ``x`` variables and the Leontief uses) is not
-reported as a table; it can be recovered from `res.model`.
+Intermediate input use (the ``x`` variables and the Leontief uses) and the
+domestic Armington varieties ``X_{p,r,r}`` are not reported as tables; they can
+be recovered from `res.model`.
 
 ## Numerical details
 
@@ -180,6 +240,13 @@ equilibrium:
   output price equals coefficient × input price + value-added cost, the CES
   input ratio satisfies the cost-minimisation condition, and the CES output price
   equals the composite unit cost + value-added cost;
+* Armington trade: ``\sigma = \infty`` reproduces the homogeneous solution
+  exactly, the error against it falls monotonically as ``\sigma`` grows, a
+  finite ``\sigma`` produces cross-hauling and producer-price gaps wider than
+  the transport cost, the composite price equals the CES price index of the
+  delivered prices, the variety mix follows the CES demand condition, a supply
+  shock in one region moves prices and flows in the other, and the
+  specification errors are caught;
 * the forest example: the solve succeeds, all prices are positive, no route has
   a price gap above its transport cost, used routes have a gap equal to it, and
   world exports equal world imports for every product.

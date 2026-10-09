@@ -30,6 +30,11 @@ GitHub: [https://github.com/sylvaticus/Markets.jl](https://github.com/sylvaticus
   inputs are also available.
 * **Linked regional markets.** Regions trade at a transport cost, so equilibrium
   prices differ across regions by at most that cost.
+* **Imperfect substitution between origins, where you want it.** Give a product
+  an Armington elasticity and its regional varieties become imperfect
+  substitutes: regions cross-haul and every region's price responds to supply
+  and demand everywhere. An infinite elasticity, the default, is the
+  homogeneous case above.
 * **Tidy results.** Every result is a `DataFrame`.
 
 ## Installation
