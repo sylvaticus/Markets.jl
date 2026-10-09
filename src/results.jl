@@ -39,7 +39,7 @@ end
 
 # Build the result tables from the solved model.  Internal: users get a
 # `Results` from `solve_market`.
-function build_results(d, m, D, S, z, T, X, balance, origin_balance)
+function build_results(d, m, D, S, z, T, X, balance, origin_balance, tol)
     val(x) = value(x)
     # bilateral flows: the trade variables of the homogeneous products and the
     # cross-border varieties of the Armington ones
@@ -63,7 +63,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance)
     production = DataFrame(region = Symbol[], product = Symbol[], quantity = Float64[])
     for r in d.regions, p in d.products
         q = get(prod, (r, p), 0.0)
-        q > 1e-6 && push!(production, (r, p, q))
+        q > tol && push!(production, (r, p, q))
     end
 
     consumption = DataFrame(region = Symbol[], product = Symbol[], quantity = Float64[])
@@ -75,7 +75,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance)
     trade = DataFrame(product = Symbol[], from = Symbol[], to = Symbol[], quantity = Float64[])
     for ((p, from, to), v) in flows
         q = val(v)
-        q > 1e-6 && push!(trade, (p, from, to, q))
+        q > tol && push!(trade, (p, from, to, q))
     end
     sort!(trade, [:product, :from, :to])
 
@@ -84,37 +84,41 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance)
     for r in d.regions, p in d.products
         ex = sum((val(flows[(p, r, o)]) for o in d.regions if haskey(flows, (p, r, o))); init = 0.0)
         im = sum((val(flows[(p, o, r)]) for o in d.regions if haskey(flows, (p, o, r))); init = 0.0)
-        (ex > 1e-6 || im > 1e-6) && push!(net, (r, p, ex, im, ex - im))
+        (ex > tol || im > tol) && push!(net, (r, p, ex, im, ex - im))
     end
 
-    prices = DataFrame(region = Symbol[], product = Symbol[], price = Float64[])
+    # Prices are the duals of the balances, with their own sign: a by-product
+    # nobody wants, which the balance forces someone to take, has a negative
+    # price.  (`shadow_price` must not be used here: for an equality constraint
+    # it reports the gain from relaxing it in whichever direction helps, which
+    # discards that sign.)
+    prices = DataFrame(region = Symbol[], product = Symbol[])
+    user = Any[]
     producer = Any[]
     if has_duals(m)
         arm = Set(a.product for a in d.armington if isfinite(a.sigma))
-        can = producible(d)
         for r in d.regions, p in d.products
-            push!(prices, (r, p, abs(dual(balance[(r, p)]))))
-            # what local producers get: the same as what users pay, unless the
-            # product is an Armington one, and `missing` where the region has
-            # no variety of it to sell
-            push!(producer, if haskey(origin_balance, (r, p))
-                      abs(dual(origin_balance[(r, p)]))
-                  elseif p in arm && !((p, r) in can)
-                      missing
-                  else
-                      prices.price[end]
-                  end)
+            push!(prices, (r, p))
+            # what local users pay, `missing` where the region uses none of it
+            push!(user, haskey(balance, (r, p)) ? dual(balance[(r, p)]) : missing)
+            # what local producers get: the same, unless the product is an
+            # Armington one, and `missing` where the region has no variety of
+            # it to sell
+            push!(producer, haskey(origin_balance, (r, p)) ? dual(origin_balance[(r, p)]) :
+                            p in arm ? missing : user[end])
         end
-        prices.producer_price = identity.(producer)   # Float64 unless any is missing
+        prices.price          = identity.(user)       # Float64 unless any is missing
+        prices.producer_price = identity.(producer)
         sort!(prices, [:region, :product])
     else
+        prices.price          = Float64[]
         prices.producer_price = Float64[]
     end
 
     activity = DataFrame(region = Symbol[], process = Symbol[], level = Float64[])
     for proc in d.processes, r in regions_of(proc, d)
         lvl = val(z[(r, proc.name)])
-        lvl > 1e-6 && push!(activity, (r, proc.name, lvl))
+        lvl > tol && push!(activity, (r, proc.name, lvl))
     end
 
     return Results(data = d, model = m, production = production,

@@ -33,13 +33,17 @@ produced, consumed or traded there.
 
 A [`DemandSpec`](@ref) gives a constant-elasticity demand curve for one
 product in one region, calibrated to pass through a reference point: at price
-`p0` the quantity demanded is `q0`. `elasticity` is the (positive) own-price
-elasticity ``\eta`` and must be greater than 1 (see
-[Modelling choices](@ref "Demand and supply curves")).
+`p0` the quantity demanded is `q0`. `elasticity` is the own-price elasticity
+``\eta``, which need only be positive — **inelastic demand, ``\eta < 1``, is
+allowed and is what most forest products call for**:
 
 ```julia
-DemandSpec(product = :sawn_sw, region = :EU, p0 = 250, q0 = 90, elasticity = 1.3)
+DemandSpec(product = :sawn_sw, region = :EU, p0 = 250, q0 = 90, elasticity = 0.45)
 ```
+
+With ``\eta \le 1`` the objective value is no longer an absolute measure of
+welfare, only a basis for comparing scenarios; quantities and prices are
+unaffected. See [Demand and supply curves](@ref).
 
 Only products with a `DemandSpec` in a region are consumed there; other
 products are intermediates in that region.
@@ -142,9 +146,19 @@ armington = [Armington(product = :paper, sigma = 4),             # equal shares
   move.
 * `shares` are keyed `(origin, destination)` and are the shares that would be
   observed if all delivered prices were equal, so they carry the home bias.
-  Calibrate them on a base-year trade matrix. Omitted, every origin available
-  to a destination gets an equal share. An origin with no share (or a share of
-  0) is left out of that destination's composite.
+  They are **not** the observed shares: calibrate them from a base-year trade
+  matrix with [`armington_shares`](@ref), which inverts the CES demand
+  condition for you.
+
+  ```julia
+  shares = armington_shares(flows = base_year_quantities,   # (origin, dest) => quantity
+                            prices = delivered_prices,      # (origin, dest) => price
+                            sigma = 4)
+  ```
+
+  Omitted, every origin available to a destination gets an equal share. An
+  origin with no share (or a share of 0) is left out of that destination's
+  composite, and so can never gain trade later.
 * `sigma = Inf`, and any product not listed, is the homogeneous case above.
   Inside an [`OriginNest`](@ref) it instead pools that group of origins into a
   single good, which is how a set of regions that form one internal market —
@@ -242,6 +256,11 @@ A [`Results`](@ref) holds six `DataFrame`s:
 | `net_trade`   | region, product, exports, imports, net | net = exports − imports |
 | `prices`      | region, product, price, producer\_price | what local users pay, and what local producers get |
 | `activity`    | region, process, level | process activity levels |
+
+Either price column is `missing` where it has no meaning: a region that cannot
+produce an Armington product has no `producer_price` for it, and a region that
+uses none of one has no `price`. Prices are signed, so a by-product that must
+be disposed of at a cost shows a negative one.
 
 `price` and `producer_price` differ only for an [`Armington`](@ref) product,
 where local users buy a composite of all origins' varieties while local

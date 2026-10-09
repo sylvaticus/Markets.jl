@@ -100,6 +100,109 @@ end
     @test p(:mid) ≈ unitcost + 20 rtol = 1e-3
 end
 
+@testset "Demand elasticities of any sign of (η-1)" begin
+    economy(η) = MarketData(
+        regions  = [:A, :B], products = [:x],
+        demand   = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = η)
+                    for r in (:A, :B)],
+        supply   = [SupplySpec(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 1.0),
+                    SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 1.0)],
+        tradable = [:x], transport = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0))
+
+    # η ≤ 1 is not a restriction: the benefit term is an antiderivative of the
+    # inverse demand, which stays concave and leaves the equilibrium defined
+    for η in (0.3, 0.6, 1.0, 1.5, 3.0)
+        res = solve_market(economy(η))
+        @test solved(res)
+        for r in (:A, :B)
+            D = getq(res.consumption, r, :x)
+            @test price(res, r, :x) ≈ 100 * (D / 10)^(-1 / η) rtol = 1e-4
+        end
+    end
+    # η = 1 is the logarithmic case, and the switch to it is continuous
+    just_above = solve_market(economy(1 + 1e-7))
+    unit       = solve_market(economy(1.0))
+    @test price(just_above, :A, :x) ≈ price(unit, :A, :x) rtol = 1e-5
+    # less elastic demand means a supply shock moves prices more
+    shock(η) = begin
+        base = solve_market(economy(η))
+        more = MarketData(regions = [:A, :B], products = [:x],
+                 demand = economy(η).demand,
+                 supply = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 45, elasticity = 1.0),
+                           SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],
+                 tradable = [:x], transport = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0))
+        1 - price(solve_market(more), :A, :x) / price(base, :A, :x)
+    end
+    @test shock(0.4) > shock(1.5) > 0
+
+    @test_throws ArgumentError DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10,
+                                          elasticity = 0.0)
+    @test_throws ArgumentError DemandSpec(product = :x, region = :A, p0 = -1, q0 = 10,
+                                          elasticity = 1.5)
+    @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 50, q0 = 0,
+                                          elasticity = 1.0)
+    @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 50, q0 = 10,
+                                          elasticity = -0.5)
+end
+
+@testset "Prices keep their sign" begin
+    # :junk is an unavoidable by-product nobody wants; the balance is an
+    # equality, so somebody must take it and pay to burn it. Its equilibrium
+    # price is therefore negative, and must be reported as such.
+    d = MarketData(
+        regions   = [:A], products = [:w, :g, :junk],
+        demand    = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplySpec(product = :w, region = :A, p0 = 50, q0 = 20, elasticity = 1.0)],
+        processes = [Process(name = :mill, vacost = 20,
+                             inputs  = [leontief(product = :w, coeff = 1.0)],
+                             outputs = [:g => 1.0, :junk => 0.5]),
+                     Process(name = :incinerator, vacost = 15,
+                             inputs  = [leontief(product = :junk, coeff = 1.0)],
+                             outputs = Pair{Symbol,Float64}[])])
+    res = solve_market(d)
+    @test solved(res)
+    @test price(res, :A, :junk) ≈ -15 rtol = 1e-6     # the cost of burning it
+    @test price(res, :A, :w) > 0 && price(res, :A, :g) > 0
+    # zero-cost disposal is how a user asks for free disposal, and then the
+    # price of the by-product is zero rather than negative
+    free = solve_market(MarketData(regions = d.regions, products = d.products,
+             demand = d.demand, supply = d.supply,
+             processes = [d.processes[1],
+                          Process(name = :dump, vacost = 0.0,
+                                  inputs  = [leontief(product = :junk, coeff = 1.0)],
+                                  outputs = Pair{Symbol,Float64}[])]))
+    @test solved(free)
+    @test abs(price(free, :A, :junk)) < 1e-6
+end
+
+@testset "Armington share calibration" begin
+    flows  = Dict((:EU, :EU) => 80.0,  (:NA, :EU) => 15.0,  (:AS, :EU) => 5.0,
+                  (:NA, :NA) => 70.0,  (:EU, :NA) => 20.0,  (:AS, :NA) => 10.0)
+    prices = Dict((:EU, :EU) => 210.0, (:NA, :EU) => 235.0, (:AS, :EU) => 250.0,
+                  (:NA, :NA) => 200.0, (:EU, :NA) => 240.0, (:AS, :NA) => 245.0)
+    σ = 4
+    δ = armington_shares(; flows, prices, sigma = σ)
+    # shares sum to one per destination ...
+    for dest in (:EU, :NA)
+        @test sum(v for (k, v) in δ if k[2] == dest) ≈ 1
+    end
+    # ... and reproduce the observed sourcing through the CES demand condition
+    for dest in (:EU, :NA)
+        keys_d  = [k for k in keys(δ) if k[2] == dest]
+        implied = Dict(k => δ[k] * prices[k]^(-σ) for k in keys_d)
+        tot, ftot = sum(values(implied)), sum(flows[k] for k in keys_d)
+        for k in keys_d
+            @test implied[k] / tot ≈ flows[k] / ftot rtol = 1e-8
+        end
+    end
+    # they are not the observed shares themselves, which is the point
+    @test !isapprox(δ[(:EU, :EU)], 0.8; rtol = 1e-3)
+    @test_throws ArgumentError armington_shares(; flows, prices, sigma = 0.5)
+    @test_throws ArgumentError armington_shares(flows = Dict((:EU, :EU) => 1.0),
+                                                prices = Dict{Tuple{Symbol,Symbol},Float64}(),
+                                                sigma = 3)
+end
+
 @testset "Armington trade" begin
     τ = 5.0
     # A is the cheap producer, B the expensive one
@@ -367,6 +470,24 @@ end
         @test price(res, :AS, :y) > 0            # it still buys, at a price
     end
 
+    @testset "a region that uses none of a product needs no composite" begin
+        # C neither consumes :y nor processes it, but it does produce it
+        d = MarketData(
+            regions   = regions, products = [:x],
+            demand    = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
+                         for r in (:EU, :NA)],                      # nothing in AS
+            supply    = [SupplySpec(product = :x, region = r, p0 = 60, q0 = 15, elasticity = 1.0)
+                         for r in regions],
+            tradable  = [:x], transport = transport,
+            armington = [Armington(product = :x, sigma = 3)])
+        res = solve_market(d)
+        @test solved(res)                       # used to be infeasible
+        @test ismissing(price(res, :AS, :x))    # nothing there to price a composite
+        @test pprice(res, :AS, :x) > 0          # but its own output has a value
+        @test getq(res.production, :AS, :x) > 1e-3
+        @test !ismissing(price(res, :EU, :x))
+    end
+
     @testset "a group with one available origin collapses" begin
         res = solve_market(economy([Armington(product = :x, sigma = 3, shares = shares,
                                     nests = [OriginNest(sigma = 9, origins = [:NA])])]))
@@ -408,7 +529,7 @@ end
     d, res, france = ex.example_market, ex.res, ex.france
     @test solved(res)
     @test nrow(res.prices) == length(d.regions) * length(d.products)
-    @test all(res.prices.price .> 0)
+    @test all(skipmissing(res.prices.price) .> 0)
 
     # papermill is Leontief: it buys the pulp composite and sells its own
     # variety of paper, so zero profit ties the producer price to the user one

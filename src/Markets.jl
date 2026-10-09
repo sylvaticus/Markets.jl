@@ -31,7 +31,7 @@ using JuMP, Ipopt, DataFrames
 using DocStringExtensions: TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 
 export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
-       leontief, ces, solve_market, Results, for_region
+       leontief, ces, armington_shares, solve_market, Results, for_region
 
 include("types.jl")
 include("model.jl")

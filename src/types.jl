@@ -30,10 +30,23 @@ Base.@kwdef struct DemandSpec
     "Reference quantity, i.e. the quantity demanded at price `p0`"
     q0::Float64
     """
-    Own-price demand elasticity ``\\eta`` (positive). **Use ``\\eta > 1``**, so
-    that the consumer-surplus integral in the objective is finite
+    Own-price demand elasticity ``\\eta``, which must be positive. Any value is
+    allowed: for ``\\eta \\le 1`` the benefit term of the objective is an
+    antiderivative of the inverse demand rather than the integral from zero,
+    which leaves the equilibrium and the prices unchanged but makes the
+    reported objective value a welfare *difference* rather than a level
     """
     elasticity::Float64
+
+    function DemandSpec(product, region, p0, q0, elasticity)
+        p0 > 0 && q0 > 0 || throw(ArgumentError(
+            "the reference point of the demand for $product in $region must be " *
+            "positive, got p0 = $p0, q0 = $q0"))
+        elasticity > 0 || throw(ArgumentError(
+            "the demand elasticity of $product in $region must be positive, " *
+            "got $elasticity"))
+        new(product, region, p0, q0, elasticity)
+    end
 end
 
 """
@@ -62,8 +75,18 @@ Base.@kwdef struct SupplySpec
     p0::Float64
     "Reference quantity, i.e. the quantity supplied at price `p0`"
     q0::Float64
-    "Own-price supply elasticity ``\\varepsilon`` (positive)"
+    "Own-price supply elasticity ``\\varepsilon``, which must be positive"
     elasticity::Float64
+
+    function SupplySpec(product, region, p0, q0, elasticity)
+        p0 > 0 && q0 > 0 || throw(ArgumentError(
+            "the reference point of the supply of $product in $region must be " *
+            "positive, got p0 = $p0, q0 = $q0"))
+        elasticity > 0 || throw(ArgumentError(
+            "the supply elasticity of $product in $region must be positive, " *
+            "got $elasticity"))
+        new(product, region, p0, q0, elasticity)
+    end
 end
 
 """
@@ -369,6 +392,70 @@ function collect_origins!(acc::Vector{Symbol}, nests::Vector{OriginNest})
         collect_origins!(acc, n.nests)
     end
     return acc
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+Calibrate the [`Armington`](@ref) shares of one product from a base-year trade
+matrix, so that the model reproduces the observed sourcing at the observed
+prices.
+
+`flows` maps `(origin, destination)` to the quantity the destination bought
+from that origin in the base year, its own output included as `(r, r)`.
+`prices` maps the same pairs to the **delivered** price of that variety there,
+i.e. the producer price of the origin plus the cost of carrying it to the
+destination. `sigma` is the elasticity the shares are being calibrated for.
+
+The shares are *not* the observed quantity or value shares. Inverting the CES
+demand condition ``X_o = A\\,\\delta_o (P^c/q_o)^\\sigma`` gives
+
+```math
+\\delta_{o,r} \\;\\propto\\; X_{o,r}\\; q_{o,r}^{\\,\\sigma}
+```
+
+which is what this returns, normalised per destination. Feeding observed shares
+in directly would only be right if all delivered prices were equal, since
+``\\delta`` is by definition the share at equal delivered prices. From observed
+*value* shares `s` rather than quantities the equivalent form is
+``\\delta \\propto s\\, q^{\\sigma-1}``.
+
+Pairs with a non-positive flow are left out, and an origin left out of a
+destination's shares is left out of its composite: a route unused in the base
+year stays unused, which is the well-known small-shares limitation of Armington
+calibration.
+
+# Example
+```julia
+shares = armington_shares(
+    flows  = Dict((:EU, :EU) => 80.0, (:NA, :EU) => 15.0, (:AS, :EU) => 5.0),
+    prices = Dict((:EU, :EU) => 210.0, (:NA, :EU) => 235.0, (:AS, :EU) => 250.0),
+    sigma  = 4)
+Armington(product = :paper, sigma = 4, shares = shares)
+```
+"""
+function armington_shares(; flows::AbstractDict{Tuple{Symbol,Symbol},<:Real},
+                            prices::AbstractDict{Tuple{Symbol,Symbol},<:Real},
+                            sigma::Real)
+    sigma > 1 || throw(ArgumentError("sigma must be > 1, got $sigma"))
+    δ = Dict{Tuple{Symbol,Symbol},Float64}()
+    for (key, x) in flows
+        x > 0 || continue
+        haskey(prices, key) || throw(ArgumentError(
+            "no delivered price given for the flow $(key[1]) → $(key[2])"))
+        q = prices[key]
+        q > 0 || throw(ArgumentError(
+            "the delivered price of $(key[1]) → $(key[2]) must be positive, got $q"))
+        δ[key] = x * q^sigma
+    end
+    isempty(δ) && throw(ArgumentError("no positive flow to calibrate on"))
+    for dest in unique(k[2] for k in keys(δ))          # normalise per destination
+        total = sum(v for (k, v) in δ if k[2] == dest)
+        for k in keys(δ)
+            k[2] == dest && (δ[k] /= total)
+        end
+    end
+    return δ
 end
 
 """

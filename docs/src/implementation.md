@@ -133,6 +133,13 @@ A_{p,r} = \text{use}_{r,p}
 \qquad\text{(absorption balance: the composite covers all local use)}
 ```
 
+built only where the region uses the product at all — in final demand or as a
+process input. A region that uses none of it holds no composite and gets
+neither of these two constraints, though its origin balance remains so that it
+can produce the product for others. (Building them unconditionally made such a
+region infeasible, since ``A`` carries a positive lower bound while
+``\text{use}`` is zero.)
+
 ```math
 \left( \sum_{c \,\in\, \mathrm{children}(\nu)} \delta_{\nu,c}^{\,1/\sigma_\nu}\, q_c^{\,\rho_\nu} \right)^{1/\rho_\nu} \;\ge\; q_\nu,
 \qquad \rho_\nu = \frac{\sigma_\nu - 1}{\sigma_\nu}
@@ -200,31 +207,44 @@ The balance faced by the users of a region is stored in `balance[(r, p)]`, and
 the price those users pay is the dual of that constraint:
 
 ```julia
-abs(dual(balance[(r, p)]))        # the `price` column
+dual(balance[(r, p)])             # the `price` column
 ```
 
 The dual is the change in the objective per extra unit of product available to
-them, i.e. the competitive price. In the forest example solved with Ipopt the
-duals are already positive; `abs` guards against differences in sign
-conventions between solvers.
-
-For an Armington product the origin balance is stored as well, in
-`origin_balance[(r, p)]`, and its dual is what local producers are paid:
+them, i.e. the competitive price. For an Armington product the origin balance
+is stored as well, in `origin_balance[(r, p)]`, and its dual is what local
+producers are paid:
 
 ```julia
-abs(dual(origin_balance[(r, p)])) # the `producer_price` column
+dual(origin_balance[(r, p)])      # the `producer_price` column
 ```
+
+!!! warning "Do not take the absolute value, and do not use `shadow_price`"
+    The sign is information, not noise. Because the balances are equalities,
+    a by-product that nobody wants has a **negative** price — the amount
+    somebody must be paid to take it — and an earlier version of this package
+    reported `abs(dual(...))`, which silently turned such a price into its
+    positive mirror image. `shadow_price` is no remedy: for an equality
+    constraint it reports the gain from relaxing the constraint in whichever
+    direction helps, so it returns the same positive number. The raw `dual` is
+    the signed economic price and is what the code now uses.
 
 The two prices differ by the composition of the CES bundle: local users pay the
 price index of all the varieties they buy, local producers are paid the value
 of their own. For a homogeneous product there is no origin balance and
 `producer_price` repeats `price`.
 
+Either column is `missing` where the corresponding balance does not exist: a
+region that cannot produce an Armington product has no `producer_price` for it,
+and a region that uses none of one has no `price`, since it holds no composite
+of it.
+
 !!! note
-    Because there is no free disposal, the economic price of a product in
-    excess supply (e.g. a by-product with no profitable use) can be negative.
-    `abs` would report such a price as positive. This does not happen in the
-    forest example.
+    Because there is no free disposal, the price of a product in excess supply
+    — a by-product with no profitable use — is genuinely negative, and is
+    reported as such. Adding a zero-cost process that consumes it is how to ask
+    for free disposal instead; see
+    [Joint products and residues](@ref).
 
 ## Results extraction
 
@@ -232,13 +252,13 @@ of their own. For a homogeneous product there is no origin balance and
 a [`Results`](@ref) with the tables:
 
 * `production`: ``S_{r,p}`` plus ``\sum_k y_{k,p} z_{r,k}``, for all region and
-  product pairs with a value above ``10^{-6}``;
+  product pairs with a value above `tol`;
 * `consumption`: ``D_{r,p}`` for every pair in ``\mathcal{D}``;
-* `trade`: ``T_{p,r,r'}`` and the cross-border ``X_{p,o,r}`` (``o \ne r``) above ``10^{-6}``;
-* `net_trade`: exports and imports summed over routes, for pairs with any trade;
+* `trade`: ``T_{p,r,r'}`` and the cross-border ``X_{p,o,r}`` (``o \ne r``) above `tol`;
+* `net_trade`: exports and imports summed over routes, for pairs with any trade above `tol`;
 * `prices`: one row for every region and product, if the solver returned duals,
   with `price` and `producer_price` as above;
-* `activity`: ``z_{r,k}`` above ``10^{-6}``.
+* `activity`: ``z_{r,k}`` above `tol`.
 
 Intermediate input use (the ``x`` variables and the Leontief uses) and the
 domestic Armington varieties ``X_{p,r,r}`` are not reported as tables; they can
@@ -246,13 +266,41 @@ be recovered from `res.model`.
 
 ## Numerical details
 
-* **Lower bound `QFLOOR`.** Demand, supply and CES input quantities are bounded
-  below by ``10^{-4}`` instead of 0. The derivatives of ``D^{1-1/\eta}`` and of
-  ``x^{\rho}`` are infinite at zero, which the interior-point solver cannot
-  handle. As a consequence every demand and every input of an active CES nest
-  takes at least ``10^{-4}`` units.
+* **The quantity floor, `qfloor`.** A variable that is raised to a power with
+  an exponent below 1 has an infinite derivative at zero, which an
+  interior-point solver cannot evaluate there. Those variables are therefore
+  bounded below by a small positive `qfloor` rather than by 0, which forces a
+  sliver of quantity that would otherwise be absent. It applies to exactly
+  three kinds of variable:
+
+  * final demand ``D``, whose marginal benefit is ``a D^{-1/\eta}``;
+  * the inputs ``x`` of a CES process nest, which enter as ``x^{\rho}``;
+  * the Armington varieties and sub-composites that sit **directly under a
+    finite-``\sigma`` node**. A variety pooled by an infinitely substitutable
+    group enters its aggregator linearly and is bounded below by 0, so
+    varieties inside such a group can go cleanly to zero.
+
+  Primary supply ``S``, process activity ``z``, trade flows ``T`` and the
+  composites ``A`` need no floor and have none.
+
+  Two consequences to keep in mind. A process with activity ``z = 0`` still
+  draws `qfloor` of each of its CES inputs, and its nest constraint is then
+  slack rather than binding. And every origin–destination pair that is part of
+  a CES node trades at least `qfloor`, whatever the prices.
+
+* **`qfloor` and `tol` scale with the data.** Both default to a multiple of the
+  smallest reference quantity in the economy — ``10^{-6}`` of it for the floor,
+  ``10^{-3}`` of it for the threshold below which a quantity is not reported —
+  so that they mean the same thing whether the model is written in m³ or in
+  million m³. An absolute floor would be negligible in one and gross in the
+  other. Both are keyword arguments of [`solve_market`](@ref) if you want to
+  set them yourself.
 * **Starting point.** ``D`` and ``S`` start at their reference quantities
   ``q_0``, ``z`` at 1, CES inputs at ``\bar a_n``, and trade flows at 0.
+* **The unit-elastic case.** At ``\eta = 1`` the exponent ``1 - 1/\eta`` is
+  zero and the power form of the benefit term is undefined; the code switches
+  to ``a \log D`` when ``|1 - 1/\eta| < 10^{-8}``, which also avoids the
+  cancellation that the power form would suffer just either side of 1.
 * **Solver status.** If the termination status is neither `OPTIMAL` nor
   `LOCALLY_SOLVED`, [`solve_market`](@ref) emits a warning and still returns the
   results, which may then be unreliable.
@@ -276,6 +324,16 @@ equilibrium:
   members' prices together, structures and elasticities differ by destination
   as specified, the `:all` entry serves as the fallback, and inconsistent
   groupings are rejected;
+* demand elasticities on both sides of 1: the equilibrium price equals the
+  inverse demand for ``\eta`` from 0.3 to 3, the unit-elastic case matches the
+  limit of the power form, a less elastic demand moves prices more, and
+  non-positive elasticities and reference points are rejected;
+* prices keep their sign: an unwanted by-product that must be incinerated has a
+  price equal to minus the cost of burning it, and adding a free disposal
+  process brings it back to zero;
+* share calibration: [`armington_shares`](@ref) normalises per destination and
+  reproduces the base-year sourcing through the CES demand condition, while
+  differing from the observed shares themselves;
 * Armington trade: ``\sigma = \infty`` reproduces the homogeneous solution
   exactly, the error against it falls monotonically as ``\sigma`` grows, a
   finite ``\sigma`` produces cross-hauling and producer-price gaps wider than

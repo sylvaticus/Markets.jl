@@ -95,19 +95,24 @@ nothing # hide
 # Only finished products are consumed: construction lumber, appearance-grade
 # hardwood lumber, panels and paper. The reference quantities are roughly
 # proportional to population and income, so `OF` — which holds two thirds of
-# the French population — is much the largest French market. Elasticities are
-# above 1, as the model requires.
+# the French population — is much the largest French market.
+#
+# The own-price elasticities are **below 1**: demand for forest products is
+# usually found to be price-inelastic, construction lumber and paper most of
+# all, since their cost is a small part of the building or the printed product
+# they end up in. An inelastic demand makes prices, rather than quantities,
+# absorb a supply shock — which matters for the storm scenario at the end.
 
 reference_demand = Dict(
     ## product  => (price, quantities by region, elasticity)
     :sawn_sw => (250.0,  Dict(:SEF => 1.90, :SWF => 0.90, :GEF => 0.80, :OF => 5.60,
-                              :EU => 75.0, :NA => 120.0, :AS => 80.0,  :RW => 45.0), 1.3),
+                              :EU => 75.0, :NA => 120.0, :AS => 80.0,  :RW => 45.0), 0.45),
     :sawn_hw => (300.0,  Dict(:SEF => 0.25, :SWF => 0.12, :GEF => 0.11, :OF => 0.72,
-                              :EU => 12.0, :NA =>  20.0, :AS => 60.0,  :RW => 15.0), 1.3),
+                              :EU => 12.0, :NA =>  20.0, :AS => 60.0,  :RW => 15.0), 0.55),
     :panel   => (350.0,  Dict(:SEF => 0.90, :SWF => 0.40, :GEF => 0.40, :OF => 2.80,
-                              :EU => 45.0, :NA =>  40.0, :AS => 90.0,  :RW => 25.0), 1.4),
+                              :EU => 45.0, :NA =>  40.0, :AS => 90.0,  :RW => 25.0), 0.50),
     :paper   => (1000.0, Dict(:SEF => 1.80, :SWF => 0.80, :GEF => 0.75, :OF => 5.60,
-                              :EU => 70.0, :NA =>  80.0, :AS => 130.0, :RW => 40.0), 1.2),
+                              :EU => 70.0, :NA =>  80.0, :AS => 130.0, :RW => 40.0), 0.30),
 )
 
 demand = [DemandSpec(product = p, region = r, p0 = price, q0 = quantities[r], elasticity = η)
@@ -326,8 +331,7 @@ french_trade = combine(groupby(
 # freight. Indeed, the only flows inside France are of pulp, and they run one
 # way:
 
-intra = res.trade[in.(res.trade.from, Ref(france)) .& in.(res.trade.to, Ref(france)), :]
-intra[intra.quantity .> 1e-3, :]
+res.trade[in.(res.trade.from, Ref(france)) .& in.(res.trade.to, Ref(france)), :]
 
 # `SEF` and `GEF` have no pulp mill, so they buy pulp from `OF`, which has one.
 # Nothing else moves between French regions: each covers its own needs first
@@ -401,9 +405,9 @@ DataFrame((region = r,
 #
 # * Change the elasticities in `σ_blocs` and `σ_europe` and watch the gradient
 #   above widen or flatten.
-# * Replace the gravity shares with a base-year trade matrix. Remember that the
-#   `shares` are the shares *at equal delivered prices*: from observed value
-#   shares `s` and delivered prices `q`, the model wants `δ ∝ s · q^(σ-1)`.
+# * Replace the gravity shares with a base-year trade matrix. The `shares` are
+#   the shares *at equal delivered prices*, not the observed ones, so pass the
+#   matrix through [`armington_shares`](@ref) rather than using it directly.
 # * Give the EU market its own `destination` specification to represent a
 #   non-tariff measure applying to one bloc only.
 # * Make transport concave in distance, or compute distances between the

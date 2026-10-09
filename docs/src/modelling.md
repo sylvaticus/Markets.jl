@@ -68,10 +68,38 @@ P^D(D) = p_0 \left(\frac{D}{q_0}\right)^{-1/\eta}, \qquad
 P^S(S) = p_0 \left(\frac{S}{q_0}\right)^{1/\varepsilon}
 ```
 
-Demand elasticities must be **greater than 1**. With ``\eta \le 1`` the area
-under the demand curve from zero, ``\int_0^D P^D``, is infinite, and the
-gross consumer benefit in the objective would be undefined. Supply elasticities
-only need to be positive.
+Both elasticities need only be **positive**. Demand may be inelastic, which
+matters because that is how demand for most forest products is estimated:
+earlier versions of this package required ``\eta > 1``, on the grounds that for
+``\eta \le 1`` the area under the demand curve from zero is infinite. That
+argument does not hold. The objective needs an *antiderivative* of the inverse
+demand, not the integral from zero, and the additive constant — infinite though
+it is — changes neither the optimum nor the first-order conditions, hence
+neither quantities nor prices:
+
+```math
+\int^D P^D = \frac{a}{1-1/\eta}\, D^{\,1-1/\eta} \quad (\eta \ne 1),
+\qquad \int^D P^D = a \log D \quad (\eta = 1)
+```
+
+With ``\eta < 1`` the coefficient and the exponent are both negative, so the
+term is still increasing and concave and the program is still convex. The one
+thing lost is the *level* of welfare: with ``\eta \le 1`` the objective value is
+not consumer surplus in absolute terms. Differences between scenarios remain
+well defined, which is what a comparative exercise uses.
+
+!!! warning
+    Inelastic demand changes results substantially, and in the direction people
+    often forget: with ``\eta`` well below 1 a supply shock is absorbed by
+    *prices* rather than by quantities. Using ``\eta > 1`` for a product whose
+    demand is really inelastic makes a model systematically under-react in
+    price and over-react in volume.
+
+Each final demand depends on its own price only; there are no cross-price
+effects between final products. Substitution between products happens on the
+input side, inside processes. This separability is also what makes the
+surplus-maximisation equivalence legitimate: the demand system is integrable by
+construction.
 
 Each final demand depends on its own price only; there are no cross-price
 effects between final products. Substitution between products happens on the
@@ -155,8 +183,24 @@ products with their own material balance in each region, so they can be
 consumed, traded or used as inputs to other processes, and their price is
 determined by the competition between their uses.
 
-The material balance is an equality: every unit of a by-product must be used,
-traded or consumed. There is no free disposal.
+The material balance is an **equality**: every unit of a by-product must be
+used, traded or consumed. There is no free disposal, and this has a consequence
+worth stating plainly. A by-product that nobody wants is a *bad*: somebody must
+be paid to take it, and its equilibrium price is **negative**. The model
+reports it that way, since the price is the signed dual of the balance.
+
+If free disposal is what you want instead, add a process that consumes the
+by-product and produces nothing:
+
+```julia
+Process(name = :dump, inputs = [leontief(product = :chips, coeff = 1.0)],
+        outputs = Pair{Symbol,Float64}[], vacost = 0.0)
+```
+
+Its price then settles at zero rather than going negative, and a positive
+`vacost` on it represents a real disposal cost instead. Writing the balances as
+inequalities, as a mixed-complementarity formulation would, is the other route
+to the same thing; it is not what this package does.
 
 ## Trade between regions
 
@@ -226,11 +270,41 @@ region's composite price, with a strength set by ``\sigma`` and by the shares,
 and producer prices can differ across regions by far more than the cost of
 shipping between them.
 
-**The shares matter.** ``\delta_{o,r}`` is the share origin `o` would have in
-destination `r` if all delivered prices were equal, so it carries the home bias
-and the historical trade pattern that prices alone do not explain. Calibrate
-them on a base-year trade matrix. Left unspecified, every origin available to a
-destination gets an equal share, which is neutral but rarely realistic.
+**The shares matter, and they are not the observed shares.**
+``\delta_{o,r}`` is the share origin `o` would have in destination `r` *if all
+delivered prices were equal*, so it carries the home bias and the trade pattern
+that prices alone do not explain. Base-year delivered prices are never equal —
+transport alone sees to that — so feeding an observed trade matrix in as
+``\delta`` does **not** reproduce the base year. Calibration means inverting
+the CES demand condition ``X_o = A \delta_o (P^c/q_o)^\sigma``:
+
+```math
+\delta_{o,r} \;\propto\; X_{o,r}\, q_{o,r}^{\,\sigma}
+\qquad\text{equivalently}\qquad
+\delta_{o,r} \;\propto\; s_{o,r}\, q_{o,r}^{\,\sigma-1}
+```
+
+from base-year quantities ``X`` or value shares ``s`` and delivered prices
+``q``. [`armington_shares`](@ref) does this. The gap is not small: an origin
+with an 80% observed share at a below-average delivered price calibrates to a
+``\delta`` noticeably under 80%, because part of its success is explained by
+its price rather than by preference. Left unspecified, every origin available to
+a destination gets an equal share, which is neutral but rarely realistic.
+
+Two consequences of calibrated shares are worth knowing:
+
+* **An origin with no share is not in the composite.** A route that carried
+  nothing in the base year carries nothing ever after, whatever prices do. This
+  is the well-known small-shares problem of Armington models: they cannot
+  create new trade relationships, only grow and shrink existing ones. Give a
+  plausible small share to a route you want to be able to open.
+* **The composite is not the physical sum.** ``A_r`` is a CES aggregate of the
+  varieties, and since the shares sum to one it is at most their sum, with
+  equality only when the mix is the one the shares describe. So reported
+  consumption of an Armington product is a composite index, not a tonnage, and
+  the m³ or tonne identity that holds for a homogeneous product does not hold
+  for it. Production, trade and the balances are in physical units throughout;
+  it is only the composite that is an index.
 
 ### Shares and elasticity answer different questions
 
@@ -338,6 +412,26 @@ variable and constraint per group of origins. And ``\sigma``, the groups and
 the shares are extra parameters to estimate, which is why they are opt-in per
 product rather than global.
 
+## What the model does not constrain
+
+Two limitations are inherent to the formulation rather than to the data, and
+both bear on how results should be read.
+
+**Processing location is sharp.** Processes have constant returns to scale and
+a constant value-added cost, with no upper bound on activity. Nothing therefore
+stops the whole of a process from concentrating in whichever region is
+cheapest: location is bang-bang, the same sharpness the homogeneous trade
+assumption produces, and Armington on the *outputs* only softens it indirectly
+by making each region's variety wanted somewhere. Until capacity bounds exist
+(they are in [Planned extensions](@ref)), read the geography of *processing* far
+more cautiously than that of prices or of final demand. Restricting a process
+to the regions that actually have mills, through the `regions` argument of
+[`Process`](@ref), is the blunt instrument available today.
+
+**Prices come from a continuous relaxation.** All quantities are continuous, so
+the model knows nothing of indivisible investments, minimum efficient scale or
+shutdown decisions.
+
 ## Dynamics
 
 The model is static: one call to [`solve_market`](@ref) computes one equilibrium.
@@ -355,8 +449,9 @@ e.g. ``D_t(P) = \alpha_t P^{-\eta}``.
 This deliberately avoids the form used in some recursive models, where
 demand in a period is a function of demand and price in the previous period,
 ``D_t / D_{t-1} = (P_t / P_{t-1})^{\eta}``. That form is a finite-difference
-proxy for an elasticity, so its results depend on the path and the units, and
-its errors compound across periods. Anchoring each period on a static
+proxy for an elasticity, so its results depend on the path taken and its errors
+compound across periods. (The ratio form is at least dimensionless, so the
+objection is about path dependence, not about units.) Anchoring each period on a static
 equilibrium with level functions keeps the dynamics interpretable.
 
 ## Previous formulation (v0.0.1)

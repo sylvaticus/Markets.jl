@@ -2,8 +2,56 @@
 #  Model construction
 # ----------------------------------------------------------------------------
 
-# small positive floor so CES powers q^ρ stay differentiable away from 0
-const QFLOOR = 1e-4
+"""
+$(TYPEDSIGNATURES)
+
+The scale of the economy: the smallest reference quantity in its demand and
+supply curves, or 1 if it has none.  The quantity floor and the reporting
+threshold are taken relative to it, so that they mean the same thing whether
+the model is written in m³ or in million m³.
+"""
+function quantity_scale(d::MarketData)
+    qs = Float64[s.q0 for s in d.demand]
+    append!(qs, Float64[s.q0 for s in d.supply])
+    return isempty(qs) ? 1.0 : minimum(qs)
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The `(product, region)` pairs something in the region uses: final demand, or an
+input of a process operating there.  A region that uses none of a product needs
+no composite of it, though it may still produce it for others.
+"""
+function consumed(d::MarketData)
+    uses = Set{Tuple{Symbol,Symbol}}()
+    for s in d.demand
+        push!(uses, (s.product, s.region))
+    end
+    for proc in d.processes, r in regions_of(proc, d), nest in proc.inputs, p in nest.products
+        push!(uses, (p, r))
+    end
+    return uses
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The origins that sit directly under a CES node of `node` and therefore enter an
+aggregator as ``X^\\rho``.  Only those need a positive lower bound; a variety
+pooled by an infinitely substitutable group enters linearly and may go to zero.
+"""
+function floored_origins(node, acc = Set{Symbol}())
+    node isa Symbol && return acc
+    for c in node.children
+        if c isa Symbol
+            isfinite(node.sigma) && push!(acc, c)
+        else
+            floored_origins(c, acc)
+        end
+    end
+    return acc
+end
 
 """
 $(TYPEDSIGNATURES)
@@ -176,10 +224,14 @@ variety of an origin when `node` is a `Symbol`, otherwise a fresh variable tied
 to its children by the CES aggregator of the group.  Called on the root of an
 [`armington_tree`](@ref), it adds one variable and one constraint per group.
 """
-function armington_quantity(m, node, p::Symbol, r::Symbol, X)
+function armington_quantity(m, node, p::Symbol, r::Symbol, X, qfloor, in_power::Bool = false)
     node isa Symbol && return X[(p, node, r)]
-    qs = [armington_quantity(m, c, p, r, X) for c in node.children]
-    composite = @variable(m, lower_bound = QFLOOR, start = sum(start_value, qs))
+    qs = [armington_quantity(m, c, p, r, X, qfloor, isfinite(node.sigma))
+          for c in node.children]
+    # the composite only needs a positive floor where it is itself raised to a
+    # power, i.e. where the group it belongs to substitutes imperfectly
+    composite = @variable(m, lower_bound = in_power ? qfloor : 0.0,
+                             start = sum(start_value, qs))
     if isinf(node.sigma)
         # perfect substitutes: the group is one good, pooled by plain addition
         # (the limit of the CES below, where δ^(1/σ) → 1 and ρ → 1)
@@ -200,10 +252,21 @@ Build and solve the equilibrium for the economy `d` and return a
 [`Results`](@ref).
 
 A warning is emitted if the solver does not report an optimal (or locally
-optimal) solution. `optimizer` is any JuMP solver able to handle nonlinear
-constraints and to return duals; `silent` suppresses its output.
+optimal) solution.
+
+* `optimizer` is any JuMP solver able to handle nonlinear constraints and to
+  return duals, and `silent` suppresses its output.
+* `qfloor` is the lower bound given to the quantities that are raised to a
+  power below 1, which an interior-point solver cannot differentiate at zero.
+* `tol` is the quantity below which a flow, an output or an activity is treated
+  as zero and left out of the result tables.
+
+Both default to a multiple of the smallest reference quantity in `d`, so that
+they scale with the units the economy is written in.
 """
-function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool = true)
+function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool = true,
+                      qfloor::Real = 1e-6 * quantity_scale(d),
+                      tol::Real = 1e-3 * quantity_scale(d))
     m = Model(optimizer)
     silent && set_silent(m)
     # Ipopt prints its licence banner even when silent unless "sb" is set
@@ -213,15 +276,17 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     supply_of = Dict((s.region, s.product) => s for s in d.supply)
 
     # --- decision variables -------------------------------------------------
-    # final demand quantities
+    # final demand quantities: floored because the marginal benefit a·D^(-1/η)
+    # is unbounded at zero
     D = Dict{Tuple{Symbol,Symbol},VariableRef}()
     for s in d.demand
-        D[(s.region, s.product)] = @variable(m, lower_bound = QFLOOR, start = s.q0)
+        D[(s.region, s.product)] = @variable(m, lower_bound = qfloor, start = s.q0)
     end
-    # primary supply quantities
+    # primary supply quantities: the marginal cost b·S^(1/ε) is finite at zero,
+    # so no floor is needed
     S = Dict{Tuple{Symbol,Symbol},VariableRef}()
     for s in d.supply
-        S[(s.region, s.product)] = @variable(m, lower_bound = QFLOOR, start = s.q0)
+        S[(s.region, s.product)] = @variable(m, lower_bound = 0.0, start = s.q0)
     end
     # process activity levels
     z = Dict{Tuple{Symbol,Symbol},VariableRef}()
@@ -242,16 +307,22 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     X = Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}()
     A = Dict{Tuple{Symbol,Symbol},VariableRef}()
     tree_of = Dict{Tuple{Symbol,Symbol},Any}()
-    can = producible(d)
+    can  = producible(d)
+    uses = consumed(d)
     for ((p, r), a) in arm
+        # a region that uses none of the product needs no composite of it; it
+        # may still produce it for others, which the origin balance covers
+        (p, r) in uses || continue
         root, origins, shares = armington_tree(d, a, r, can)
         tree_of[(p, r)] = root
+        floored = floored_origins(root)
         # a rough but useful starting point: the local reference consumption
         a0 = get(demand_of, (r, p), nothing)
         start = a0 === nothing ? 1.0 : a0.q0
-        A[(p, r)] = @variable(m, lower_bound = QFLOOR, start = start)
+        A[(p, r)] = @variable(m, lower_bound = 0.0, start = start)
         for (i, o) in pairs(origins)
-            X[(p, o, r)] = @variable(m, lower_bound = QFLOOR, start = shares[i] * start)
+            X[(p, o, r)] = @variable(m, lower_bound = o in floored ? qfloor : 0.0,
+                                        start = shares[i] * start)
         end
     end
 
@@ -271,7 +342,7 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
             else                                     # CES
                 qs = VariableRef[]
                 for p in nest.products
-                    q = @variable(m, lower_bound = QFLOOR, start = nest.composite)
+                    q = @variable(m, lower_bound = qfloor, start = nest.composite)
                     push!(qs, q)
                     addto!(used, (r, p), q)
                 end
@@ -312,11 +383,14 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
                                            if haskey(X, (p, r, dst)); init = 0.0))
                 origin_balance[(r, p)] = @constraint(m, src - ships == 0.0)
             end
-            # the composite covers the local uses
-            balance[(r, p)] = @constraint(m, A[(p, r)] - use == 0.0)
-            # ... and is the (possibly nested) CES aggregate of the varieties
+            # where the region uses the product, the composite covers those
+            # uses and is the (possibly nested) CES aggregate of the varieties
             # bought: one composite variable and one constraint per group
-            @constraint(m, armington_quantity(m, tree_of[(p, r)], p, r, X) >= A[(p, r)])
+            if haskey(A, (p, r))
+                balance[(r, p)] = @constraint(m, A[(p, r)] - use == 0.0)
+                @constraint(m, armington_quantity(m, tree_of[(p, r)], p, r, X, qfloor) >=
+                               A[(p, r)])
+            end
         else
             # homogeneous product: imports into r minus exports from r
             imp = @expression(m, sum(T[(p, o, r)] for o in d.regions if haskey(T, (p, o, r)); init = 0.0))
@@ -330,9 +404,14 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     #   − resource (supply) cost   Σ ∫₀ˢ P(s)ds
     #   − conversion (value-added) cost
     #   − transport cost
+    # The benefit term is an antiderivative of the inverse demand, not the
+    # integral from zero: for η ≤ 1 that integral diverges, but the constant it
+    # differs by changes neither the optimum nor the prices.  It is concave and
+    # increasing for every η > 0 — for η < 1 both a/e and e are negative — and
+    # at η = 1 the antiderivative is a·log(D).
     cons_benefit = @expression(m, sum(
         let s = demand_of[k], a = s.p0 * s.q0^(1 / s.elasticity), e = 1 - 1 / s.elasticity
-            (a / e) * D[k]^e
+            abs(e) < 1e-8 ? a * log(D[k]) : (a / e) * D[k]^e
         end for k in keys(D)))
     supply_cost = @expression(m, sum(
         let s = supply_of[k], b = s.p0 * s.q0^(-1 / s.elasticity), e = 1 + 1 / s.elasticity
@@ -351,5 +430,5 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     (st == MOI.LOCALLY_SOLVED || st == MOI.OPTIMAL) ||
         @warn "solver returned status $st — results may be unreliable"
 
-    return build_results(d, m, D, S, z, T, X, balance, origin_balance)
+    return build_results(d, m, D, S, z, T, X, balance, origin_balance, tol)
 end
