@@ -220,7 +220,10 @@ OriginNest(sigma = 12, origins = [:EU, :NA])
 Base.@kwdef struct OriginNest
     """
     Elasticity of substitution ``\\sigma`` between the members of the group. It
-    must be `> 1`, and at least the `sigma` of the nest that encloses it
+    must be `> 1`, and at least the `sigma` of the nest that encloses it.
+    `Inf` makes the members perfect substitutes: the group is pooled into a
+    single good, as in the homogeneous case, while still being a distinct
+    variety to the outside
     """
     sigma::Float64
     "Origins belonging to the group"

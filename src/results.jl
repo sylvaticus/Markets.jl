@@ -87,17 +87,28 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance)
         (ex > 1e-6 || im > 1e-6) && push!(net, (r, p, ex, im, ex - im))
     end
 
-    prices = DataFrame(region = Symbol[], product = Symbol[],
-                       price = Float64[], producer_price = Float64[])
+    prices = DataFrame(region = Symbol[], product = Symbol[], price = Float64[])
+    producer = Any[]
     if has_duals(m)
+        arm = Set(a.product for a in d.armington if isfinite(a.sigma))
+        can = producible(d)
         for r in d.regions, p in d.products
-            # what users pay, and what local producers get: the same thing
-            # unless the product is an Armington one
-            user = abs(dual(balance[(r, p)]))
-            prod = haskey(origin_balance, (r, p)) ? abs(dual(origin_balance[(r, p)])) : user
-            push!(prices, (r, p, user, prod))
+            push!(prices, (r, p, abs(dual(balance[(r, p)]))))
+            # what local producers get: the same as what users pay, unless the
+            # product is an Armington one, and `missing` where the region has
+            # no variety of it to sell
+            push!(producer, if haskey(origin_balance, (r, p))
+                      abs(dual(origin_balance[(r, p)]))
+                  elseif p in arm && !((p, r) in can)
+                      missing
+                  else
+                      prices.price[end]
+                  end)
         end
+        prices.producer_price = identity.(producer)   # Float64 unless any is missing
         sort!(prices, [:region, :product])
+    else
+        prices.producer_price = Float64[]
     end
 
     activity = DataFrame(region = Symbol[], process = Symbol[], level = Float64[])

@@ -29,13 +29,16 @@ Pre-alpha status: the API may change between versions.
 ```julia
 using Pkg; Pkg.add("Markets")
 using Markets
-include(joinpath(pkgdir(Markets), "examples", "forest", "example_data.jl"))
-res = solve_market(example_market)
+include(joinpath(pkgdir(Markets), "examples", "forest", "forest_market.jl"))
 res.production; res.consumption; res.trade; res.prices
 ```
 
+That example — a forest sector with four French regions and four world blocs —
+is also the [Forest example](https://sylvaticus.github.io/Markets.jl/dev/generated/forest_market/)
+page of the documentation, generated from the script itself with Literate.jl.
+
 ## Documentation
 
-The [documentation](https://sylvaticus.github.io/Markets.jl/dev/) has three
-parts: *Using the module*, *Modelling choices*, and *Code implementation*
-(with the API reference).
+The [documentation](https://sylvaticus.github.io/Markets.jl/dev/) has four
+parts: *Using the module*, the worked *Forest example*, *Modelling choices*,
+and *Code implementation* (with the API reference).

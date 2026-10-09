@@ -49,15 +49,19 @@ Pkg.add(url = "https://github.com/sylvaticus/Markets.jl")   # development versio
 
 ```julia
 using Markets
-include(joinpath(pkgdir(Markets), "examples", "forest", "example_data.jl"))
-res = solve_market(example_market)
+include(joinpath(pkgdir(Markets), "examples", "forest", "forest_market.jl"))
 res.prices
 ```
+
+That script is the [Forest example](@ref "The forest sector: France in the world")
+page, generated from the source with Literate.jl.
 
 ## How this documentation is organised
 
 * [Using the module](@ref) — how to describe an economy, solve it and read the
-  results, with the forest example worked through.
+  results.
+* [The forest sector: France in the world](@ref) — a complete model worked
+  through, from the data to a storm-salvage scenario.
 * [Modelling choices](@ref) — what the model assumes and why: partial
   equilibrium, surplus maximisation, spatial trade, CES substitution, dynamics.
 * [Code implementation](@ref) — the exact mathematical program the code builds,

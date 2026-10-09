@@ -25,3 +25,6 @@ Manifest.toml
 
 # Python env created by CondaPkg
 .CondaPkg/
+
+# Pages generated from the examples by Literate
+docs/src/generated/

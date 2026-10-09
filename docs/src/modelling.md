@@ -291,7 +291,12 @@ Two consequences worth knowing:
   reverse as a specification error.
 * As a group's internal ``\sigma`` grows, its members' prices are pulled
   together and the group behaves as one pooled variety: the Samuelson case,
-  recovered inside a nest.
+  recovered inside a nest. At ``\sigma = \infty`` it *is* that case — the
+  members are added up, the group enters the level above at the cheapest
+  delivered price of its members, and between themselves they neither
+  cross-haul nor differ in price by more than the freight. This is how a set of
+  regions that are one market internally, such as the regions of a country, sit
+  inside a world model as a single distinct variety.
 
 ### Different markets, different structures
 
@@ -303,7 +308,11 @@ therefore applies to the destinations given in its `destination` field, with an
 all differ between importing markets.
 
 A product is nonetheless either homogeneous everywhere or imperfectly
-substitutable everywhere: it has one variety per origin, or none.
+substitutable everywhere: it has one variety per origin, or none. And a region
+that cannot produce a product at all — no supply curve, and no process making
+it there — has no variety of it: it is nobody's origin, not even its own, and
+its `producer_price` is reported as `missing` while it buys at the composite
+price like anyone else.
 
 ### The limit ``\sigma \to \infty``
 

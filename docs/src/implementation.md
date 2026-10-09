@@ -12,9 +12,9 @@ formulation are on the [Modelling choices](@ref) page.
 | `src/types.jl`    | data schema: [`DemandSpec`](@ref), [`SupplySpec`](@ref), [`Nest`](@ref), [`leontief`](@ref), [`ces`](@ref), [`Process`](@ref), [`Armington`](@ref), [`OriginNest`](@ref), [`MarketData`](@ref) |
 | `src/model.jl`    | [`solve_market`](@ref): builds and solves the JuMP model |
 | `src/results.jl`  | [`Results`](@ref) and [`for_region`](@ref): extraction of the result tables |
-| `examples/forest/` | the forest-products example economy (`example_data.jl`) and a driver printing all tables (`run_example.jl`) |
+| `examples/forest/` | `forest_market.jl`: the worked example, a runnable script that is also the source of the [Forest example](@ref "The forest sector: France in the world") page |
 | `test/runtests.jl` | test suite |
-| `docs/`           | this documentation (Documenter.jl) |
+| `docs/`           | this documentation (Documenter.jl, with Literate.jl for the example page) |
 
 Every type of the data schema is declared with `Base.@kwdef`, so it is built
 with keyword arguments and its optional fields have defaults; the field

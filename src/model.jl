@@ -58,13 +58,39 @@ end
 """
 $(TYPEDSIGNATURES)
 
-The origins that destination `r` can buy product `a.product` from — itself,
-plus every origin with a transport route into `r` — together with their
-normalised value shares.  Origins without a positive share are left out.
+The `(product, region)` pairs the economy can produce at all: those with a
+primary supply curve, and those a process operating in the region yields.  A
+region that cannot produce a product has no variety of it, so it is nobody's
+origin for it — not even its own.
 """
-function armington_origins(d::MarketData, a::Armington, r::Symbol)
+function producible(d::MarketData)
+    can = Set{Tuple{Symbol,Symbol}}()
+    for s in d.supply
+        push!(can, (s.product, s.region))
+    end
+    for proc in d.processes, r in regions_of(proc, d), (p, _) in proc.outputs
+        push!(can, (p, r))
+    end
+    return can
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The origins that destination `r` can buy product `a.product` from — itself,
+plus every origin with a transport route into `r`, keeping only those that can
+produce it — together with their normalised value shares.  Origins without a
+positive share are left out.
+"""
+function armington_origins(d::MarketData, a::Armington, r::Symbol,
+                           can::Set{Tuple{Symbol,Symbol}} = producible(d))
     p = a.product
-    available = [r; [o for o in d.regions if o != r && haskey(d.transport, (p, o, r))]]
+    available = [o for o in [r; [o for o in d.regions
+                                 if o != r && haskey(d.transport, (p, o, r))]]
+                 if (p, o) in can]
+    isempty(available) && throw(ArgumentError(
+        "no origin can supply $p to region $r: it is produced nowhere that $r " *
+        "can buy from"))
     if isempty(a.shares)
         return available, fill(1 / length(available), length(available))
     end
@@ -101,8 +127,9 @@ those of the origins beneath it, normalised among its siblings.  Groups that no
 available origin belongs to are dropped, and a group left with a single member
 collapses into it.
 """
-function armington_tree(d::MarketData, a::Armington, r::Symbol)
-    origins, shares = armington_origins(d, a, r)
+function armington_tree(d::MarketData, a::Armington, r::Symbol,
+                        can::Set{Tuple{Symbol,Symbol}} = producible(d))
+    origins, shares = armington_origins(d, a, r, can)
     weight = Dict(zip(origins, shares))
     # weight of everything below a child, origins being the leaves
     subtotal(c) = c isa Symbol ? weight[c] : sum(subtotal, c.children)
@@ -153,10 +180,16 @@ function armington_quantity(m, node, p::Symbol, r::Symbol, X)
     node isa Symbol && return X[(p, node, r)]
     qs = [armington_quantity(m, c, p, r, X) for c in node.children]
     composite = @variable(m, lower_bound = QFLOOR, start = sum(start_value, qs))
-    ρ = (node.sigma - 1) / node.sigma
-    aggr = @expression(m, sum(node.shares[i]^(1 / node.sigma) * qs[i]^ρ
-                              for i in eachindex(qs)))
-    @constraint(m, aggr^(1 / ρ) >= composite)
+    if isinf(node.sigma)
+        # perfect substitutes: the group is one good, pooled by plain addition
+        # (the limit of the CES below, where δ^(1/σ) → 1 and ρ → 1)
+        @constraint(m, sum(qs) >= composite)
+    else
+        ρ = (node.sigma - 1) / node.sigma
+        aggr = @expression(m, sum(node.shares[i]^(1 / node.sigma) * qs[i]^ρ
+                                  for i in eachindex(qs)))
+        @constraint(m, aggr^(1 / ρ) >= composite)
+    end
     return composite
 end
 
@@ -209,8 +242,9 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     X = Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}()
     A = Dict{Tuple{Symbol,Symbol},VariableRef}()
     tree_of = Dict{Tuple{Symbol,Symbol},Any}()
+    can = producible(d)
     for ((p, r), a) in arm
-        root, origins, shares = armington_tree(d, a, r)
+        root, origins, shares = armington_tree(d, a, r, can)
         tree_of[(p, r)] = root
         # a rough but useful starting point: the local reference consumption
         a0 = get(demand_of, (r, p), nothing)
@@ -271,9 +305,13 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
         if p in arm_products
             # everything region r produces goes to one of the destinations that
             # buy its variety (itself included)
-            ships = @expression(m, sum(X[(p, r, dst)] for dst in d.regions
-                                       if haskey(X, (p, r, dst)); init = 0.0))
-            origin_balance[(r, p)] = @constraint(m, src - ships == 0.0)
+            # a region that cannot produce the product has no variety of it,
+            # hence nothing to ship and no producer price
+            if (p, r) in can
+                ships = @expression(m, sum(X[(p, r, dst)] for dst in d.regions
+                                           if haskey(X, (p, r, dst)); init = 0.0))
+                origin_balance[(r, p)] = @constraint(m, src - ships == 0.0)
+            end
             # the composite covers the local uses
             balance[(r, p)] = @constraint(m, A[(p, r)] - use == 0.0)
             # ... and is the (possibly nested) CES aggregate of the varieties

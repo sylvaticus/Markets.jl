@@ -323,6 +323,50 @@ end
         end
     end
 
+    @testset "an infinitely substitutable group is pooled into one good" begin
+        σ = 2.0
+        res = solve_market(economy([Armington(product = :x, sigma = σ, shares = shares,
+                                    nests = [OriginNest(sigma = Inf, origins = [:EU, :NA])])]))
+        @test solved(res)
+        # inside the pool the solution is the homogeneous one: no cross-hauling,
+        # and no price gap wider than the freight between them
+        @test min(flow(res, :x, :EU, :NA), flow(res, :x, :NA, :EU)) <= 1e-3
+        @test abs(pprice(res, :EU, :x) - pprice(res, :NA, :x)) <= 6.0 + 1e-6
+        # and the pool enters the composite at the cheapest delivered price of
+        # its members, carrying their combined share
+        for r in regions
+            q(o)  = pprice(res, o, :x) + (o == r ? 0.0 : 6.0)
+            pool  = min(q(:EU), q(:NA))
+            δpool = shares[(:EU, r)] + shares[(:NA, r)]
+            tot   = δpool + shares[(:AS, r)]
+            @test price(res, r, :x) ≈ ((δpool / tot) * pool^(1 - σ) +
+                  (shares[(:AS, r)] / tot) * q(:AS)^(1 - σ))^(1 / (1 - σ)) rtol = 1e-6
+        end
+    end
+
+    @testset "a region that cannot produce a product has no variety of it" begin
+        # :y is manufactured from :x, but only EU and NA have the process
+        d = MarketData(
+            regions   = regions, products = [:x, :y],
+            demand    = [DemandSpec(product = :y, region = r, p0 = 200, q0 = 5, elasticity = 1.4)
+                         for r in regions],
+            supply    = [SupplySpec(product = :x, region = r, p0 = 60, q0 = 20, elasticity = 0.8)
+                         for r in regions],
+            processes = [Process(name = :mill, regions = [:EU, :NA], vacost = 30,
+                                 inputs  = [leontief(product = :x, coeff = 1.5)],
+                                 outputs = [:y => 1.0])],
+            tradable  = [:x, :y],
+            transport = merge(transport, Dict((:y, o, r) => 9.0 for o in regions, r in regions if o != r)),
+            armington = [Armington(product = :y, sigma = 3)])
+        res = solve_market(d)
+        @test solved(res)
+        # AS makes no :y, so it has no producer price for it and exports none
+        @test ismissing(pprice(res, :AS, :y))
+        @test !ismissing(pprice(res, :EU, :y)) && !ismissing(pprice(res, :NA, :y))
+        @test all(r -> flow(res, :y, :AS, r) == 0.0, regions)
+        @test price(res, :AS, :y) > 0            # it still buys, at a price
+    end
+
     @testset "a group with one available origin collapses" begin
         res = solve_market(economy([Armington(product = :x, sigma = 3, shares = shares,
                                     nests = [OriginNest(sigma = 9, origins = [:NA])])]))
@@ -357,30 +401,53 @@ end
 end
 
 @testset "Forest example" begin
+    # the documented example is a runnable script: run it, then check that the
+    # equilibrium it reports satisfies the conditions it claims
     ex = Module(:ForestExample)
-    Base.include(ex, joinpath(@__DIR__, "..", "examples", "forest", "example_data.jl"))
-    d   = ex.example_market
-    res = solve_market(d)
+    Base.include(ex, joinpath(@__DIR__, "..", "examples", "forest", "forest_market.jl"))
+    d, res, france = ex.example_market, ex.res, ex.france
     @test solved(res)
     @test nrow(res.prices) == length(d.regions) * length(d.products)
     @test all(res.prices.price .> 0)
-    # papermill is a Leontief process: price(paper) = 1.1 price(pulp) + 200
+
+    # papermill is Leontief: it buys the pulp composite and sells its own
+    # variety of paper, so zero profit ties the producer price to the user one
     for r in d.regions
-        @test price(res, r, :paper) ≈ 1.1 * price(res, r, :pulp) + 200 rtol = 1e-4
+        @test pprice(res, r, :paper) ≈ 1.1 * price(res, r, :pulp) + 200 rtol = 1e-4
     end
-    # no arbitrage: price gaps never exceed transport costs, and match them on used routes
-    for ((p, from, to), τ) in d.transport
-        @test price(res, to, p) - price(res, from, p) <= τ + 1e-3
-    end
-    for row in eachrow(res.trade)
+    # no pulp mill in SEF and GEF, hence no pulp of their own to price
+    @test ismissing(pprice(res, :SEF, :pulp)) && ismissing(pprice(res, :GEF, :pulp))
+    @test !ismissing(pprice(res, :SWF, :pulp))
+
+    # the French regions are perfect substitutes for each other, so between
+    # them the solution is the homogeneous one: no cross-hauling ...
+    intra = res.trade[in.(res.trade.from, Ref(france)) .& in.(res.trade.to, Ref(france)), :]
+    for row in eachrow(intra)
         row.quantity > 1e-3 || continue
-        @test price(res, row.to, row.product) - price(res, row.from, row.product) ≈
-              d.transport[(row.product, row.from, row.to)] rtol = 1e-3
+        @test flow(res, row.product, row.to, row.from) <= 1e-3
     end
+    # ... and no price gap wider than the cost of shipping between them
+    for p in d.products, a in france, b in france
+        a < b || continue
+        (ismissing(pprice(res, a, p)) || ismissing(pprice(res, b, p))) && continue
+        @test abs(pprice(res, a, p) - pprice(res, b, p)) <=
+              d.transport[(p, a, b)] + 1e-6
+    end
+    # between blocs that no longer holds: the varieties are different goods
+    @test any(abs(pprice(res, :NA, p) - pprice(res, :AS, p)) > d.transport[(p, :NA, :AS)]
+              for p in d.products)
+
     # world trade balances: total exports = total imports for each product
     for g in groupby(res.net_trade, :product)
         @test sum(g.net) ≈ 0 atol = 1e-5
     end
+
+    # the storm scenario reaches France hardest, then the EU, then the far blocs
+    swr(r, result) = only(result.prices[(result.prices.region .== r) .&
+                                        (result.prices.product .== :swr), :price])
+    drop(r) = 1 - swr(r, ex.storm) / swr(r, res)
+    @test minimum(drop.(france)) > drop(:EU) > maximum(drop.([:NA, :AS, :RW]))
+    @test all(drop(r) > 0 for r in d.regions)        # cheaper everywhere
 end
 
 end

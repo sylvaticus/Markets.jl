@@ -51,3 +51,7 @@ of the "Using the module" and "Modelling choices" pages.
 
 ## How to introduce limits in the upper bounds of transformations or trade (capacity) ?
 
+## References
+Need to add proper references, optimally 2 reference for each concept: the theorical one - the paper that introduced the concept - and the implementaitonal one - a (possibly open source) repository where the concept is implemented in code.
+So, accross the documentation, there will be references and these will end up in a "references" page (still in the documentation)
+

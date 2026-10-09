@@ -146,6 +146,9 @@ armington = [Armington(product = :paper, sigma = 4),             # equal shares
   to a destination gets an equal share. An origin with no share (or a share of
   0) is left out of that destination's composite.
 * `sigma = Inf`, and any product not listed, is the homogeneous case above.
+  Inside an [`OriginNest`](@ref) it instead pools that group of origins into a
+  single good, which is how a set of regions that form one internal market —
+  the regions of a country, say — enters a world model as one variety.
 
 With an Armington product, local producers and local users no longer face the
 same price, and both are reported — see [Reading the results](@ref).
@@ -247,146 +250,23 @@ producers sell their own; for every other product the two columns are equal.
 [`for_region`](@ref) slices all tables for one region at once. The input data
 and the underlying JuMP model are kept in `res.data` and `res.model`.
 
-## Worked example: the forest-products sector
+## A worked example
 
-The package ships an example economy in `examples/forest/example_data.jl`,
-with three regions (Europe, North America, Asia-Pacific) and this product
-chain:
+The [Forest example](@ref "The forest sector: France in the world") page builds
+a complete economy with this API and solves it: eight regions (four of them
+French), the roundwood-to-paper chain, joint products, a CES input bundle, a
+process restricted to the regions that have the capacity, and a three-level
+Armington structure in which the French regions are perfect substitutes for
+each other, close substitutes for the rest of the EU and more distant ones for
+the other blocs. It then runs a storm-salvage scenario and traces how far the
+shock travels.
 
-```
-  primary supply:   swr  softwood roundwood       hwr  hardwood roundwood
-
-  sawmill_sw :  swr               → sawn_sw + chips    (fixed proportions)
-  sawmill_hw :  hwr               → sawn_hw + chips    (fixed proportions)
-  panelmill  :  CES(chips,swr,hwr) → panel              (smooth substitution)
-  pulpmill   :  CES(swr,hwr,chips) → pulp               (chips compete here)
-  papermill  :  pulp               → paper
-
-  final demand:     sawn_sw, sawn_hw, panel, paper
-```
-
-Chips are a by-product of sawmilling and an input to both panel and pulp mills,
-so the competition for residues is part of the equilibrium. Quantities are in
-million m³ (wood) or million t (pulp, paper), prices in USD per unit; the
-numbers are illustrative.
-
-```@example forest
-using Markets, DataFrames
-include(joinpath(pkgdir(Markets), "examples", "forest", "example_data.jl"))
-res = solve_market(example_market)
-nothing # hide
-```
-
-Production, by region:
-
-```@example forest
-unstack(res.production, :region, :product, :quantity)
-```
-
-Consumption:
-
-```@example forest
-unstack(res.consumption, :region, :product, :quantity)
-```
-
-Prices — they differ across regions by at most the transport cost:
-
-```@example forest
-unstack(res.prices, :region, :product, :price)
-```
-
-Trade flows:
-
-```@example forest
-res.trade
-```
-
-Everything for one region:
-
-```@example forest
-for_region(res, :AS).net_trade
-```
-
-To run the full example with printed tables from a terminal, from the package
-folder:
+The page is generated from
+[`examples/forest/forest_market.jl`](https://github.com/sylvaticus/Markets.jl/blob/main/examples/forest/forest_market.jl),
+which is an ordinary script: run it to get the same tables in a terminal.
 
 ```bash
-julia --project=. examples/forest/run_example.jl
-```
-
-### Running a scenario
-
-Results are plain data, so scenarios are written by changing the data and
-solving again. A three-line helper that copies an economy with some fields
-replaced makes this comfortable:
-
-```@example forest
-reconfigure(d; kwargs...) =
-    MarketData(; regions = d.regions, products = d.products, demand = d.demand,
-                 supply = d.supply, processes = d.processes, tradable = d.tradable,
-                 transport = d.transport, armington = d.armington, kwargs...)
-nothing # hide
-```
-
-For example, a 20% increase in North American softwood roundwood supply at
-every price:
-
-```@example forest
-sup = [s.product == :swr && s.region == :NA ?
-           SupplySpec(product = s.product, region = s.region,
-                      p0 = s.p0, q0 = 1.2 * s.q0, elasticity = s.elasticity) : s
-       for s in example_market.supply]
-res2 = solve_market(reconfigure(example_market, supply = sup))
-comp = innerjoin(res.prices, res2.prices, on = [:region, :product], renamecols = "_base" => "_scen")
-comp.change_pct = 100 .* (comp.price_scen ./ comp.price_base .- 1)
-comp[comp.product .== :swr, [:region, :product, :price_base, :price_scen, :change_pct]]
-```
-
-### Imperfect substitution between origins
-
-In the solution above, paper is not traded at all: regional paper prices differ
-by less than the cost of shipping it, so no shipment pays for itself.
-
-```@example forest
-res.trade[res.trade.product .== :paper, :]
-```
-
-That is the homogeneous-product logic. Making paper an [`Armington`](@ref)
-product instead — buyers mildly prefer their usual origin, 85% of a region's
-paper coming from home at equal delivered prices — gives the two-way trade that
-is actually observed:
-
-```@example forest
-home   = 0.85
-shares = Dict((o, r) => (o == r ? home : (1 - home) / (length(regions) - 1))
-              for o in regions, r in regions)
-res_a  = solve_market(reconfigure(example_market,
-             armington = [Armington(product = :paper, sigma = 4, shares = shares)]))
-res_a.trade[res_a.trade.product .== :paper, :]
-```
-
-Every region now both imports and exports paper, and local producers no longer
-face the price local users pay:
-
-```@example forest
-res_a.prices[res_a.prices.product .== :paper, :]
-```
-
-Raising `sigma` tightens the varieties together again, and the solution walks
-back to the homogeneous one — which is what `sigma = Inf`, the default, builds
-exactly:
-
-```@example forest
-homog  = res.prices[res.prices.product .== :paper, :price]
-ladder = DataFrame(sigma = Float64[], paper_trade = Float64[], max_price_gap_pct = Float64[])
-for σ in [4, 20, 150, Inf]
-    a = solve_market(reconfigure(example_market,
-            armington = [Armington(product = :paper, sigma = σ, shares = shares)]))
-    traded = sum(a.trade[a.trade.product .== :paper, :quantity])
-    gap    = maximum(abs.(a.prices[a.prices.product .== :paper, :price] ./ homog .- 1))
-    push!(ladder, (σ, traded, 100gap))
-end
-ladder
+julia --project=. examples/forest/forest_market.jl
 ```
 
 ## How to amend an economy
