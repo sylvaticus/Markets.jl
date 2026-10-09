@@ -1,0 +1,12 @@
+  After you restart — to come back to this conversation
+
+  1. Open your terminal and go back to the project folder:
+  cd ~/CloudFiles/beta-lorraine-sync/mkt2/Markets.jl/mkts3
+  2. Start Claude Code resuming this chat. Two options:
+    - claude --continue — immediately reopens the most recent conversation in this folder (quickest; this is almost certainly what you want).
+    - claude --resume — shows a list of past sessions so you can pick this one (use this if --continue opens the wrong one).
+
+  That's it — the full history (model design, the FFSM discussion, the references) comes back and we carry on.
+
+  ▎ 💡 Tip: it's the directory that matters — run the command from the same mkts3/ folder, or Claude Code won't find this session.
+
