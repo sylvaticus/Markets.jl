@@ -1,5 +1,33 @@
 # Markets.jl
 
+!!! danger "NOT RELEASED — UNDER ACTIVE DEVELOPMENT AND VALIDATION"
+    **This model is not finished, not calibrated and not validated. Do not use
+    its results for anything that matters yet.**
+
+    * **It is not released.** The current version, 0.1.0, is not registered,
+      and the API changes between commits without notice.
+    * **`Pkg.add("Markets")` installs a different model.** The registry still
+      has v0.0.1, the 2022 equation-system formulation that this version
+      replaced entirely — see
+      [Previous formulation (v0.0.1)](@ref). Install from the repository
+      instead.
+    * **Nothing here is calibrated.** Every elasticity, share, cost and
+      reference quantity in the forest example is illustrative — plausible in
+      order of magnitude, fitted to nothing. No part of the model has been
+      confronted with observed data, and the shares of the example's Armington
+      nests come from a gravity rule rather than from a trade matrix.
+    * **What *is* checked** is the internal logic. The test suite verifies the
+      equilibrium conditions themselves: prices equal to inverse demand and to
+      marginal cost, zero profit on active processes, no-arbitrage across trade
+      routes, the CES demand and price-index conditions, and the limits in
+      which the Armington formulation collapses to the homogeneous one. That
+      makes the model internally coherent. It does not make it right about the
+      world.
+    * **Read some results more cautiously than others.** Processing location is
+      bang-bang, since processes have constant returns and no capacity bounds
+      yet; see [What the model does not constrain](@ref). Prices and final
+      demand are on firmer ground than the geography of milling.
+
 Markets.jl solves a **spatial partial-equilibrium model** of an economic sector
 made of an arbitrary set of products, regions and transformation processes.
 You describe the economy with data — demand and supply curves, processes that
@@ -14,9 +42,6 @@ the example shipped with the package, but the same data types describe any
 sector with primary supply, multi-stage transformation and trade.
 
 GitHub: [https://github.com/sylvaticus/Markets.jl](https://github.com/sylvaticus/Markets.jl)
-
-!!! warning
-    Pre-alpha status: the API may change between versions.
 
 ## Features
 
@@ -42,9 +67,13 @@ GitHub: [https://github.com/sylvaticus/Markets.jl](https://github.com/sylvaticus
 
 ```julia
 using Pkg
-Pkg.add("Markets")                                          # registered version
-Pkg.add(url = "https://github.com/sylvaticus/Markets.jl")   # development version
+Pkg.add(url = "https://github.com/sylvaticus/Markets.jl")   # this model
 ```
+
+`Pkg.add("Markets")` would install the registered v0.0.1 instead, which is the
+older and entirely different formulation described in
+[Previous formulation (v0.0.1)](@ref); its documentation is kept under the
+`v0.0.2` entry of the version selector.
 
 ## Quick start
 

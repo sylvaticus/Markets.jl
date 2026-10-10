@@ -7,6 +7,30 @@ arbitrary set of products, regions and transformation processes.
 [![Build status (Github Actions)](https://github.com/sylvaticus/Markets.jl/workflows/CI/badge.svg)](https://github.com/sylvaticus/Markets.jl/actions)
 [![codecov.io](http://codecov.io/github/sylvaticus/Markets.jl/coverage.svg?branch=main)](http://codecov.io/github/sylvaticus/Markets.jl?branch=main)
 
+> [!WARNING]
+> ### NOT RELEASED — UNDER ACTIVE DEVELOPMENT AND VALIDATION
+>
+> **This model is not finished, not calibrated and not validated. Do not use
+> its results for anything that matters yet.**
+>
+> * **It is not released.** The current version, 0.1.0, is not registered, and
+>   the API changes between commits without notice.
+> * **`Pkg.add("Markets")` installs a different model.** The registry still has
+>   v0.0.1, the 2022 equation-system formulation that this version replaced
+>   entirely. Install from this repository instead (see below).
+> * **Nothing here is calibrated.** Every elasticity, share, cost and reference
+>   quantity in the forest example is illustrative — plausible in order of
+>   magnitude, fitted to nothing. No part of the model has been confronted with
+>   observed data.
+> * **What *is* checked** is the internal logic: the test suite verifies the
+>   equilibrium conditions themselves — prices equal to inverse demand and
+>   marginal cost, zero profit on active processes, no-arbitrage across trade
+>   routes, the CES demand and price-index conditions, and the limits in which
+>   the Armington model collapses to the homogeneous one.
+> * **Read processing location with particular caution.** Processes have
+>   constant returns and no capacity bounds, so where milling happens is
+>   bang-bang: a small cost advantage takes the whole industry.
+
 You describe the economy with data — demand and supply curves, processes that
 transform products (with substitutable inputs and joint by-products), transport
 costs between regions — and a single optimisation returns **production,
@@ -22,12 +46,10 @@ demand everywhere.
 The engine is sector-agnostic. The forest-products sector is the example
 shipped in [`examples/forest/`](examples/forest/).
 
-Pre-alpha status: the API may change between versions.
-
 ## Quick start
 
 ```julia
-using Pkg; Pkg.add("Markets")
+using Pkg; Pkg.add(url = "https://github.com/sylvaticus/Markets.jl")
 using Markets
 include(joinpath(pkgdir(Markets), "examples", "forest", "forest_market.jl"))
 res.production; res.consumption; res.trade; res.prices
