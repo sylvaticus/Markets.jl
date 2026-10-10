@@ -8,7 +8,8 @@ optimisation returns **production, consumption, trade and prices** for every
 region and product.
 
 The engine knows no specific product or sector. The forest-products sector
-(roundwood → sawnwood, panels, pulp, paper, with sawmill residues recycled) is
+(roundwood → sawnwood, panels, pulp, paper and pellets, with sawmill residues
+recycled and smallwood either burnt or milled) is
 the example shipped with the package, but the same data types describe any
 sector with primary supply, multi-stage transformation and trade.
 

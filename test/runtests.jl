@@ -72,6 +72,35 @@ end
     @test all(a.prices.region .== :A) && nrow(a.trade) == 1
 end
 
+@testset "A product may be supplied, consumed and used as an input at once" begin
+    # :logs come out of the forest, and are either burnt as they are or sawn
+    d = MarketData(
+        regions   = [:A], products = [:logs, :board],
+        demand    = [DemandSpec(product = :logs,  region = :A, p0 = 40,  q0 = 20, elasticity = 0.4),
+                     DemandSpec(product = :board, region = :A, p0 = 300, q0 = 10, elasticity = 1.2)],
+        supply    = [SupplySpec(product = :logs, region = :A, p0 = 40, q0 = 35, elasticity = 0.6)],
+        processes = [Process(name = :mill, vacost = 120,
+                             inputs  = [leontief(product = :logs, coeff = 2.0)],
+                             outputs = [:board => 1.0])])
+    res = solve_market(d)
+    @test solved(res)
+    burnt  = getq(res.consumption, :A, :logs)
+    milled = 2 * only(res.activity.level)
+    # one price clears both uses, and the harvest covers exactly the two of them
+    @test getq(res.production, :A, :logs) ≈ burnt + milled rtol = 1e-6
+    @test burnt > 1e-3 && milled > 1e-3        # both uses are actually served
+    @test price(res, :A, :board) ≈ 2 * price(res, :A, :logs) + 120 rtol = 1e-6
+    # the direct use competes with the mill: a higher willingness to pay for
+    # firewood takes wood away from the board
+    hotter = solve_market(MarketData(regions = d.regions, products = d.products,
+        demand = [DemandSpec(product = :logs, region = :A, p0 = 70, q0 = 20, elasticity = 0.4),
+                  d.demand[2]],
+        supply = d.supply, processes = d.processes))
+    @test getq(hotter.consumption, :A, :logs) > burnt
+    @test 2 * only(hotter.activity.level) < milled
+    @test price(hotter, :A, :logs) > price(res, :A, :logs)
+end
+
 @testset "Leontief and CES processes" begin
     σ, δ = 2.0, [0.6, 0.4]
     d = MarketData(

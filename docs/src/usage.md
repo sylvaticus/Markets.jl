@@ -273,7 +273,8 @@ and the underlying JuMP model are kept in `res.data` and `res.model`.
 
 The [Forest example](@ref "The forest sector: France in the world") page builds
 a complete economy with this API and solves it: eight regions (four of them
-French), the roundwood-to-paper chain, joint products, a CES input bundle, a
+French), the roundwood-to-paper-and-pellets chain, a product that is both burnt
+directly and milled, joint products, CES input bundles, a
 process restricted to the regions that have the capacity, and a three-level
 Armington structure in which the French regions are perfect substitutes for
 each other, close substitutes for the rest of the EU and more distant ones for
@@ -295,8 +296,9 @@ julia --project=. examples/forest/forest_market.jl
   in `tradable` and add `transport` entries if it can be shipped.
 * **Add or change a process**: add a `Process`. Chains of any length are built by
   making the output of one process an input of another (e.g.
-  roundwood → sawnwood → pallets). A product can be both consumed and used as an
-  input.
+  roundwood → sawnwood → pallets). A product can be primary-supplied,
+  manufactured, consumed as final demand and used as an input all at once — its
+  balance simply sums every source against every use.
 * **Add a region**: add it to `regions` and give it demand, supply and transport
   data.
 * **Change substitutability between inputs**: change the `sigma` of a CES nest.

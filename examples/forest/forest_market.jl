@@ -42,22 +42,44 @@ nothing # hide
 # The product list follows the FAOSTAT / UNECE chain, splitting roundwood by
 # **coniferous** (softwood, `swr`) and **non-coniferous** (hardwood, `hwr`),
 # because the two lead to different products.
+#
+# `smallwood` is the third assortment the forest yields: small-diameter
+# roundwood from thinnings and tops, too poor for sawing. In French statistics
+# it is the *bois d'industrie et bois énergie* category, and the name says what
+# matters here — the same log can be burnt in a stove or sent to a mill, and
+# which it is depends on what the two uses are willing to pay.
 
-products = [:swr, :hwr, :chips, :pulp, :sawn_sw, :sawn_hw, :panel, :paper]
+products = [:swr, :hwr, :smallwood, :chips, :pulp,
+            :sawn_sw, :sawn_hw, :panel, :paper, :pellets]
 nothing # hide
 
 # They are connected by the transformations set up further down:
 #
 # ```
-#   FOREST  ── swr ─┬─ sawmill_sw ──→ sawn_sw + chips
-#           ── hwr ─┼─ sawmill_hw ──→ sawn_hw + chips
-#                   │
-#                   ├─ panelmill : CES(chips, swr, hwr) ──→ panel
-#                   └─ pulpmill  : CES(swr, hwr, chips) ──→ pulp ─→ papermill ─→ paper
+#   FOREST ── swr ───────┬─ sawmill_sw ─→ sawn_sw + chips
+#          ── hwr ───────┼─ sawmill_hw ─→ sawn_hw + chips
+#          ── smallwood ─┤
+#                        ├─ panelmill  : CES(chips, smallwood, swr, hwr) ─→ panel
+#                        ├─ pulpmill   : CES(swr, hwr, chips, smallwood) ─→ pulp ─→ papermill ─→ paper
+#                        └─ pelletmill : CES(chips, smallwood, swr, hwr) ─→ pellets
+#
+#                           smallwood ─────────────────────────────────→ burnt as firewood
 # ```
 #
-# `chips` are a sawmill by-product *and* an input to panel and pulp mills, so
-# the competition for residues between the two is part of the equilibrium.
+# Two things in that picture are worth more than a passing glance.
+#
+# `chips` are a sawmill by-product *and* an input to three other mills, so the
+# competition for residues is part of the equilibrium rather than an assumption
+# about it.
+#
+# `smallwood` is **both a final product and an intermediate one**. It comes out
+# of the forest, and from there it either goes into a household stove as
+# firewood — final demand, like sawnwood or paper — or into a mill as a raw
+# material. The model does not need to be told which: both uses face the same
+# local price, and the split between them is whatever that price makes optimal.
+# A product in this engine may be primary-supplied, manufactured, consumed and
+# used as an input all at once; its balance simply sums the sources and the
+# uses.
 
 # ## Primary supply
 #
@@ -87,6 +109,15 @@ supply = SupplySpec[
     SupplySpec(product = :hwr, region = :NA,  p0 = 72, q0 =  70.0, elasticity = 0.50),
     SupplySpec(product = :hwr, region = :AS,  p0 = 74, q0 = 180.0, elasticity = 0.50),
     SupplySpec(product = :hwr, region = :RW,  p0 = 66, q0 = 130.0, elasticity = 0.50),
+    ## smallwood: thinnings and tops, worth a fraction of a sawlog
+    SupplySpec(product = :smallwood, region = :SEF, p0 = 42, q0 =   6.0, elasticity = 0.50),
+    SupplySpec(product = :smallwood, region = :SWF, p0 = 38, q0 =   3.5, elasticity = 0.55),
+    SupplySpec(product = :smallwood, region = :GEF, p0 = 40, q0 =   6.5, elasticity = 0.50),
+    SupplySpec(product = :smallwood, region = :OF,  p0 = 41, q0 =   9.0, elasticity = 0.50),
+    SupplySpec(product = :smallwood, region = :EU,  p0 = 39, q0 = 150.0, elasticity = 0.60),
+    SupplySpec(product = :smallwood, region = :NA,  p0 = 34, q0 =  70.0, elasticity = 0.60),
+    SupplySpec(product = :smallwood, region = :AS,  p0 = 45, q0 = 200.0, elasticity = 0.55),
+    SupplySpec(product = :smallwood, region = :RW,  p0 = 30, q0 = 250.0, elasticity = 0.55),
 ]
 nothing # hide
 
@@ -113,6 +144,12 @@ reference_demand = Dict(
                               :EU => 45.0, :NA =>  40.0, :AS => 90.0,  :RW => 25.0), 0.50),
     :paper   => (1000.0, Dict(:SEF => 1.80, :SWF => 0.80, :GEF => 0.75, :OF => 5.60,
                               :EU => 70.0, :NA =>  80.0, :AS => 130.0, :RW => 40.0), 0.30),
+    ## firewood: smallwood bought and burnt as it comes, the oldest use of all
+    :smallwood => (55.0, Dict(:SEF => 3.20, :SWF => 1.50, :GEF => 2.60, :OF => 7.00,
+                              :EU => 90.0, :NA =>  35.0, :AS => 150.0, :RW => 190.0), 0.35),
+    ## pellets: the same energy, dried, ground and compressed
+    :pellets   => (250.0, Dict(:SEF => 0.50, :SWF => 0.25, :GEF => 0.30, :OF => 1.40,
+                              :EU => 22.0, :NA =>   9.0, :AS =>  12.0, :RW =>   4.0), 0.60),
 )
 
 demand = [DemandSpec(product = p, region = r, p0 = price, q0 = quantities[r], elasticity = η)
@@ -144,16 +181,16 @@ processes = [
             vacost  = 45),
     Process(name    = :panelmill,
             inputs  = [ces(composite = 1.30,
-                           products  = [:chips, :swr, :hwr],
-                           shares    = [0.55, 0.30, 0.15],
+                           products  = [:chips, :smallwood, :swr, :hwr],
+                           shares    = [0.40, 0.25, 0.23, 0.12],
                            sigma     = 2.5)],
             outputs = [:panel => 1.0],
             vacost  = 120),
     Process(name    = :pulpmill,
             regions = pulp_regions,
             inputs  = [ces(composite = 4.0,
-                           products  = [:swr, :hwr, :chips],
-                           shares    = [0.45, 0.30, 0.25],
+                           products  = [:swr, :hwr, :chips, :smallwood],
+                           shares    = [0.35, 0.22, 0.23, 0.20],
                            sigma     = 1.8)],
             outputs = [:pulp => 1.0],
             vacost  = 300),
@@ -161,6 +198,15 @@ processes = [
             inputs  = [leontief(product = :pulp, coeff = 1.10)],
             outputs = [:paper => 1.0],
             vacost  = 200),
+    ## the pellet mill bids for the same wood as the panel and pulp mills, and
+    ## for the same smallwood that households would otherwise burn as it comes
+    Process(name    = :pelletmill,
+            inputs  = [ces(composite = 2.2,            # m³ of wood per tonne
+                           products  = [:chips, :smallwood, :swr, :hwr],
+                           shares    = [0.40, 0.40, 0.12, 0.08],
+                           sigma     = 3.0)],
+            outputs = [:pellets => 1.0],
+            vacost  = 90),
 ]
 nothing # hide
 
@@ -188,8 +234,9 @@ nothing # hide
 # low-value products therefore carry a high transport cost relative to their
 # price, which is what keeps roundwood trade regional and lets paper travel.
 
-freight = Dict(:swr => 12.0, :hwr => 12.0, :chips   => 14.0, :pulp  => 35.0,
-               :sawn_sw => 30.0, :sawn_hw => 32.0, :panel => 35.0, :paper => 55.0)
+freight = Dict(:swr => 12.0, :hwr => 12.0, :smallwood => 13.0, :chips => 14.0,
+               :pulp => 35.0, :sawn_sw => 30.0, :sawn_hw => 32.0, :panel => 35.0,
+               :paper => 55.0, :pellets => 28.0)
 
 tradable  = products
 transport = Dict((p, a, b) => freight[p] * distance(a, b)
@@ -221,8 +268,9 @@ length(transport)
 # French pool and the rest of the EU together at a high elasticity, then Europe
 # as a whole against the other blocs at a lower one.
 
-σ_blocs = Dict(:swr => 6.0, :hwr => 6.0, :chips   => 7.0, :pulp  => 5.0,
-               :sawn_sw => 3.5, :sawn_hw => 3.0, :panel => 3.0, :paper => 4.0)
+σ_blocs = Dict(:swr => 6.0, :hwr => 6.0, :smallwood => 7.0, :chips => 7.0,
+               :pulp => 5.0, :sawn_sw => 3.5, :sawn_hw => 3.0, :panel => 3.0,
+               :paper => 4.0, :pellets => 6.0)
 
 # Commodities graded to a standard (chips, roundwood, pulp) substitute readily
 # between blocs; manufactured products, where origin carries a reputation, do
@@ -304,6 +352,53 @@ unstack(res.production, :region, :product, :quantity)
 #-
 
 unstack(res.consumption, :region, :product, :quantity)
+
+# ## Firewood or raw material?
+#
+# `smallwood` is the product that has to choose. Every region's harvest of it
+# is split between the stove and the mills by nothing more than the local
+# price, and the split comes out very differently from place to place:
+
+quantity_of(table, r, p) = (rows = table[(table.region .== r) .& (table.product .== p),
+                                            :quantity];
+                            isempty(rows) ? 0.0 : only(rows))
+shipped(direction, r) = sum(res.trade[(res.trade.product .== :smallwood) .&
+                                      (res.trade[!, direction] .== r), :quantity]; init = 0.0)
+
+smallwood_use = DataFrame(
+    (region      = r,
+     harvest     = quantity_of(res.production, r, :smallwood),
+     firewood    = quantity_of(res.consumption, r, :smallwood),
+     net_exports = shipped(:from, r) - shipped(:to, r))
+    for r in regions)
+smallwood_use.to_the_mills =
+    smallwood_use.harvest .- smallwood_use.firewood .- smallwood_use.net_exports
+smallwood_use
+
+# The shares are worth reading off. North America burns under a quarter of what
+# it cuts and sends the rest to industry; Asia-Pacific and the rest of the world
+# burn over two fifths. The four French regions burn between a quarter (`GEF`,
+# `SWF`) and a half (`OF`, where most of the population is) — and **export most
+# of what is left rather than milling it**, because French industry is small
+# next to its neighbours' and the wood is worth more across the border.
+#
+# None of that was imposed. The same wood is offered to the stove and to the
+# mill at one price, and the quantities follow from which use outbids the other
+# where.
+#
+# The pellet mills are bidding for that same wood, which is what makes the
+# competition interesting — a pellet is wood that has been dried and pressed
+# rather than burnt as it came, so the two uses are close substitutes in energy
+# terms but reach the consumer as different products:
+
+res.activity[res.activity.process .== :pelletmill, :]
+
+# France produces little of its own pellets here even though it has the wood,
+# because French wood is dearer than EU or RW wood and the mills have no
+# capacity bound to hold them in place. That is the sharpness that constant
+# returns to scale always produces in processing location — see
+# [What the model does not constrain](@ref) — and it is the part of this
+# example to treat with the most caution.
 
 # ## Trade
 #
