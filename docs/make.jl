@@ -29,8 +29,13 @@ makedocs(
     format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true"),
 )
 
-# Deploy to gh-pages (only acts when run on CI)
+# Deploy to gh-pages (only acts when run on CI).
+#
+# `versions` has to name patch releases explicitly: Documenter's default
+# `"v#.#"` scheme drops every 0.0.x version, which would leave v0.0.1 and
+# v0.0.2 — the two states of the old model — out of the version selector.
 deploydocs(
     repo = "github.com/sylvaticus/Markets.jl.git",
-    devbranch = "main"
+    devbranch = "main",
+    versions = ["stable" => "v^", "v#.#.#", "dev" => "dev"],
 )
