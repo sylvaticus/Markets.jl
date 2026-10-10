@@ -45,6 +45,7 @@ combinations present in the data, and stored in dictionaries keyed by symbols
 | ``P^A \subseteq P`` | products with a finite Armington elasticity; ``P^H = P \setminus P^A`` the homogeneous ones |
 | ``O_{p,r} \subseteq R`` | origins destination ``r`` buys ``p \in P^A`` from: itself, plus every origin with a route into ``r`` and a positive share |
 | ``p_0, q_0, \eta, \varepsilon`` | reference price, reference quantity, demand and supply elasticities |
+| ``m_{r,p}, \bar S_{r,p}`` | the `shift` scaling a curve and the `capacity` bounding a supply one |
 | ``y_{k,p}`` | yield of output ``p`` per unit of activity of ``k`` |
 | ``\bar a_n, \delta_{n,i}, \sigma_n, \phi_n`` | composite requirement, shares, elasticity of substitution and scale of nest ``n`` |
 | ``\delta_{p,o,r}`` | value share of origin ``o`` in destination ``r`` (normalised over ``O_{p,r}``) |
@@ -57,7 +58,7 @@ combinations present in the data, and stored in dictionaries keyed by symbols
 | Variable | Domain | Meaning |
 |:---------|:-------|:--------|
 | ``D_{r,p} \ge q_{min}`` | ``(r,p) \in \mathcal{D}`` | final demand |
-| ``S_{r,p} \ge q_{min}`` | ``(r,p) \in \mathcal{S}`` | primary supply |
+| ``0 \le S_{r,p} \le \bar S_{r,p}`` | ``(r,p) \in \mathcal{S}`` | primary supply, bounded by its capacity |
 | ``z_{r,k} \ge 0`` | ``k \in K, r \in R_k`` | process activity |
 | ``x_{r,k,n,i} \ge q_{min}`` | CES nests ``n``, ``i \in I_n`` | quantity of input ``i`` used in nest ``n`` |
 | ``T_{p,r,r'} \ge 0`` | ``(p,r,r') \in \mathcal{T}``, ``p \in P^H`` | trade flow from ``r`` to ``r'`` |
@@ -80,7 +81,8 @@ combinations present in the data, and stored in dictionaries keyed by symbols
 \end{aligned}
 ```
 
-with ``a = p_0\, q_0^{1/\eta}`` and ``b = p_0\, q_0^{-1/\varepsilon}``. The
+with ``a = p_0\,(m q_0)^{1/\eta}`` and ``b = p_0\,(m q_0)^{-1/\varepsilon}``: a
+shifter enters by scaling the reference quantity the curve is anchored at. The
 first two sums are the closed-form integrals of the inverse demand curve
 ``P^D(D) = a D^{-1/\eta}`` and of the inverse supply curve
 ``P^S(S) = b S^{1/\varepsilon}``.

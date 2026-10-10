@@ -101,6 +101,119 @@ input side, inside processes. This separability is also what makes the
 surplus-maximisation equivalence legitimate: the demand system is integrable by
 construction.
 
+## Everything other than the price
+
+A curve says how much is offered or wanted *at a given price*. Its position
+depends on everything else: how much timber is standing, how dense the forest
+road network is, how many crews and machines there are, how many people live in
+the region and what they earn. Those are exogenous to a partial-equilibrium
+model and have to enter it somehow. There are three standard devices, and they
+are not interchangeable.
+
+### 1. A multiplicative shifter — the workhorse
+
+Scale the whole curve by a factor built from the drivers and the elasticity of
+the curve with respect to each:
+
+```math
+S(P) = \underbrace{\prod_j \left(\frac{Z_j}{Z_j^0}\right)^{\gamma_j}}_{\text{shift}}
+       \; q_0 \left(\frac{P}{p_0}\right)^{\varepsilon}
+```
+
+This is what [`SupplySpec`](@ref)'s and [`DemandSpec`](@ref)'s `shift` field
+holds, and what [`exogenous_shift`](@ref) builds. It is the device used by
+essentially every forest-sector partial-equilibrium model for the link between
+the forest and the harvest, and there are three good reasons for that.
+
+It **comes free with the estimation**. The regression that gives the price
+elasticity — ``\log S`` on ``\log P`` — gives the ``\gamma_j`` in the same
+step if the drivers are in it. No separate exercise is needed.
+
+It is **safe**: a positive factor times a positive curve stays positive, at any
+level of any driver. An additive shifter, ``S = q_0 (P/p_0)^\varepsilon + A``,
+can drive supply negative and destroys the constant-elasticity reading of
+``\varepsilon``. Use addition only where something genuinely arrives in a
+fixed quantity regardless of price — salvage after a storm, recovered paper
+collected under a mandate, a quota of imports from outside the model. In this
+package that is a separate inelastic [`SupplySpec`](@ref) with a `capacity`,
+not a shifter.
+
+It **separates calibration from scenario**. `p0` and `q0` keep holding the
+base-year point the curve was fitted to; the scenario lives in `shift`. Rewrite
+`q0` instead and the calibration is gone, which matters most in a
+recursive-dynamic run, where the time loop updates the shifter from the state of the
+forest each period and must not touch the fitted curve.
+
+!!! note "Quantity shifters and cost shifters are the same thing here"
+    A road that opens a stand does not create timber, it lowers the cost of
+    reaching it — a *cost* shifter, not a quantity one. With an iso-elastic
+    curve the distinction collapses: multiplying the quantity by ``m`` is
+    exactly multiplying the marginal cost by ``m^{-1/\varepsilon}``, since
+    ``b = p_0 (m q_0)^{-1/\varepsilon}``. With ``\varepsilon = 0.5``, offering
+    10% more wood at every price is the same as harvesting 17% more cheaply at
+    every volume. What matters is only that the elasticity you apply is the one
+    your ``\gamma`` was estimated against.
+
+### 2. A ceiling — for a limit that binds
+
+A shifter scales a curve; it never stops it. When the constraint is a genuine
+limit — an allowable annual cut, a licensed quota, the capacity of the crews
+and machines that exist this year — the right device is a bound:
+
+```math
+S \le \bar S(Z)
+```
+
+which is [`SupplySpec`](@ref)'s `capacity`. The difference is not cosmetic. At
+a binding ceiling the price parts company with the marginal cost on the curve,
+and the gap is the **scarcity rent** of the resource — the economically
+interesting quantity, and the one a pure shifter cannot produce. Doubling a
+shifter doubles supply at every price; a ceiling says that beyond a point no
+price will buy more.
+
+The rent is the price minus what the curve says the last unit cost:
+
+```julia
+rent = price - s.p0 * (S / (s.shift * s.q0))^(1 / s.elasticity)
+```
+
+A ceiling set above what would have been produced anyway changes nothing, so it
+is safe to carry one on every curve that has a known physical limit.
+
+### 3. A structural supply — when the factors are the point
+
+The two devices above are reduced-form: the curve is estimated, and the drivers
+move it. The alternative is to derive supply from the technology instead, by
+making the resource a product and harvesting a process:
+
+* the standing stock becomes a product with its own curve or endowment, bounded
+  by `capacity`;
+* harvesting becomes a [`Process`](@ref) that consumes standing timber and
+  whatever else the model prices, and yields roundwood;
+* labour, machinery and access then enter as priced inputs or as bounds, and
+  the *shape* of the resulting supply curve is derived rather than assumed.
+
+This is how a computable general equilibrium model treats factors of
+production, and it is the honest route when the question is about the factors
+themselves — the effect of a labour shortage, of a machinery subsidy, of a road
+programme. The price is the data: factor shares and factor prices by region,
+which a reduced-form shifter does not need.
+
+### Choosing
+
+| Driver | Device |
+|:---|:---|
+| Growing stock, forest area | shifter, ``\gamma`` typically well below 1 |
+| Allowable cut, quota | ceiling |
+| Road density, accessibility | shifter (a cost shifter in disguise) |
+| Harvesting crews and machines | ceiling, or structural if that is the question |
+| Income, population | shifter on demand |
+| Storm salvage, recovered fibre | a separate inelastic curve with a ceiling |
+
+The sensible default for a sector model is the first column of devices, with
+ceilings wherever a physical limit is known, and the structural route reserved
+for the questions that are really about factors.
+
 Each final demand depends on its own price only; there are no cross-price
 effects between final products. Substitution between products happens on the
 input side, inside processes.

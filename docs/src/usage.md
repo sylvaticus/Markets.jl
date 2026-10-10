@@ -48,6 +48,16 @@ unaffected. See [Demand and supply curves](@ref).
 Only products with a `DemandSpec` in a region are consumed there; other
 products are intermediates in that region.
 
+Everything that moves demand other than its own price — income, population, the
+price of a substitute outside the model — goes in `shift`, which scales the
+whole curve and leaves `p0` and `q0` holding the calibration:
+
+```julia
+DemandSpec(product = :pellets, region = :EU, p0 = 250, q0 = 22, elasticity = 0.6,
+           shift = exogenous_shift(income = (level = 112.0, reference = 100.0,
+                                             elasticity = 0.8)))
+```
+
 ### Primary supply
 
 A [`SupplySpec`](@ref) gives a constant-elasticity supply curve for a product
@@ -57,6 +67,28 @@ the forest, ore from a mine, crops from land:
 ```julia
 SupplySpec(product = :swr, region = :NA, p0 = 65, q0 = 380, elasticity = 0.6)
 ```
+
+Two further fields carry the conditions of production:
+
+* `shift` scales the curve, exactly as for demand. The growing stock, the road
+  network, the crews and machines available all belong here, and
+  [`exogenous_shift`](@ref) turns driver levels and their elasticities into the
+  multiplier.
+* `capacity` is a hard ceiling that no price can pass — an allowable cut, a
+  quota, an exhausted resource. Where a shifter scales the curve, this
+  truncates it, and the price then rises above the marginal cost on the curve
+  by the **scarcity rent** of the resource.
+
+```julia
+SupplySpec(product = :swr, region = :SEF, p0 = 72, q0 = 3.2, elasticity = 0.40,
+           shift    = exogenous_shift(growing_stock = (level = 118.0, reference = 100.0,
+                                                       elasticity = 0.6)),
+           capacity = 4.5)                      # the allowable cut
+```
+
+Which of the two to use for which driver, and when to model the factors
+explicitly instead, is set out in
+[Everything other than the price](@ref).
 
 ### Processes and input nests
 

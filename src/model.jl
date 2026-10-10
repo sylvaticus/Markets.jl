@@ -286,7 +286,9 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     # so no floor is needed
     S = Dict{Tuple{Symbol,Symbol},VariableRef}()
     for s in d.supply
-        S[(s.region, s.product)] = @variable(m, lower_bound = 0.0, start = s.q0)
+        v = @variable(m, lower_bound = 0.0, start = min(s.shift * s.q0, s.capacity))
+        isfinite(s.capacity) && set_upper_bound(v, s.capacity)
+        S[(s.region, s.product)] = v
     end
     # process activity levels
     z = Dict{Tuple{Symbol,Symbol},VariableRef}()
@@ -410,11 +412,13 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     # increasing for every η > 0 — for η < 1 both a/e and e are negative — and
     # at η = 1 the antiderivative is a·log(D).
     cons_benefit = @expression(m, sum(
-        let s = demand_of[k], a = s.p0 * s.q0^(1 / s.elasticity), e = 1 - 1 / s.elasticity
+        let s = demand_of[k], a = s.p0 * (s.shift * s.q0)^(1 / s.elasticity),
+            e = 1 - 1 / s.elasticity
             abs(e) < 1e-8 ? a * log(D[k]) : (a / e) * D[k]^e
         end for k in keys(D)))
     supply_cost = @expression(m, sum(
-        let s = supply_of[k], b = s.p0 * s.q0^(-1 / s.elasticity), e = 1 + 1 / s.elasticity
+        let s = supply_of[k], b = s.p0 * (s.shift * s.q0)^(-1 / s.elasticity),
+            e = 1 + 1 / s.elasticity
             (b / e) * S[k]^e
         end for k in keys(S)))
     conv_cost = @expression(m, sum(proc.vacost * z[(r, proc.name)]

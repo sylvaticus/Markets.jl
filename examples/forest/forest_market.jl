@@ -456,7 +456,23 @@ first(sort(gaps, :slack), 6)
 #
 # In January 2009 the storm Klaus felled some 40 Mm³ of maritime pine in
 # south-west France, several years of harvest at once. The salvage has to be
-# sold, so the region's supply curve shifts far out. Here it is tripled, and
+# sold, so the region's supply curve shifts far out.
+#
+# That is what the `shift` field of a [`SupplySpec`](@ref) is for. Everything
+# about the curve other than its price response lives there — the standing
+# volume, the road network, the labour and machines available — while `p0` and
+# `q0` go on holding the calibration. Tripling `q0` would have worked here too,
+# but it would have destroyed the reference point the curve was fitted to;
+# shifting leaves it intact, which is what lets a scenario be run, reported and
+# reversed. For a driver with a known elasticity,
+# [`exogenous_shift`](@ref) turns levels into the multiplier:
+#
+# ```julia
+# shift = exogenous_shift(growing_stock = (level = 118.0, reference = 100.0,
+#                                          elasticity = 0.6))
+# ```
+#
+# Here the salvage simply triples what the Landes offer at any price, and
 # everything else is left alone:
 
 reconfigure(d; kwargs...) =
@@ -466,8 +482,8 @@ reconfigure(d; kwargs...) =
 nothing # hide
 
 salvage = [s.region == :SWF && s.product == :swr ?
-               SupplySpec(product = :swr, region = :SWF, p0 = s.p0,
-                          q0 = 3 * s.q0, elasticity = s.elasticity) : s
+               SupplySpec(product = :swr, region = :SWF, p0 = s.p0, q0 = s.q0,
+                          elasticity = s.elasticity, shift = 3.0) : s
            for s in supply]
 nothing # hide
 

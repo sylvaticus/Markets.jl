@@ -37,15 +37,26 @@ Base.@kwdef struct DemandSpec
     reported objective value a welfare *difference* rather than a level
     """
     elasticity::Float64
+    """
+    Multiplicative shifter of the whole curve: the quantity demanded at any
+    given price is `shift` times what the reference point implies. It is how
+    everything other than the price enters demand — income, population, the
+    price of a substitute outside the model — leaving `q0` to hold the
+    calibration. [`exogenous_shift`](@ref) builds one from drivers and their
+    elasticities. The default, 1, is the calibrated curve itself
+    """
+    shift::Float64 = 1.0
 
-    function DemandSpec(product, region, p0, q0, elasticity)
+    function DemandSpec(product, region, p0, q0, elasticity, shift)
         p0 > 0 && q0 > 0 || throw(ArgumentError(
             "the reference point of the demand for $product in $region must be " *
             "positive, got p0 = $p0, q0 = $q0"))
         elasticity > 0 || throw(ArgumentError(
             "the demand elasticity of $product in $region must be positive, " *
             "got $elasticity"))
-        new(product, region, p0, q0, elasticity)
+        shift > 0 || throw(ArgumentError(
+            "the demand shifter of $product in $region must be positive, got $shift"))
+        new(product, region, p0, q0, elasticity, shift)
     end
 end
 
@@ -77,16 +88,84 @@ Base.@kwdef struct SupplySpec
     q0::Float64
     "Own-price supply elasticity ``\\varepsilon``, which must be positive"
     elasticity::Float64
+    """
+    Multiplicative shifter of the whole curve: the quantity supplied at any
+    given price is `shift` times what the reference point implies. It is how
+    the exogenous conditions of production enter — the growing stock, the
+    road network, the labour and machinery available — leaving `q0` to hold
+    the calibration. [`exogenous_shift`](@ref) builds one from drivers and
+    their elasticities. The default, 1, is the calibrated curve itself
+    """
+    shift::Float64 = 1.0
+    """
+    Hard ceiling on the quantity supplied, whatever the price: an allowable
+    cut, a licensed quota, an exhausted resource. Where a shifter scales the
+    curve, this truncates it, and the gap that opens between the price and the
+    marginal cost on the curve is the scarcity rent. `Inf` (the default) leaves
+    the curve unbounded
+    """
+    capacity::Float64 = Inf
 
-    function SupplySpec(product, region, p0, q0, elasticity)
+    function SupplySpec(product, region, p0, q0, elasticity, shift, capacity)
         p0 > 0 && q0 > 0 || throw(ArgumentError(
             "the reference point of the supply of $product in $region must be " *
             "positive, got p0 = $p0, q0 = $q0"))
         elasticity > 0 || throw(ArgumentError(
             "the supply elasticity of $product in $region must be positive, " *
             "got $elasticity"))
-        new(product, region, p0, q0, elasticity)
+        shift > 0 || throw(ArgumentError(
+            "the supply shifter of $product in $region must be positive, got $shift"))
+        capacity > 0 || throw(ArgumentError(
+            "the supply capacity of $product in $region must be positive, got $capacity"))
+        new(product, region, p0, q0, elasticity, shift, capacity)
     end
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+A log-linear shifter of a supply or demand curve, built from the exogenous
+drivers that move it and the elasticity of the curve with respect to each:
+
+```math
+\\text{shift} \\;=\\; \\prod_j \\left(\\frac{Z_j}{Z_j^0}\\right)^{\\gamma_j}
+```
+
+Each driver is given as a `NamedTuple` with its current `level`, its
+`reference` level — the one the curve was calibrated at, which gives a shift of
+1 — and the `elasticity` of the curve with respect to it. Pass them as keyword
+arguments, named for readability only.
+
+This is the form that comes out of the usual estimation. Regressing
+``\\log S`` on ``\\log P`` and on the ``\\log Z_j`` gives the price
+elasticity and the ``\\gamma_j`` in one go, so the shifters cost nothing extra to obtain
+once the curve itself has been estimated.
+
+# Example
+```julia
+# a forest with 18% more standing volume than at calibration, and a slightly
+# denser road network
+shift = exogenous_shift(
+    growing_stock = (level = 118.0, reference = 100.0, elasticity = 0.6),
+    road_density  = (level = 1.05,  reference = 1.0,   elasticity = 0.25))
+
+SupplySpec(product = :swr, region = :SEF, p0 = 72, q0 = 3.2,
+           elasticity = 0.40, shift = shift)
+```
+"""
+function exogenous_shift(; drivers...)
+    isempty(drivers) && throw(ArgumentError("give at least one driver"))
+    shift = 1.0
+    for (name, d) in pairs(drivers)
+        haskey(d, :level) && haskey(d, :reference) && haskey(d, :elasticity) ||
+            throw(ArgumentError(
+                "driver $name needs `level`, `reference` and `elasticity`, got $(keys(d))"))
+        d.level > 0 && d.reference > 0 || throw(ArgumentError(
+            "the level and reference of driver $name must be positive, " *
+            "got $(d.level) and $(d.reference)"))
+        shift *= (d.level / d.reference)^d.elasticity
+    end
+    return shift
 end
 
 """

@@ -174,6 +174,80 @@ end
                                           elasticity = -0.5)
 end
 
+@testset "Exogenous drivers of the curves" begin
+    economy(; supply_kw = (), demand_kw = ()) = MarketData(
+        regions = [:A], products = [:x],
+        demand  = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10,
+                              elasticity = 1.5; demand_kw...)],
+        supply  = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 20,
+                              elasticity = 0.8; supply_kw...)])
+    on_curve(s, S) = s.p0 * (S / (s.shift * s.q0))^(1 / s.elasticity)
+
+    @testset "a shifter moves the curve, not its elasticity" begin
+        base = solve_market(economy())
+        @test solved(base)
+        @test price(base, :A, :x) ≈ on_curve(economy().supply[1],
+                                             getq(base.production, :A, :x)) rtol = 1e-6
+        for m in (0.6, 1.5, 3.0)
+            res = solve_market(economy(supply_kw = (shift = m,)))
+            @test solved(res)
+            s = economy(supply_kw = (shift = m,)).supply[1]
+            S = getq(res.production, :A, :x)
+            # the solution still sits on the shifted curve ...
+            @test price(res, :A, :x) ≈ on_curve(s, S) rtol = 1e-6
+            # ... and at any given price it offers `m` times the base quantity
+            @test m * base.production.quantity[1] * (price(res, :A, :x) /
+                  price(base, :A, :x))^s.elasticity ≈ S rtol = 1e-6
+        end
+        # more supply is cheaper, less is dearer
+        @test price(solve_market(economy(supply_kw = (shift = 1.5,))), :A, :x) <
+              price(base, :A, :x) <
+              price(solve_market(economy(supply_kw = (shift = 0.6,))), :A, :x)
+        # a demand shifter works the same way, in the other direction
+        @test price(solve_market(economy(demand_kw = (shift = 1.4,))), :A, :x) >
+              price(base, :A, :x)
+        # shift = 1 is the calibrated curve, i.e. the default
+        @test getq(solve_market(economy(supply_kw = (shift = 1.0,))).production, :A, :x) ≈
+              getq(base.production, :A, :x) rtol = 1e-9
+    end
+
+    @testset "a ceiling truncates the curve and earns a rent" begin
+        free = solve_market(economy())
+        cap  = 0.6 * getq(free.production, :A, :x)
+        res  = solve_market(economy(supply_kw = (capacity = cap,)))
+        @test solved(res)
+        S = getq(res.production, :A, :x)
+        @test S ≈ cap rtol = 1e-6                       # the bound binds
+        @test price(res, :A, :x) > price(free, :A, :x)  # scarcity raises the price
+        # the price now exceeds the marginal cost on the curve: that gap is the
+        # scarcity rent of the resource
+        @test price(res, :A, :x) > on_curve(economy(supply_kw = (capacity = cap,)).supply[1], S)
+        # a ceiling above what would be produced anyway changes nothing
+        loose = solve_market(economy(supply_kw = (capacity = 10 * cap,)))
+        @test getq(loose.production, :A, :x) ≈ getq(free.production, :A, :x) rtol = 1e-6
+    end
+
+    @testset "shifters from drivers" begin
+        @test exogenous_shift(stock = (level = 118.0, reference = 100.0, elasticity = 0.6),
+                              roads = (level = 1.05, reference = 1.0, elasticity = 0.25)) ≈
+              1.18^0.6 * 1.05^0.25
+        # a driver at its reference level leaves the curve alone
+        @test exogenous_shift(stock = (level = 7.0, reference = 7.0, elasticity = 0.9)) == 1
+        # an elasticity of zero means the driver does not matter
+        @test exogenous_shift(x = (level = 3.0, reference = 1.0, elasticity = 0.0)) == 1
+        @test_throws ArgumentError exogenous_shift()
+        @test_throws ArgumentError exogenous_shift(a = (level = 1.0, reference = 1.0))
+        @test_throws ArgumentError exogenous_shift(a = (level = -1.0, reference = 1.0,
+                                                        elasticity = 1.0))
+        @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1,
+                                              elasticity = 1, shift = 0)
+        @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1,
+                                              elasticity = 1, capacity = -1)
+        @test_throws ArgumentError DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1,
+                                              elasticity = 2, shift = -0.5)
+    end
+end
+
 @testset "Prices keep their sign" begin
     # :junk is an unavoidable by-product nobody wants; the balance is an
     # equality, so somebody must take it and pay to burn it. Its equilibrium
