@@ -315,6 +315,109 @@ Its price then settles at zero rather than going negative, and a positive
 inequalities, as a mixed-complementarity formulation would, is the other route
 to the same thing; it is not what this package does.
 
+## Substitution in final demand
+
+Final demands are independent of each other by default: each product's curve
+responds to its own price alone. That is often too strong — pellets and
+firewood are the same heat, sawn softwood and panels do the same job in a
+building — and the question is how to let one product's price move another's
+demand.
+
+The tempting answer, a matrix of cross-price elasticities, is **not available**,
+and for the same reason an arbitrary matrix of Armington elasticities is not.
+Demand here is the gradient of the consumer-benefit term of the objective;
+that is what makes the surplus-maximisation equivalence hold in the first
+place. A demand system that is not the gradient of anything — an arbitrary
+matrix is not, unless it satisfies the symmetry conditions — has no benefit
+function behind it, and the program it would be put into would no longer be the
+market it claims to represent.
+
+What *is* available is the same answer as for origins: a **tree**, through
+[`DemandNest`](@ref). Products that substitute closely sit in a group with a
+high ``\sigma``; the group as a whole substitutes against the rest at the lower
+``\sigma`` of the level above; and the whole bundle faces one
+[`DemandSpec`](@ref) curve, which describes the composite. So
+
+```julia
+DemandSpec(region = :EU, p0 = 260, q0 = 110, elasticity = 0.5,
+           product = DemandNest(sigma = 1.6, products = [:sawn_hw], shares = [0.25],
+                       nests = [DemandNest(sigma = 5.0, share = 0.75,
+                                           products = [:sawn_sw, :panel],
+                                           shares   = [0.65, 0.35])]))
+```
+
+says that softwood lumber and panels are close substitutes, that hardwood
+lumber is a more distant substitute for either, and that the construction
+bundle as a whole has an own-price elasticity of 0.5.
+
+The cross-price effects this implies are the CES ones: within a group, the
+compensated cross-price elasticity of product ``i`` with respect to the price of
+``j`` is ``\sigma s_j``, with ``s_j`` the value share of ``j``. A large
+supplier therefore transmits its price more strongly than a small one at the
+same ``\sigma`` — the shares matter as much as the elasticity, exactly as they
+do between origins.
+
+### Substitutes outside the model
+
+Wood fuel competes with gas and oil, whose prices this model does not
+determine. That needs none of the machinery above: an exogenous price is a
+constant, so its effect on demand is a **shift of the whole curve**. Put the
+cross-price elasticity in [`exogenous_shift`](@ref) as the driver elasticity:
+
+```julia
+DemandSpec(product = pellets_and_firewood, region = :EU, p0 = ..., q0 = ...,
+           elasticity = 0.4,
+           shift = exogenous_shift(gas = (level = 48.0, reference = 30.0,
+                                          elasticity = 0.35)))
+```
+
+Gas 60% dearer than at calibration, with a cross-price elasticity of 0.35,
+raises demand for the wood-fuel bundle by ``1.6^{0.35} \approx 1.18``. The
+endogenous substitution inside the bundle and the exogenous substitution
+against gas are different mechanisms, and it is worth keeping them visibly
+apart.
+
+## Taxes, subsidies and other wedges
+
+A tax drives a wedge between what one side of a transaction pays and what the
+other receives. [`Tax`](@ref) places one on production, on consumption, on a
+transformation or on a trade route, as an amount per unit or as a fraction, and
+a subsidy is a negative rate.
+
+In a surplus-maximising program a wedge enters exactly as a cost does: a tax on
+a route is indistinguishable, to the optimiser, from a more expensive route.
+The first-order conditions of the taxed program are then the equilibrium
+conditions of the taxed market, so the quantities and prices that come out are
+the right ones. A specific tariff of 10 on a route with a freight cost of 5
+opens a price gap of exactly 15; a value-added tax of 25% puts the consumer
+price 25% above the market price and moves the quantity accordingly.
+
+!!! warning "The objective is no longer welfare"
+    The program treats the revenue as a cost consumed, when it is a transfer
+    received. The objective of a taxed model is therefore **welfare minus the
+    revenue**, and comparing it with an untaxed one overstates the loss by the
+    whole amount raised. `Results.taxes` reports what each instrument raises
+    precisely so the transfer can be added back; who ultimately gets it is
+    outside the model.
+
+### Why ad valorem rates on trade are special
+
+Three of the four bases take an ad valorem rate exactly, because the thing the
+rate multiplies is known before the model is solved: a tax on production scales
+the supply curve, one on consumption scales the demand curve, one on a process
+scales its value-added cost. A tariff is different — it is a fraction of the
+price **at the origin**, which is a dual of the problem and therefore not
+available to the objective that produces it.
+
+The honest routes out are to restate the model as a complementarity problem,
+where prices are variables, or to iterate. This package iterates:
+[`solve_market`](@ref) solves repeatedly, each time holding the tariff at the
+money equivalent implied by the previous solution's producer prices, and stops
+when the two agree. The fixed point is the ad valorem equilibrium — at it, the
+price gap on a used route is freight plus the rate times the origin price,
+which is what a tariff means — and everything else in the model is still solved
+exactly, in one pass.
+
 ## Trade between regions
 
 Regions trade the *same physical product* at a cost per unit of quantity
@@ -530,16 +633,18 @@ product rather than global.
 Two limitations are inherent to the formulation rather than to the data, and
 both bear on how results should be read.
 
-**Processing location is sharp.** Processes have constant returns to scale and
-a constant value-added cost, with no upper bound on activity. Nothing therefore
+**Processing location is sharp unless you bound it.** Processes have constant
+returns to scale and a constant value-added cost, so nothing in the economics
 stops the whole of a process from concentrating in whichever region is
 cheapest: location is bang-bang, the same sharpness the homogeneous trade
 assumption produces, and Armington on the *outputs* only softens it indirectly
-by making each region's variety wanted somewhere. Until capacity bounds exist
-(they are in [Planned extensions](@ref)), read the geography of *processing* far
-more cautiously than that of prices or of final demand. Restricting a process
-to the regions that actually have mills, through the `regions` argument of
-[`Process`](@ref), is the blunt instrument available today.
+by making each region's variety wanted somewhere.
+
+The remedy is to say what capacity exists. [`Process`](@ref)'s `capacity` bounds
+the activity level, region by region if need be, and a binding bound earns a
+quasi-rent reported in `Results.activity` — what another unit of mill would be
+worth there. Without such a bound, read the geography of *processing* far more
+cautiously than that of prices or of final demand.
 
 **Prices come from a continuous relaxation.** All quantities are continuous, so
 the model knows nothing of indivisible investments, minimum efficient scale or
@@ -587,12 +692,11 @@ code remains in the git history.
   domestic-versus-imported margin; and a CET nest on the export side, so that
   redirecting output between destinations is costly for producers too, which is
   the mirror image of the import-side nest built here.
-* **Exogenous drivers** of demand and supply (income, population, resource
-  availability) as explicit shifters.
 * **Inputs with an exogenous price** inside a nest (e.g. a resin with a world
   price). A `SupplySpec` with a very high elasticity is an approximation
   available today.
-* **Policies**: taxes, subsidies, tariffs and quotas.
+* **Ad valorem taxes without iteration**, which would need the model restated
+  as a complementarity problem rather than an optimisation.
 * **Estimation** of the parameters from data.
 
 ## References

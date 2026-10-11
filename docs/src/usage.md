@@ -48,6 +48,31 @@ unaffected. See [Demand and supply curves](@ref).
 Only products with a `DemandSpec` in a region are consumed there; other
 products are intermediates in that region.
 
+#### Products that substitute for each other
+
+Give `product` a [`DemandNest`](@ref) instead of a single symbol and the curve
+describes a **group of substitutes**: the `p0`, `q0` and `elasticity` then
+belong to the composite, while the nest says how its members trade off against
+each other.
+
+```julia
+DemandSpec(region = :EU, p0 = 260, q0 = 110, elasticity = 0.5,
+           product = DemandNest(sigma = 1.6, products = [:sawn_hw], shares = [0.25],
+                       nests = [DemandNest(sigma = 5.0, share = 0.75,
+                                           products = [:sawn_sw, :panel],
+                                           shares   = [0.65, 0.35])]))
+```
+
+Softwood lumber and panels substitute readily here, hardwood lumber less so
+with either. The structure is a tree for the same reason the Armington one is:
+a free matrix of cross-price elasticities is not the gradient of any benefit
+function, and the model would stop being the market it claims to be. See
+[Substitution in final demand](@ref).
+
+Substitutes **outside** the model — gas and oil against wood fuel — need no
+nest at all. An exogenous price is a constant, so put the cross-price
+elasticity into `shift` through [`exogenous_shift`](@ref).
+
 Everything that moves demand other than its own price — income, population, the
 price of a substitute outside the model — goes in `shift`, which scales the
 whole curve and leaves `p0` and `q0` holding the calibration:
@@ -102,7 +127,11 @@ chosen by the model. It has:
   outputs make a joint-production process (a main product and its residues).
 * a **value-added cost** `vacost` per unit of activity, covering everything not
   modelled as an explicit input (labour, energy, capital, ...).
-* optionally the `regions` where it may operate (default: all).
+* optionally the `regions` where it may operate (default: all), and a
+  `capacity` bounding its activity — a single number for every region, or a
+  `region => bound` dictionary. Without one, a process with constant returns
+  concentrates wherever production is cheapest; with one, the bound binds and
+  earns a quasi-rent reported in `Results.activity`.
 
 There are two kinds of nest:
 
@@ -152,6 +181,23 @@ allowed route `(product, from, to)` to a unit transport cost, per unit of
 ```julia
 transport = Dict((:swr, :NA, :AS) => 13.2, (:swr, :AS, :NA) => 13.2, ...)
 ```
+
+A [`TradeLimit`](@ref) caps what may actually move: the capacity of a port or a
+corridor, or a quota. It applies to the **sum** of the flows it covers, so one
+entry can cap a single product on a single route or everything crossing a
+border, and `weights` converts the quantities into whatever unit the ceiling is
+written in:
+
+```julia
+trade_limits = [TradeLimit(name = :quota, products = :paper, from = :NA, to = :EU,
+                           capacity = 8.0),
+                TradeLimit(name = :port, from = :SWF, capacity = 6.0,
+                           weights = Dict(:swr => 0.8, :pellets => 1.0))]
+```
+
+A binding ceiling shows up in `Results.limits` with its congestion rent, and
+the price gap across the route it throttles becomes transport **plus** that
+rent.
 
 By default a traded product is **homogeneous**: the same good wherever it comes
 from. Regional prices then differ by at most the transport cost and no region
@@ -265,6 +311,28 @@ the field names, Julia's shorthand saves the repetition:
 market = MarketData(; regions, products, demand, supply, processes, tradable, transport)
 ```
 
+### Taxes and subsidies
+
+A [`Tax`](@ref) drives a wedge between what one side pays and what the other
+receives, on production, on consumption, on a transformation or on a trade
+route. `rate` is an amount per unit, or a fraction of the base when
+`relative = true`; a subsidy is a negative rate.
+
+```julia
+taxes = [Tax(name = :harvest_levy, on = :supply,  product = :swr, region = :SEF, rate = 4.0),
+         Tax(name = :pellet_vat,   on = :demand,  product = :pellets, rate = 0.055,
+             relative = true),
+         Tax(name = :mill_aid,     on = :process, process = :pelletmill, region = :SWF,
+             rate = -15.0),
+         Tax(name = :paper_tariff, on = :trade,   product = :paper, to = :EU, rate = 0.08,
+             relative = true)]
+```
+
+Selectors left at `:all` match everything, and several taxes may fall on one
+base. `Results.taxes` reports what each raises — which matters, because a taxed
+objective counts the revenue as a cost rather than a transfer and so is no
+longer welfare. See [Taxes, subsidies and other wedges](@ref).
+
 ## Solving
 
 ```julia
@@ -287,7 +355,9 @@ A [`Results`](@ref) holds six `DataFrame`s:
 | `trade`       | product, from, to, quantity | bilateral flows (positive only) |
 | `net_trade`   | region, product, exports, imports, net | net = exports − imports |
 | `prices`      | region, product, price, producer\_price | what local users pay, and what local producers get |
-| `activity`    | region, process, level | process activity levels |
+| `activity`    | region, process, level, capacity, rent | process activity, its bound, and the quasi-rent a binding bound earns |
+| `limits`      | limit, capacity, used, rent | trade ceilings and their congestion rent |
+| `taxes`       | tax, on, revenue | what each instrument raises |
 
 Either price column is `missing` where it has no meaning: a region that cannot
 produce an Armington product has no `producer_price` for it, and a region that

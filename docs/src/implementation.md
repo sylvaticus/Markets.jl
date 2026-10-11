@@ -59,7 +59,8 @@ combinations present in the data, and stored in dictionaries keyed by symbols
 |:---------|:-------|:--------|
 | ``D_{r,p} \ge q_{min}`` | ``(r,p) \in \mathcal{D}`` | final demand |
 | ``0 \le S_{r,p} \le \bar S_{r,p}`` | ``(r,p) \in \mathcal{S}`` | primary supply, bounded by its capacity |
-| ``z_{r,k} \ge 0`` | ``k \in K, r \in R_k`` | process activity |
+| ``0 \le z_{r,k} \le \bar z_{r,k}`` | ``k \in K, r \in R_k`` | process activity, bounded by its capacity |
+| ``C_{s}`` | demand curves `s` over a group | the composite of a group of substitutes, whose members are the ``D`` of each |
 | ``x_{r,k,n,i} \ge q_{min}`` | CES nests ``n``, ``i \in I_n`` | quantity of input ``i`` used in nest ``n`` |
 | ``T_{p,r,r'} \ge 0`` | ``(p,r,r') \in \mathcal{T}``, ``p \in P^H`` | trade flow from ``r`` to ``r'`` |
 | ``X_{p,o,r} \ge q_{min}`` | ``p \in P^A``, ``o \in O_{p,r}`` | quantity of the variety of origin ``o`` used in ``r`` |
@@ -193,6 +194,65 @@ nesting only says how it is read.
 The specification applied to a (product, destination) pair is the one whose
 `destination` names it, or the `:all` one otherwise, which is what lets the
 elasticity, the groups and the shares differ between importing markets.
+
+### Ceilings
+
+A [`Process`](@ref)'s `capacity` is an upper bound on ``z_{r,k}``, and a
+[`SupplySpec`](@ref)'s on ``S_{r,p}``; both are bounds on variables, so the
+quasi-rent of a binding one is the variable's reduced cost. A
+[`TradeLimit`](@ref) is a constraint instead, since it spans several flows:
+
+```math
+\sum_{(p,o,r) \,\in\, \text{covered}} w_p\, F_{p,o,r} \;\le\; \bar F
+```
+
+with ``F`` standing for the trade variable of a homogeneous product or the
+cross-border variety of an Armington one, and ``w_p`` the weight that converts
+quantities into the unit the ceiling is written in. Its dual is the congestion
+rent, and on a route it throttles the price gap becomes transport plus that
+rent rather than transport alone.
+
+### Substitutes in final demand
+
+A [`DemandSpec`](@ref) whose `product` is a [`DemandNest`](@ref) builds the same
+calibrated CES tree as the Armington one, over products instead of origins: one
+consumption variable per product of the group, one composite per node, and at
+each node
+
+```math
+\left( \sum_{c} \delta_{c}^{\,1/\sigma_\nu}\, q_c^{\,\rho_\nu}
+\right)^{1/\rho_\nu} \;\ge\; q_\nu
+```
+
+The curve's benefit term is then taken on the **root composite**, not on the
+individual quantities, which is what gives the cross-price effects while
+keeping the objective a single concave function of the quantities — so demand
+stays integrable and the program stays convex. A group of one product collapses
+to the plain case with no composite and no constraint.
+
+### Tax wedges
+
+A tax enters the objective exactly as a cost does, so each wedge modifies one
+coefficient that was already there. Writing ``t_a`` for the summed absolute
+rates and ``t_r`` for the summed relative ones on a given base:
+
+| On | Effect |
+|:---|:---|
+| supply | ``b \to (1 + t_r)\,b``, plus a term ``t_a S``: the market must cover the marginal cost and the wedge |
+| demand | ``a \to a/(1 + t_r)``, less a term ``t_a C/(1+t_r)``: the curve is what the consumer pays, the gradient is what the market pays |
+| process | ``c_k \to (1 + t_r)\,c_k + t_a`` |
+| trade | ``\tau \to \tau + t_a + \text{(ad valorem equivalent)}`` |
+
+The first three are exact in one solve. The fourth is exact for ``t_a``; the ad
+valorem part is a fraction of ``\pi^s_{p,o}``, a dual, so `solve_market` runs
+`solve_once` repeatedly, each pass holding the tariff at the money equivalent
+implied by the previous pass's producer prices, until successive passes agree
+to `tax_tolerance`. At the fixed point the wedge equals the rate times the
+origin price by construction.
+
+Revenue is recomputed afterwards from the solution, instrument by instrument,
+and reported in `Results.taxes`; the objective does not include it as a
+transfer, so adding the total back is what returns it to welfare.
 
 ### Convexity
 

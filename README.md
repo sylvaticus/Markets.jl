@@ -27,9 +27,10 @@ arbitrary set of products, regions and transformation processes.
 >   marginal cost, zero profit on active processes, no-arbitrage across trade
 >   routes, the CES demand and price-index conditions, and the limits in which
 >   the Armington model collapses to the homogeneous one.
-> * **Read processing location with particular caution.** Processes have
->   constant returns and no capacity bounds, so where milling happens is
->   bang-bang: a small cost advantage takes the whole industry.
+> * **Read processing location with particular caution.** Unless a process is
+>   given a capacity, it has constant returns and nothing holds it in place, so
+>   where milling happens is bang-bang: a small cost advantage takes the whole
+>   industry. The forest example sets no capacities.
 
 You describe the economy with data — demand and supply curves, processes that
 transform products (with substitutable inputs and joint by-products), transport

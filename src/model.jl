@@ -11,7 +11,9 @@ threshold are taken relative to it, so that they mean the same thing whether
 the model is written in m³ or in million m³.
 """
 function quantity_scale(d::MarketData)
-    qs = Float64[s.q0 for s in d.demand]
+    # a curve over a group of substitutes describes their composite, so its
+    # reference quantity is divided among them for the purpose of scale
+    qs = Float64[s.q0 / length(nest_products(s.product)) for s in d.demand]
     append!(qs, Float64[s.q0 for s in d.supply])
     return isempty(qs) ? 1.0 : minimum(qs)
 end
@@ -25,8 +27,8 @@ no composite of it, though it may still produce it for others.
 """
 function consumed(d::MarketData)
     uses = Set{Tuple{Symbol,Symbol}}()
-    for s in d.demand
-        push!(uses, (s.product, s.region))
+    for s in d.demand, p in nest_products(s.product)
+        push!(uses, (p, s.region))
     end
     for proc in d.processes, r in regions_of(proc, d), nest in proc.inputs, p in nest.products
         push!(uses, (p, r))
@@ -248,6 +250,55 @@ end
 """
 $(TYPEDSIGNATURES)
 
+The quantity of the demand composite that `node` stands for, as a variable of
+`m`: the quantity consumed of a product when `node` is a `Symbol`, otherwise a
+fresh variable tied to its members by the CES aggregator of the group. Called
+on the `product` field of a [`DemandSpec`](@ref), it creates one consumption
+variable per product of the group and one composite per nest.
+"""
+function demand_quantity(m, node, r::Symbol, D, qfloor, start, in_power::Bool = true)
+    if node isa Symbol
+        haskey(D, (r, node)) && throw(ArgumentError(
+            "$(node) has more than one final demand in region $r"))
+        return D[(r, node)] = @variable(m, lower_bound = in_power ? qfloor : 0.0,
+                                           start = max(start, qfloor))
+    end
+    weights = Float64[node.shares; [sub.share for sub in node.nests]]
+    weights ./= sum(weights)
+    members = Any[node.products; node.nests]
+    qs = [demand_quantity(m, member, r, D, qfloor, weights[i] * start,
+                          isfinite(node.sigma))
+          for (i, member) in enumerate(members)]
+    length(qs) == 1 && return qs[1]
+    composite = @variable(m, lower_bound = in_power ? qfloor : 0.0,
+                             start = sum(start_value, qs))
+    ρ = (node.sigma - 1) / node.sigma
+    aggr = @expression(m, sum(weights[i]^(1 / node.sigma) * qs[i]^ρ for i in eachindex(qs)))
+    @constraint(m, aggr^(1 / ρ) >= composite)
+    return composite
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The tax falling on a final-demand curve.  A curve over a group of substitutes
+describes their composite, so a tax on it must be one the whole group shares:
+if the products of the group are taxed differently, that is an error rather
+than something to average away.
+"""
+function demand_tax(d::MarketData, s::DemandSpec)
+    products = nest_products(s.product)
+    rates = [tax_rates(d.taxes, :demand; product = p, region = s.region) for p in products]
+    allequal(rates) || throw(ArgumentError(
+        "the products $(join(products, ", ")) share one demand curve in region " *
+        "$(s.region) but are taxed differently; tax them alike, or give them " *
+        "separate curves"))
+    return first(rates)
+end
+
+"""
+$(TYPEDSIGNATURES)
+
 Build and solve the equilibrium for the economy `d` and return a
 [`Results`](@ref).
 
@@ -264,23 +315,34 @@ optimal) solution.
 Both default to a multiple of the smallest reference quantity in `d`, so that
 they scale with the units the economy is written in.
 """
-function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool = true,
-                      qfloor::Real = 1e-6 * quantity_scale(d),
-                      tol::Real = 1e-3 * quantity_scale(d))
+function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Float64};
+                    optimizer = Ipopt.Optimizer, silent::Bool = true,
+                    qfloor::Real = 1e-6 * quantity_scale(d),
+                    tol::Real = 1e-3 * quantity_scale(d))
     m = Model(optimizer)
     silent && set_silent(m)
     # Ipopt prints its licence banner even when silent unless "sb" is set
     silent && optimizer === Ipopt.Optimizer && set_attribute(m, "sb", "yes")
 
-    demand_of = Dict((s.region, s.product) => s for s in d.demand)
     supply_of = Dict((s.region, s.product) => s for s in d.supply)
+    # the reference quantity of whatever curve a consumed product belongs to,
+    # used only to start the solver off in a sensible place
+    demand_of = Dict{Tuple{Symbol,Symbol},DemandSpec}()
+    for spec in d.demand, p in nest_products(spec.product)
+        demand_of[(spec.region, p)] = spec
+    end
 
     # --- decision variables -------------------------------------------------
     # final demand quantities: floored because the marginal benefit a·D^(-1/η)
     # is unbounded at zero
+    # Final demand. A plain product gets one variable; a group of substitutes
+    # gets one per product plus the composite the curve actually describes, so
+    # the balances and the result tables stay per product throughout.
     D = Dict{Tuple{Symbol,Symbol},VariableRef}()
+    composites = Tuple{DemandSpec,Any}[]
     for s in d.demand
-        D[(s.region, s.product)] = @variable(m, lower_bound = qfloor, start = s.q0)
+        push!(composites,
+              (s, demand_quantity(m, s.product, s.region, D, qfloor, s.shift * s.q0)))
     end
     # primary supply quantities: the marginal cost b·S^(1/ε) is finite at zero,
     # so no floor is needed
@@ -293,7 +355,10 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     # process activity levels
     z = Dict{Tuple{Symbol,Symbol},VariableRef}()
     for proc in d.processes, r in regions_of(proc, d)
-        z[(r, proc.name)] = @variable(m, lower_bound = 0.0, start = 1.0)
+        cap = capacity_of(proc, r)
+        v = @variable(m, lower_bound = 0.0, start = min(1.0, cap))
+        isfinite(cap) && set_upper_bound(v, cap)
+        z[(r, proc.name)] = v
     end
     # trade flows of the homogeneous products  T[(product, from, to)]
     arm = armington_of(d)
@@ -326,6 +391,22 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
             X[(p, o, r)] = @variable(m, lower_bound = o in floored ? qfloor : 0.0,
                                         start = shares[i] * start)
         end
+    end
+
+    # --- ceilings on what may be carried between regions --------------------
+    # one constraint per limit, over the weighted sum of the flows it covers,
+    # whether those are homogeneous trade variables or Armington varieties
+    flow_vars = merge(Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}(T),
+                      Dict(k => v for (k, v) in X if k[2] != k[3]))
+    trade_limit = Dict{Symbol,ConstraintRef}()
+    for limit in d.trade_limits
+        haskey(trade_limit, limit.name) && throw(ArgumentError(
+            "duplicate trade limit named $(limit.name)"))
+        covered = [k for k in keys(flow_vars) if covers(limit, k...)]
+        isempty(covered) && @warn "trade limit $(limit.name) covers no flow of this economy"
+        trade_limit[limit.name] = @constraint(m,
+            sum(get(limit.weights, k[1], 1.0) * flow_vars[k] for k in covered;
+                init = 0.0) <= limit.capacity)
     end
 
     # --- assemble per-(region,product) sources & uses -----------------------
@@ -411,21 +492,34 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     # differs by changes neither the optimum nor the prices.  It is concave and
     # increasing for every η > 0 — for η < 1 both a/e and e are negative — and
     # at η = 1 the antiderivative is a·log(D).
+    # A tax on consumption sits between what the consumer pays, which is what
+    # the curve describes, and the market price, which the objective's gradient
+    # has to equal: hence the division by (1 + relative) and the term in
+    # `absolute` below.
     cons_benefit = @expression(m, sum(
-        let s = demand_of[k], a = s.p0 * (s.shift * s.q0)^(1 / s.elasticity),
+        let t = demand_tax(d, s), w = 1 + t.relative,
+            a = s.p0 * (s.shift * s.q0)^(1 / s.elasticity) / w,
             e = 1 - 1 / s.elasticity
-            abs(e) < 1e-8 ? a * log(D[k]) : (a / e) * D[k]^e
-        end for k in keys(D)))
+            (abs(e) < 1e-8 ? a * log(C) : (a / e) * C^e) - (t.absolute / w) * C
+        end for (s, C) in composites))
+    # A tax on production sits between the market price and what the producer
+    # keeps, so it raises the marginal cost the market has to cover.
     supply_cost = @expression(m, sum(
-        let s = supply_of[k], b = s.p0 * (s.shift * s.q0)^(-1 / s.elasticity),
+        let s = supply_of[k],
+            t = tax_rates(d.taxes, :supply; product = s.product, region = s.region),
+            b = (1 + t.relative) * s.p0 * (s.shift * s.q0)^(-1 / s.elasticity),
             e = 1 + 1 / s.elasticity
-            (b / e) * S[k]^e
+            (b / e) * S[k]^e + t.absolute * S[k]
         end for k in keys(S)))
-    conv_cost = @expression(m, sum(proc.vacost * z[(r, proc.name)]
-                                   for proc in d.processes for r in regions_of(proc, d)))
+    conv_cost = @expression(m, sum(
+        let t = tax_rates(d.taxes, :process; process = proc.name, region = r)
+            ((1 + t.relative) * proc.vacost + t.absolute) * z[(r, proc.name)]
+        end for proc in d.processes for r in regions_of(proc, d)))
+    route_cost(key) = d.transport[key] + get(tariff, key, 0.0) +
+        tax_rates(d.taxes, :trade; product = key[1], from = key[2], to = key[3]).absolute
     trans_cost = @expression(m,
-        sum(d.transport[key] * T[key] for key in keys(T); init = 0.0) +
-        sum(d.transport[key] * X[key] for key in keys(X) if key[2] != key[3]; init = 0.0))
+        sum(route_cost(key) * T[key] for key in keys(T); init = 0.0) +
+        sum(route_cost(key) * X[key] for key in keys(X) if key[2] != key[3]; init = 0.0))
 
     @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost)
 
@@ -434,5 +528,59 @@ function solve_market(d::MarketData; optimizer = Ipopt.Optimizer, silent::Bool =
     (st == MOI.LOCALLY_SOLVED || st == MOI.OPTIMAL) ||
         @warn "solver returned status $st — results may be unreliable"
 
-    return build_results(d, m, D, S, z, T, X, balance, origin_balance, tol)
+    return build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit,
+                         tariff, tol)
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+Build and solve the equilibrium for the economy `d` and return a
+[`Results`](@ref).
+
+A warning is emitted if the solver does not report an optimal (or locally
+optimal) solution.
+
+* `optimizer` is any JuMP solver able to handle nonlinear constraints and to
+  return duals, and `silent` suppresses its output.
+* `qfloor` is the lower bound given to the quantities that are raised to a
+  power below 1, which an interior-point solver cannot differentiate at zero.
+* `tol` is the quantity below which a flow, an output or an activity is treated
+  as zero and left out of the result tables.
+
+Both default to a multiple of the smallest reference quantity in `d`, so that
+they scale with the units the economy is written in.
+
+An **ad valorem tax on trade** is a fraction of the price at the origin, which
+is a dual of the problem and so cannot be written into its objective. When `d`
+has one, the equilibrium is found by repeated solves: each holds the tariff at
+the money equivalent implied by the previous solution's producer prices, and
+the loop stops when the two agree to `tax_tolerance` (relative), or warns after
+`max_tax_iterations`. Everything else is solved exactly, once.
+"""
+function solve_market(d::MarketData; max_tax_iterations::Int = 50,
+                      tax_tolerance::Real = 1e-8, kwargs...)
+    advalorem = [t for t in d.taxes if t.on === :trade && t.relative]
+    tariff = Dict{Tuple{Symbol,Symbol,Symbol},Float64}()
+    res = solve_once(d, tariff; kwargs...)
+    isempty(advalorem) && return res
+
+    routes = collect(keys(d.transport))
+    for _ in 1:max_tax_iterations
+        # the money a rate of `relative` comes to, at the prices just found
+        origin_price(p, o) = begin
+            rows = res.prices[(res.prices.region .== o) .& (res.prices.product .== p), :]
+            isempty(rows) ? 0.0 : coalesce(only(rows.producer_price), 0.0)
+        end
+        updated = Dict(key => tax_rates(d.taxes, :trade; product = key[1], from = key[2],
+                                        to = key[3]).relative * origin_price(key[1], key[2])
+                       for key in routes)
+        gap = maximum(abs(updated[k] - get(tariff, k, 0.0)) / max(abs(updated[k]), 1.0)
+                      for k in routes; init = 0.0)
+        tariff = updated
+        res = solve_once(d, tariff; kwargs...)
+        gap <= tax_tolerance && return res
+    end
+    @warn "ad valorem trade taxes did not settle in $max_tax_iterations solves"
+    return res
 end

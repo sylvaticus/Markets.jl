@@ -23,10 +23,12 @@
       which the Armington formulation collapses to the homogeneous one. That
       makes the model internally coherent. It does not make it right about the
       world.
-    * **Read some results more cautiously than others.** Processing location is
-      bang-bang, since processes have constant returns and no capacity bounds
-      yet; see [What the model does not constrain](@ref). Prices and final
-      demand are on firmer ground than the geography of milling.
+    * **Read some results more cautiously than others.** Unless a process is
+      given a capacity, it has constant returns and nothing holds it in place,
+      so processing location is bang-bang; see
+      [What the model does not constrain](@ref). The forest example sets no
+      capacities, so its prices and final demand are on firmer ground than its
+      geography of milling.
 
 Markets.jl solves a **spatial partial-equilibrium model** of an economic sector
 made of an arbitrary set of products, regions and transformation processes.
@@ -61,6 +63,14 @@ GitHub: [https://github.com/sylvaticus/Markets.jl](https://github.com/sylvaticus
   substitutes: regions cross-haul and every region's price responds to supply
   and demand everywhere. An infinite elasticity, the default, is the
   homogeneous case above.
+* **Bounds where they belong.** Mill capacities, port and corridor ceilings and
+  allowable cuts truncate the model where a real limit exists, and a binding
+  one reports its rent.
+* **Substitution in final demand.** Products that compete for the same use are
+  grouped in a nest, so one product's price moves another's demand — and
+  substitutes outside the model enter as curve shifters.
+* **Taxes and subsidies.** Wedges on production, consumption, transformation or
+  trade, per unit or ad valorem, with the revenue of each reported.
 * **Tidy results.** Every result is a `DataFrame`.
 
 ## Installation

@@ -248,6 +248,232 @@ end
     end
 end
 
+@testset "Bounds on transformation and on trade" begin
+    economy(; cap = Inf, limits = TradeLimit[]) = MarketData(
+        regions   = [:A, :B], products = [:w, :g],
+        demand    = [DemandSpec(product = :g, region = r, p0 = 300, q0 = 10, elasticity = 1.2)
+                     for r in (:A, :B)],
+        supply    = [SupplySpec(product = :w, region = :A, p0 = 40, q0 = 40, elasticity = 0.8),
+                     SupplySpec(product = :w, region = :B, p0 = 90, q0 = 5,  elasticity = 0.8)],
+        processes = [Process(name = :mill, vacost = 50, capacity = cap,
+                             inputs  = [leontief(product = :w, coeff = 2.0)],
+                             outputs = [:g => 1.0])],
+        tradable  = [:w, :g],
+        transport = Dict((p, o, r) => (p === :w ? 6.0 : 10.0)
+                         for p in (:w, :g), o in (:A, :B), r in (:A, :B) if o != r),
+        trade_limits = limits)
+    level(res, r) = only(res.activity[res.activity.region .== r, :level])
+
+    @testset "a capacity holds a process back" begin
+        free = solve_market(economy())
+        @test solved(free)
+        @test all(isinf, free.activity.capacity) && all(iszero, free.activity.rent)
+        cap = 0.6 * level(free, :A)
+        res = solve_market(economy(cap = cap))
+        @test solved(res)
+        @test level(res, :A) ≈ cap rtol = 1e-5          # the bound binds in A ...
+        @test level(res, :B) > level(free, :B)          # ... and work moves to B
+        @test only(res.activity[res.activity.region .== :A, :rent]) > 0   # a quasi-rent
+        # a per-region dictionary bounds only the regions it names
+        split = solve_market(economy(cap = Dict(:A => cap)))
+        @test level(split, :A) ≈ cap rtol = 1e-5
+        @test isinf(only(split.activity[split.activity.region .== :B, :capacity]))
+        @test_throws ArgumentError Process(name = :p, inputs = Nest[], outputs = [:g => 1.0],
+                                           capacity = 0.0)
+    end
+
+    @testset "a trade ceiling binds and earns a congestion rent" begin
+        free  = solve_market(economy())
+        moved = only(free.trade[free.trade.product .== :g, :quantity])
+        quota = 0.55 * moved
+        res = solve_market(economy(limits = [TradeLimit(name = :quota, products = :g,
+                                             from = :A, to = :B, capacity = quota)]))
+        @test solved(res)
+        @test flow(res, :g, :A, :B) ≈ quota rtol = 1e-4
+        row = only(eachrow(res.limits))
+        @test row.limit === :quota
+        @test row.used ≈ quota rtol = 1e-4
+        @test row.rent > 0
+        # with the ceiling binding, the price gap is transport *plus* the rent
+        @test price(res, :B, :g) - price(res, :A, :g) ≈ 10.0 + row.rent rtol = 1e-4
+    end
+
+    @testset "a ceiling over several products uses its weights" begin
+        res = solve_market(economy(limits = [TradeLimit(name = :port, products = [:w, :g],
+                                             from = :A, capacity = 6.0,
+                                             weights = Dict(:w => 0.5, :g => 1.0))]))
+        @test solved(res)
+        used = 0.5 * flow(res, :w, :A, :B) + flow(res, :g, :A, :B)
+        @test only(res.limits.used) ≈ used rtol = 1e-5
+        @test used ≈ 6.0 rtol = 1e-4
+        # a loose ceiling changes nothing
+        loose = solve_market(economy(limits = [TradeLimit(name = :port, from = :A,
+                                                          capacity = 1e4)]))
+        @test flow(loose, :g, :A, :B) ≈ flow(solve_market(economy()), :g, :A, :B) rtol = 1e-5
+        @test only(loose.limits.rent) < 1e-6
+        @test_throws ArgumentError TradeLimit(capacity = -1.0)
+    end
+end
+
+@testset "Substitution in final demand" begin
+    nest = DemandNest(sigma = 4.0, products = [:pellets, :firewood], shares = [0.6, 0.4])
+    economy(sh) = MarketData(
+        regions = [:A], products = [:pellets, :firewood],
+        demand  = [DemandSpec(product = nest, region = :A, p0 = 100, q0 = 20,
+                              elasticity = 0.5)],
+        supply  = [SupplySpec(product = :pellets,  region = :A, p0 = 100, q0 = 12,
+                              elasticity = 0.8),
+                   SupplySpec(product = :firewood, region = :A, p0 = 100, q0 = 8,
+                              elasticity = 0.8, shift = sh)])
+
+    @testset "the group splits by its shares at equal prices" begin
+        res = solve_market(economy(1.0))
+        @test solved(res)
+        @test price(res, :A, :pellets) ≈ price(res, :A, :firewood) rtol = 1e-6
+        @test getq(res.consumption, :A, :pellets) / getq(res.consumption, :A, :firewood) ≈
+              0.6 / 0.4 rtol = 1e-5
+    end
+
+    @testset "a price change moves demand between the substitutes" begin
+        base, tight = solve_market(economy(1.0)), solve_market(economy(0.5))
+        @test solved(tight)
+        # firewood gets scarcer and dearer, so consumers move to pellets
+        @test price(tight, :A, :firewood) > price(base, :A, :firewood)
+        @test getq(tight.consumption, :A, :firewood) < getq(base.consumption, :A, :firewood)
+        @test getq(tight.consumption, :A, :pellets)  > getq(base.consumption, :A, :pellets)
+        # and the CES demand condition holds exactly
+        for res in (base, tight)
+            @test getq(res.consumption, :A, :pellets) / getq(res.consumption, :A, :firewood) ≈
+                  (0.6 / 0.4) * (price(res, :A, :firewood) /
+                                 price(res, :A, :pellets))^4 rtol = 1e-5
+        end
+    end
+
+    @testset "a nest of one product is an ordinary curve" begin
+        plain  = MarketData(regions = [:A], products = [:x],
+                   demand = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10,
+                                        elasticity = 1.2)],
+                   supply = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 20,
+                                        elasticity = 0.8)])
+        nested = MarketData(regions = plain.regions, products = plain.products,
+                   demand = [DemandSpec(product = DemandNest(sigma = 3.0, products = [:x]),
+                                        region = :A, p0 = 100, q0 = 10, elasticity = 1.2)],
+                   supply = plain.supply)
+        @test getq(solve_market(nested).consumption, :A, :x) ≈
+              getq(solve_market(plain).consumption, :A, :x) rtol = 1e-6
+    end
+
+    @testset "nesting rules" begin
+        @test_throws ArgumentError DemandNest(sigma = 0.5, products = [:a])
+        @test_throws ArgumentError DemandNest(sigma = 2.0)                       # empty
+        @test_throws ArgumentError DemandNest(sigma = 2.0, products = [:a, :b],
+                                              shares = [1.0])                     # mismatch
+        @test_throws ArgumentError DemandNest(sigma = 4.0, products = [:a],
+                   nests = [DemandNest(sigma = 2.0, products = [:b])])             # loose inside
+        # a product may not have two demand curves in one region
+        twice = MarketData(regions = [:A], products = [:x],
+            demand = [DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 2),
+                      DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 2)],
+            supply = [SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 1)])
+        @test_throws ArgumentError solve_market(twice)
+    end
+end
+
+@testset "Taxes and subsidies" begin
+    economy(taxes) = MarketData(
+        regions  = [:A, :B], products = [:x],
+        demand   = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.2)
+                    for r in (:A, :B)],
+        supply   = [SupplySpec(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 0.8),
+                    SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 0.8)],
+        tradable = [:x], transport = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0),
+        taxes    = taxes)
+    base = solve_market(economy(Tax[]))
+
+    @testset "a tax on production is a wedge under the price" begin
+        res = solve_market(economy([Tax(on = :supply, region = :A, rate = 6.0)]))
+        @test solved(res)
+        s = economy(Tax[]).supply[1]
+        q = getq(res.production, :A, :x)
+        # the market price covers the marginal cost plus the tax
+        @test price(res, :A, :x) ≈ s.p0 * (q / s.q0)^(1 / s.elasticity) + 6.0 rtol = 1e-5
+        @test price(res, :A, :x) > price(base, :A, :x)
+        @test only(res.taxes.revenue) ≈ 6.0 * q rtol = 1e-5
+        # the relative form multiplies the curve instead
+        rel = solve_market(economy([Tax(on = :supply, region = :A, rate = 0.2, relative = true)]))
+        qr  = getq(rel.production, :A, :x)
+        @test price(rel, :A, :x) ≈ 1.2 * s.p0 * (qr / s.q0)^(1 / s.elasticity) rtol = 1e-5
+    end
+
+    @testset "a tax on consumption is a wedge above the price" begin
+        res = solve_market(economy([Tax(on = :demand, region = :A, rate = 0.25,
+                                        relative = true)]))
+        @test solved(res)
+        q = getq(res.consumption, :A, :x)
+        # consumers pay the curve; the market price is that divided by 1 + rate
+        @test 1.25 * price(res, :A, :x) ≈ 100 * (q / 10)^(-1 / 1.2) rtol = 1e-5
+        @test q < getq(base.consumption, :A, :x)
+        @test only(res.taxes.revenue) ≈ 0.25 * price(res, :A, :x) * q rtol = 1e-4
+    end
+
+    @testset "a tariff, specific and ad valorem" begin
+        spec = solve_market(economy([Tax(on = :trade, from = :A, to = :B, rate = 10.0)]))
+        @test solved(spec)
+        @test price(spec, :B, :x) - price(spec, :A, :x) ≈ 15.0 rtol = 1e-5  # 5 freight + 10
+        @test flow(spec, :x, :A, :B) < flow(base, :x, :A, :B)
+        # an ad valorem rate is a fraction of the price at the origin, found by
+        # iteration; at the fixed point the gap must be freight + rate × price
+        adv = solve_market(economy([Tax(on = :trade, from = :A, to = :B, rate = 0.2,
+                                        relative = true)]))
+        @test solved(adv)
+        @test price(adv, :B, :x) - price(adv, :A, :x) ≈
+              5.0 + 0.2 * price(adv, :A, :x) rtol = 1e-5
+        @test only(adv.taxes.revenue) ≈ 0.2 * price(adv, :A, :x) *
+              flow(adv, :x, :A, :B) rtol = 1e-4
+    end
+
+    @testset "a subsidy is a negative tax" begin
+        res = solve_market(economy([Tax(on = :supply, region = :B, rate = -20.0)]))
+        @test solved(res)
+        @test getq(res.production, :B, :x) > getq(base.production, :B, :x)
+        @test only(res.taxes.revenue) < 0
+    end
+
+    @testset "taxing a process" begin
+        d = MarketData(regions = [:A], products = [:w, :g],
+            demand    = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
+                                    elasticity = 1.2)],
+            supply    = [SupplySpec(product = :w, region = :A, p0 = 40, q0 = 40,
+                                    elasticity = 0.8)],
+            processes = [Process(name = :mill, vacost = 50,
+                                 inputs = [leontief(product = :w, coeff = 2.0)],
+                                 outputs = [:g => 1.0])])
+        plain = solve_market(d)
+        taxed = solve_market(MarketData(regions = d.regions, products = d.products,
+            demand = d.demand, supply = d.supply, processes = d.processes,
+            taxes = [Tax(name = :levy, on = :process, process = :mill, rate = 0.3,
+                         relative = true)]))
+        @test solved(taxed)
+        # the levy raises the conversion cost by 30%, so the margin widens by 15
+        @test price(taxed, :A, :g) - 2 * price(taxed, :A, :w) ≈ 65.0 rtol = 1e-5
+        @test price(plain, :A, :g) - 2 * price(plain, :A, :w) ≈ 50.0 rtol = 1e-5
+        @test only(taxed.taxes.revenue) ≈ 15.0 * only(taxed.activity.level) rtol = 1e-5
+    end
+
+    @testset "specification errors" begin
+        @test_throws ArgumentError Tax(on = :nonsense, rate = 1.0)
+        @test_throws ArgumentError Tax(on = :demand, rate = -1.5, relative = true)
+        # a group of substitutes shares one curve, so it must share its tax
+        nest = DemandNest(sigma = 3.0, products = [:a, :b])
+        d = MarketData(regions = [:A], products = [:a, :b],
+            demand = [DemandSpec(product = nest, region = :A, p0 = 10, q0 = 2, elasticity = 2)],
+            supply = [SupplySpec(product = p, region = :A, p0 = 10, q0 = 1, elasticity = 1)
+                      for p in (:a, :b)],
+            taxes  = [Tax(on = :demand, product = :a, rate = 0.2, relative = true)])
+        @test_throws ArgumentError solve_market(d)
+    end
+end
+
 @testset "Prices keep their sign" begin
     # :junk is an unavoidable by-product nobody wants; the balance is an
     # equality, so somebody must take it and pay to burn it. Its equilibrium

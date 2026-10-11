@@ -33,13 +33,31 @@ Base.@kwdef struct Results
     buy a composite of the regional varieties
     """
     prices::DataFrame
-    "Process activity levels: `region`, `process`, `level`"
+    """
+    Process activity levels: `region`, `process`, `level`, the `capacity`
+    bounding it and the quasi-`rent` a binding capacity earns per unit of
+    activity
+    """
     activity::DataFrame
+    """
+    Ceilings on trade: `limit`, its `capacity`, how much of it is `used`, and
+    the congestion `rent` an extra unit of it would be worth. Empty when the
+    economy has no [`TradeLimit`](@ref)
+    """
+    limits::DataFrame
+    """
+    What each [`Tax`](@ref) raises: `tax`, what it falls `on`, and its
+    `revenue` (negative for a subsidy). Adding the total back to the objective
+    recovers welfare, which a taxed objective otherwise understates by exactly
+    this much
+    """
+    taxes::DataFrame
 end
 
 # Build the result tables from the solved model.  Internal: users get a
 # `Results` from `solve_market`.
-function build_results(d, m, D, S, z, T, X, balance, origin_balance, tol)
+function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit,
+                       tariff, tol)
     val(x) = value(x)
     # bilateral flows: the trade variables of the homogeneous products and the
     # cross-border varieties of the Armington ones
@@ -115,15 +133,70 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, tol)
         prices.producer_price = Float64[]
     end
 
-    activity = DataFrame(region = Symbol[], process = Symbol[], level = Float64[])
+    activity = DataFrame(region = Symbol[], process = Symbol[], level = Float64[],
+                         capacity = Float64[], rent = Float64[])
     for proc in d.processes, r in regions_of(proc, d)
         lvl = val(z[(r, proc.name)])
-        lvl > tol && push!(activity, (r, proc.name, lvl))
+        lvl > tol || continue
+        cap  = capacity_of(proc, r)
+        # a capacity that binds earns a quasi-rent per unit of activity: what
+        # the process would pay for one more unit of itself
+        rent = has_duals(m) && isfinite(cap) ? max(reduced_cost(z[(r, proc.name)]), 0.0) : 0.0
+        push!(activity, (r, proc.name, lvl, cap, rent))
+    end
+
+    limits = DataFrame(limit = Symbol[], capacity = Float64[], used = Float64[],
+                       rent = Float64[])
+    for limit in d.trade_limits
+        c = trade_limit[limit.name]
+        used = sum(get(limit.weights, k[1], 1.0) * val(v)
+                   for (k, v) in flows if covers(limit, k...); init = 0.0)
+        # the dual of a binding ceiling is what an extra unit of capacity is
+        # worth: the congestion rent of the port, corridor or quota
+        rent = has_duals(m) ? abs(dual(c)) : 0.0
+        push!(limits, (limit.name, limit.capacity, used, rent))
+    end
+
+    # what each tax raises, so that the transfer the objective treats as a
+    # cost can be added back
+    taxes = DataFrame(tax = Symbol[], on = Symbol[], revenue = Float64[])
+    price_at(r, p) = (rows = prices[(prices.region .== r) .& (prices.product .== p), :];
+                      isempty(rows) ? 0.0 : coalesce(only(rows.price), 0.0))
+    producer_at(r, p) = (rows = prices[(prices.region .== r) .& (prices.product .== p), :];
+                         isempty(rows) ? 0.0 : coalesce(only(rows.producer_price), 0.0))
+    for t in d.taxes
+        revenue = 0.0
+        if t.on === :supply
+            for spec in d.supply
+                selects(t.product, spec.product) && selects(t.region, spec.region) || continue
+                q  = val(S[(spec.region, spec.product)])
+                mc = spec.p0 * (spec.shift * spec.q0)^(-1 / spec.elasticity) *
+                     q^(1 / spec.elasticity)        # the untaxed marginal cost
+                revenue += (t.relative ? t.rate * mc : t.rate) * q
+            end
+        elseif t.on === :demand
+            for spec in d.demand, p in nest_products(spec.product)
+                selects(t.product, p) && selects(t.region, spec.region) || continue
+                q = val(D[(spec.region, p)])
+                revenue += (t.relative ? t.rate * price_at(spec.region, p) : t.rate) * q
+            end
+        elseif t.on === :process
+            for proc in d.processes, r in regions_of(proc, d)
+                selects(t.process, proc.name) && selects(t.region, r) || continue
+                revenue += (t.relative ? t.rate * proc.vacost : t.rate) * val(z[(r, proc.name)])
+            end
+        else
+            for ((p, o, r), v) in flows
+                selects(t.product, p) && selects(t.from, o) && selects(t.to, r) || continue
+                revenue += (t.relative ? t.rate * producer_at(o, p) : t.rate) * val(v)
+            end
+        end
+        push!(taxes, (t.name, t.on, revenue))
     end
 
     return Results(data = d, model = m, production = production,
                    consumption = consumption, trade = trade, net_trade = net,
-                   prices = prices, activity = activity)
+                   prices = prices, activity = activity, limits = limits, taxes = taxes)
 end
 
 """

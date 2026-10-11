@@ -7,6 +7,93 @@
 """
 $(TYPEDEF)
 
+A group of products that substitute for each other in final demand.
+
+Demand in this model is integrable by construction: it is the gradient of the
+consumer-benefit term of the objective, which is what makes the
+surplus-maximisation equivalence hold. An arbitrary matrix of cross-price
+elasticities is **not** integrable — it is the same obstruction that rules out
+an arbitrary matrix of Armington elasticities — so substitution between
+products is expressed the same way, as a tree. Products that substitute closely
+go in a nest with a high `sigma`; the nest as a whole then substitutes against
+the rest at the lower `sigma` of the level above, and the whole bundle faces one
+[`DemandSpec`](@ref) curve.
+
+The implied cross-price effects are the usual CES ones: within a nest the
+compensated cross-price elasticity of product `i` with respect to the price of
+`j` is ``\\sigma s_j``, with `s_j` the value share of `j`, so a large supplier
+transmits its price more strongly than a small one at the same `sigma`.
+
+Substitution against goods **outside** the model — gas and oil against wood
+fuel, say — needs none of this. An exogenous price is a constant, so its effect
+is a shift of the whole curve: use `shift` with [`exogenous_shift`](@ref) and
+the cross-price elasticity as the driver elasticity.
+
+# Fields
+$(TYPEDFIELDS)
+
+# Example
+```julia
+## sawn softwood and panels are close substitutes in construction; sawn
+## hardwood is a more distant one for both
+DemandNest(sigma = 1.6, products = [:sawn_hw], shares = [0.25],
+           nests = [DemandNest(sigma = 5.0, share = 0.75,
+                               products = [:sawn_sw, :panel],
+                               shares   = [0.65, 0.35])])
+```
+"""
+Base.@kwdef struct DemandNest
+    """
+    Elasticity of substitution ``\\sigma`` between the members of the group. It
+    must be `> 1`, and at least the `sigma` of the nest enclosing it
+    """
+    sigma::Float64
+    "Products belonging directly to the group"
+    products::Vector{Symbol} = Symbol[]
+    """
+    Value shares of those products at equal prices, in the same order. They are
+    normalised, together with the `share` of each sub-group, over the members
+    of this node. Equal shares when omitted
+    """
+    shares::Vector{Float64} = fill(1.0, length(products))
+    "Sub-groups of the group, for a deeper tree"
+    nests::Vector{DemandNest} = DemandNest[]
+    "Weight of this group among the members of the group enclosing it"
+    share::Float64 = 1.0
+
+    function DemandNest(sigma, products, shares, nests, share)
+        sigma > 1 || throw(ArgumentError(
+            "a demand group's elasticity must be > 1, got $sigma"))
+        isempty(products) && isempty(nests) && throw(ArgumentError(
+            "a demand group must contain at least one product or sub-group"))
+        length(products) == length(shares) || throw(ArgumentError(
+            "a demand group needs one share per product, got $(length(products)) " *
+            "products and $(length(shares)) shares"))
+        all(>(0), shares) && share > 0 || throw(ArgumentError(
+            "the shares of a demand group must be positive"))
+        for n in nests
+            n.sigma >= sigma || throw(ArgumentError(
+                "a demand sub-group substitutes less inside ($(n.sigma)) than with " *
+                "the outside ($sigma): members of a group must substitute for each " *
+                "other at least as easily as for non-members"))
+        end
+        new(sigma, products, shares, nests, share)
+    end
+end
+
+"Every product appearing anywhere in the demand nest `n`."
+function nest_products(n::DemandNest, acc = Symbol[])
+    append!(acc, n.products)
+    for sub in n.nests
+        nest_products(sub, acc)
+    end
+    return acc
+end
+nest_products(p::Symbol, acc = Symbol[]) = push!(acc, p)
+
+"""
+$(TYPEDEF)
+
 Constant-elasticity *final* demand for one product in one region, calibrated to
 pass through the reference point `(q0, p0)`.
 
@@ -21,8 +108,12 @@ DemandSpec(product = :sawn_sw, region = :EU, p0 = 250, q0 = 90, elasticity = 1.3
 ```
 """
 Base.@kwdef struct DemandSpec
-    "Consumed product"
-    product::Symbol
+    """
+    The consumed product, or a [`DemandNest`](@ref) of products that substitute
+    for each other, in which case the reference point and the elasticity below
+    describe the **composite** of the group
+    """
+    product::Union{Symbol,DemandNest}
     "Region where the product is consumed"
     region::Symbol
     "Reference price, i.e. the price at which the quantity demanded is `q0`"
@@ -290,6 +381,85 @@ Base.@kwdef struct Process
     as an explicit input (labour, energy, capital, ...)
     """
     vacost::Float64 = 0.0
+    """
+    Upper bound on the activity level — the installed capacity of the mills
+    that exist. A single number applies to every region the process operates
+    in; a `region => bound` dictionary sets them one by one, and a region
+    absent from it is unbounded. `Inf` (the default) leaves the process
+    unconstrained, which lets it concentrate wherever production is cheapest
+    """
+    capacity::Union{Float64,Dict{Symbol,Float64}} = Inf
+
+    function Process(name, inputs, outputs, regions, vacost, capacity)
+        caps = capacity isa Dict ? values(capacity) : (capacity,)
+        all(>(0), caps) || throw(ArgumentError(
+            "the capacity of process $name must be positive, got $capacity"))
+        new(name, inputs, outputs, regions, vacost, capacity)
+    end
+end
+
+"Upper bound on the activity of process `p` in region `r`, `Inf` if unbounded."
+capacity_of(p::Process, r::Symbol) =
+    p.capacity isa Dict ? get(p.capacity, r, Inf) : p.capacity
+
+"""
+$(TYPEDEF)
+
+A ceiling on how much can be carried between regions: the capacity of a port,
+a corridor or a border crossing, or a quota.
+
+The limit applies to the **sum** of the flows it covers, so one entry can cap a
+single product on a single route, or everything crossing a border, or a set of
+products over a set of routes. Domestic use never counts against it: only flows
+that actually move between regions do.
+
+# Fields
+$(TYPEDFIELDS)
+
+# Example
+```julia
+## one product, one route
+TradeLimit(name = :pulp_terminal, products = :pulp, from = :RW, to = :EU,
+           capacity = 12.0)
+
+## everything leaving the Landes, counted in tonnes through the weights
+TradeLimit(name = :atlantic_port, from = :SWF, capacity = 6.0,
+           weights = Dict(:swr => 0.8, :sawn_sw => 0.55, :pellets => 1.0))
+```
+"""
+Base.@kwdef struct TradeLimit
+    "Name of the limit, used to report it"
+    name::Symbol = :limit
+    "Products it covers, or `:all`"
+    products::Union{Symbol,Vector{Symbol}} = :all
+    "Origins it covers, or `:all`"
+    from::Union{Symbol,Vector{Symbol}} = :all
+    "Destinations it covers, or `:all`"
+    to::Union{Symbol,Vector{Symbol}} = :all
+    "The ceiling itself, in the units the weighted sum is measured in"
+    capacity::Float64
+    """
+    Per-product weights converting quantities into the unit the ceiling is
+    expressed in — tonnes per m³ for a port limit in tonnes, say. Products
+    absent from it count with a weight of 1, which is what a limit covering a
+    single product, or products already in one unit, needs
+    """
+    weights::Dict{Symbol,Float64} = Dict{Symbol,Float64}()
+
+    function TradeLimit(name, products, from, to, capacity, weights)
+        capacity > 0 || throw(ArgumentError(
+            "the capacity of trade limit $name must be positive, got $capacity"))
+        all(>(0), values(weights)) || throw(ArgumentError(
+            "the weights of trade limit $name must be positive"))
+        new(name, products, from, to, capacity, weights)
+    end
+end
+
+"Whether `limit` covers a flow of `p` from `o` to `r`."
+function covers(limit::TradeLimit, p::Symbol, o::Symbol, r::Symbol)
+    o == r && return false
+    matches(field, x) = field === :all || (field isa Symbol ? field === x : x in field)
+    return matches(limit.products, p) && matches(limit.from, o) && matches(limit.to, r)
 end
 
 """
@@ -540,6 +710,110 @@ end
 """
 $(TYPEDEF)
 
+A tax or a subsidy — a subsidy being a negative rate — driving a wedge between
+what one side of a transaction pays and what the other receives.
+
+`on` says what the wedge falls on:
+
+| `on` | the wedge sits between | selected by |
+|:---|:---|:---|
+| `:supply` | the market price and what primary producers receive | `product`, `region` |
+| `:demand` | what consumers pay and the market price | `product`, `region` |
+| `:process` | a transformation and its value-added cost | `process`, `region` |
+| `:trade` | the price at the origin and the cost of landing a good | `product`, `from`, `to` |
+
+`rate` is per unit of the base when `relative` is `false` — per m³ harvested, per
+unit of activity, per m³ shipped — and a fraction of it when `relative` is
+`true`: of the price received for `:supply`, of the price paid for `:demand`, of
+the value-added cost for `:process`, of the price at the origin for `:trade`.
+Selectors left at `:all` match everything, and several taxes may fall on the
+same base, in which case the absolute rates add and so do the relative ones.
+
+!!! warning "A taxed equilibrium is not a welfare maximum"
+    The quantities and prices a taxed model returns are the right ones: the
+    wedges enter the program exactly as a cost would, and its first-order
+    conditions are the distorted market's. The **objective value** is not
+    welfare any more, because it treats tax revenue as a cost consumed rather
+    than as a transfer received. To get back to welfare, add the revenue
+    reported in `Results.taxes` to the objective.
+
+!!! note "Ad valorem rates on trade are solved by iteration"
+    An ad valorem tariff is a fraction of the price at the origin, which is a
+    dual of the problem and so cannot be written into its objective. For those,
+    and only those, [`solve_market`](@ref) solves repeatedly, each time holding
+    the tariff at the money equivalent implied by the previous solution's
+    prices, until the two agree. Every other combination is exact in one solve.
+
+# Fields
+$(TYPEDFIELDS)
+
+# Example
+```julia
+Tax(name = :harvest_levy,  on = :supply,  product = :swr, region = :SEF, rate = 4.0)
+Tax(name = :pellet_vat,    on = :demand,  product = :pellets, rate = 0.055, relative = true)
+Tax(name = :mill_subsidy,  on = :process, process = :pelletmill, region = :SWF, rate = -15.0)
+Tax(name = :paper_tariff,  on = :trade,   product = :paper, to = :EU, rate = 0.08,
+    relative = true)
+```
+"""
+Base.@kwdef struct Tax
+    "Name of the tax, used to report its revenue"
+    name::Symbol = :tax
+    "What the wedge falls on: `:supply`, `:demand`, `:process` or `:trade`"
+    on::Symbol
+    "Size of the wedge, negative for a subsidy"
+    rate::Float64
+    "Whether `rate` is a fraction of the base rather than an amount per unit"
+    relative::Bool = false
+    "Products it falls on, or `:all`"
+    product::Union{Symbol,Vector{Symbol}} = :all
+    "Regions it falls on, or `:all` — the producing or consuming region"
+    region::Union{Symbol,Vector{Symbol}} = :all
+    "Processes it falls on, or `:all`"
+    process::Union{Symbol,Vector{Symbol}} = :all
+    "Origins, for a tax on trade"
+    from::Union{Symbol,Vector{Symbol}} = :all
+    "Destinations, for a tax on trade"
+    to::Union{Symbol,Vector{Symbol}} = :all
+
+    function Tax(name, on, rate, relative, product, region, process, from, to)
+        on in (:supply, :demand, :process, :trade) || throw(ArgumentError(
+            "a tax falls on :supply, :demand, :process or :trade, got $on"))
+        !relative || rate > -1 || throw(ArgumentError(
+            "a relative rate must be greater than -1, got $rate"))
+        new(name, on, rate, relative, product, region, process, from, to)
+    end
+end
+
+"Whether a selector field matches a value."
+selects(field, x) = field === :all || (field isa Symbol ? field === x : x in field)
+
+"""
+$(TYPEDSIGNATURES)
+
+The absolute and relative rates of the taxes of `taxes` that fall on a base,
+summed. `kind` is the `on` field to match and the keywords are the selectors to
+check, each against the field of the same name.
+"""
+function tax_rates(taxes, kind::Symbol; product = nothing, region = nothing,
+                   process = nothing, from = nothing, to = nothing)
+    absolute = 0.0
+    relative = 0.0
+    for t in taxes
+        t.on === kind || continue
+        product === nothing || selects(t.product, product) || continue
+        region  === nothing || selects(t.region, region)   || continue
+        process === nothing || selects(t.process, process) || continue
+        from    === nothing || selects(t.from, from)       || continue
+        to      === nothing || selects(t.to, to)           || continue
+        t.relative ? (relative += t.rate) : (absolute += t.rate)
+    end
+    return (absolute = absolute, relative = relative)
+end
+
+"""
+$(TYPEDEF)
+
 The complete description of an economy, to be passed to [`solve_market`](@ref).
 
 # Fields
@@ -575,6 +849,16 @@ Base.@kwdef struct MarketData
     default) is homogeneous: the same good wherever it comes from
     """
     armington::Vector{Armington} = Armington[]
+    """
+    Ceilings on what can be carried between regions, as a vector of
+    [`TradeLimit`](@ref)s. Each caps the weighted sum of the flows it covers
+    """
+    trade_limits::Vector{TradeLimit} = TradeLimit[]
+    """
+    Taxes and subsidies, as a vector of [`Tax`](@ref)es, on production, on
+    consumption, on transformation or on trade
+    """
+    taxes::Vector{Tax} = Tax[]
     """
     Unit transport costs, mapping `(product, from_region, to_region)` to the
     cost per unit of quantity shipped. A route that is missing from this
