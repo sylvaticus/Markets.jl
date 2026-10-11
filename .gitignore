@@ -28,3 +28,6 @@ Manifest.toml
 
 # Pages generated from the examples by Literate
 docs/src/generated/
+
+# Personal working notes: kept locally, not part of the repository
+docs/notes/
