@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+title: Markets.jl
+message: If you use this software, please cite it as below.
+type: software
+authors:
+  - family-names: Lobianco
+    given-names: Antonello
+    # add your ORCID here, e.g. orcid: https://orcid.org/0000-0000-0000-0000
+repository-code: https://github.com/sylvaticus/Markets.jl
+url: https://sylvaticus.github.io/Markets.jl/
+abstract: >-
+  A Julia package solving spatial partial-equilibrium models of an economic
+  sector made of an arbitrary set of products, regions and transformation
+  processes, as the maximisation of net social surplus.
+license: MIT
+version: 0.1.0

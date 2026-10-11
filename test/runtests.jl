@@ -1,8 +1,7 @@
 using Test
 using Markets
 using DataFrames
-
-const JuMP = Markets.JuMP
+using JuMP: termination_status, objective_value, all_variables, name
 
 # helpers to read single values out of the result tables
 price(res, r, p) = only(res.prices[(res.prices.region .== r) .& (res.prices.product .== p), :price])
@@ -10,7 +9,7 @@ pprice(res, r, p) = only(res.prices[(res.prices.region .== r) .& (res.prices.pro
 getq(df, r, p)   = (rows = df[(df.region .== r) .& (df.product .== p), :quantity]; isempty(rows) ? 0.0 : only(rows))
 flow(res, p, from, to) = (rows = res.trade[(res.trade.product .== p) .& (res.trade.from .== from) .&
                                            (res.trade.to .== to), :quantity]; isempty(rows) ? 0.0 : only(rows))
-solved(res)      = JuMP.termination_status(res.model) in (JuMP.MOI.LOCALLY_SOLVED, JuMP.MOI.OPTIMAL)
+solved(res)      = res.status in (Markets.MOI.LOCALLY_SOLVED, Markets.MOI.OPTIMAL)
 
 @testset "Markets.jl" begin
 
@@ -22,8 +21,14 @@ solved(res)      = JuMP.termination_status(res.model) in (JuMP.MOI.LOCALLY_SOLVE
     @test c.composite == 1.5 && c.sigma == 2.0 && c.phi == 1.0
     # shares default to equal ones, sigma must be > 1, shares must align
     @test ces(composite = 1.0, products = [:a, :b, :c], sigma = 2).shares ≈ [1/3, 1/3, 1/3]
-    @test_throws AssertionError ces(composite = 1.0, products = [:a, :b], shares = [1.0], sigma = 2)
-    @test_throws AssertionError ces(composite = 1.0, products = [:a, :b], shares = [1.0, 1.0], sigma = 0.5)
+    @test_throws ArgumentError ces(composite = 1.0, products = [:a, :b], shares = [1.0], sigma = 2)
+    @test_throws ArgumentError ces(composite = 1.0, products = [:a, :b], shares = [1.0, 1.0], sigma = 0.5)
+    # a Nest built directly validates like one built by `ces`
+    @test_throws ArgumentError Nest(1.0, [:a, :b], [1.0], 2.0, 1.0)      # shares mismatch
+    @test_throws ArgumentError Nest(1.0, [:a, :b], [1.0, 1.0], 0.5, 1.0) # sigma too low
+    @test_throws ArgumentError Nest(1.0, [:a, :a], [1.0, 1.0], 2.0, 1.0) # repeated product
+    @test_throws ArgumentError Nest(0.0, [:a], [1.0], 0.0, 1.0)          # nothing needed
+    @test leontief(product = :a, coeff = 2).sigma == 0.0                 # still fine
     # every field is a keyword, and the optional ones have defaults
     nest = Nest(composite = 2.0, products = [:a, :b], sigma = 3)
     @test nest.shares ≈ [0.5, 0.5] && nest.phi == 1.0
@@ -245,6 +250,130 @@ end
                                               elasticity = 1, capacity = -1)
         @test_throws ArgumentError DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1,
                                               elasticity = 2, shift = -0.5)
+    end
+end
+
+@testset "Validation: the economy must say what it means" begin
+    ## a small, correct economy that each case below breaks in one way
+    good(; kw...) = MarketData(;
+        regions = [:A, :B], products = [:logs, :board],
+        demand  = [DemandSpec(product = :board, region = :A, p0 = 300, q0 = 10,
+                              elasticity = 1.2)],
+        supply  = [SupplySpec(product = :logs, region = :A, p0 = 40, q0 = 35,
+                              elasticity = 0.6)],
+        processes = [Process(name = :mill, vacost = 120,
+                             inputs = [leontief(product = :logs, coeff = 2.0)],
+                             outputs = [:board => 1.0])],
+        kw...)
+    @test validate(good()) === nothing
+    @test solved(solve_market(good()))
+
+    @testset "undeclared names" begin
+        # a mistyped input used to make the mill produce out of nothing
+        @test_throws ArgumentError solve_market(good(processes =
+            [Process(name = :mill, vacost = 120,
+                     inputs = [leontief(product = :logz, coeff = 2.0)],
+                     outputs = [:board => 1.0])]))
+        @test_throws ArgumentError solve_market(good(demand =
+            [DemandSpec(product = :nope, region = :A, p0 = 1, q0 = 1, elasticity = 2)]))
+        @test_throws ArgumentError solve_market(good(supply =
+            [SupplySpec(product = :logs, region = :Mars, p0 = 1, q0 = 1, elasticity = 1)]))
+        @test_throws ArgumentError solve_market(good(processes =
+            [Process(name = :mill, vacost = 1, regions = [:Mars],
+                     inputs = [leontief(product = :logs, coeff = 1)],
+                     outputs = [:board => 1.0])]))
+        @test_throws ArgumentError solve_market(good(processes =
+            [Process(name = :mill, vacost = 1,
+                     inputs = [leontief(product = :logs, coeff = 1)],
+                     outputs = [:nope => 1.0])]))
+        @test_throws ArgumentError solve_market(good(tradable = [:board],
+            transport = Dict((:board, :A, :Mars) => 1.0)))
+        @test_throws ArgumentError solve_market(good(tradable = [:board],
+            transport = Dict((:nope, :A, :B) => 1.0)))
+        @test_throws ArgumentError solve_market(good(armington =
+            [Armington(product = :nope, sigma = 3)]))
+    end
+
+    @testset "duplicates" begin
+        @test_throws ArgumentError solve_market(good(regions = [:A, :A]))
+        @test_throws ArgumentError solve_market(good(products = [:logs, :logs, :board]))
+        @test_throws ArgumentError solve_market(good(processes =
+            [Process(name = :mill, vacost = 1, inputs = [leontief(product = :logs, coeff = 1)],
+                     outputs = [:board => 1.0]),
+             Process(name = :mill, vacost = 9, inputs = [leontief(product = :logs, coeff = 1)],
+                     outputs = [:board => 1.0])]))
+        @test_throws ArgumentError solve_market(good(supply =
+            [SupplySpec(product = :logs, region = :A, p0 = 40, q0 = 35, elasticity = 0.6),
+             SupplySpec(product = :logs, region = :A, p0 = 90, q0 = 35, elasticity = 0.6)]))
+        @test_throws ArgumentError solve_market(good(demand =
+            [DemandSpec(product = :board, region = :A, p0 = 300, q0 = 10, elasticity = 1.2),
+             DemandSpec(product = :board, region = :A, p0 = 300, q0 = 10, elasticity = 1.2)]))
+    end
+
+    @testset "trade that the economy does not declare" begin
+        # a route for a product left out of `tradable` used to trade anyway
+        @test_throws ArgumentError solve_market(good(tradable = [:board],
+            transport = Dict((:logs, :A, :B) => 5.0)))
+        @test_throws ArgumentError solve_market(good(tradable = [:logs, :board],
+            transport = Dict((:logs, :A, :A) => 5.0)))        # a route to itself
+        # declaring it makes the same economy legal
+        @test solved(solve_market(good(tradable = [:logs, :board],
+            transport = Dict((:logs, :A, :B) => 5.0, (:logs, :B, :A) => 5.0))))
+    end
+
+    @testset "selectors that cannot bite" begin
+        # a tax on trade ignores `region`, so setting one would tax every route
+        @test_throws ArgumentError solve_market(good(
+            taxes = [Tax(on = :trade, region = :A, rate = 10.0)]))
+        @test_throws ArgumentError solve_market(good(
+            taxes = [Tax(on = :process, product = :logs, rate = 10.0)]))
+        @test_throws ArgumentError solve_market(good(
+            taxes = [Tax(on = :supply, product = :nope, rate = 10.0)]))
+        @test_throws ArgumentError solve_market(good(
+            taxes = [Tax(on = :process, process = :nomill, rate = 10.0)]))
+        @test_throws ArgumentError solve_market(good(trade_limits =
+            [TradeLimit(name = :l, products = :nope, capacity = 1.0)]))
+        @test_throws ArgumentError solve_market(good(trade_limits =
+            [TradeLimit(name = :l, from = :Mars, capacity = 1.0)]))
+    end
+
+    @testset "economies with no finite answer" begin
+        # a process with no inputs and no cost is a free source of its output
+        @test_throws ArgumentError solve_market(MarketData(regions = [:A], products = [:g],
+            demand = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
+                                 elasticity = 1.2)],
+            processes = [Process(name = :magic, vacost = 0.0, inputs = Nest[],
+                                 outputs = [:g => 1.0])]))
+        # the same process is legitimate once it costs something ...
+        @test solved(solve_market(MarketData(regions = [:A], products = [:g],
+            demand = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
+                                 elasticity = 1.2)],
+            processes = [Process(name = :backstop, vacost = 50.0, inputs = Nest[],
+                                 outputs = [:g => 1.0])])))
+        # ... or once it is bounded
+        @test solved(solve_market(MarketData(regions = [:A], products = [:g],
+            demand = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
+                                 elasticity = 1.2)],
+            processes = [Process(name = :windfall, vacost = 0.0, inputs = Nest[],
+                                 capacity = 4.0, outputs = [:g => 1.0])])))
+        @test_throws ArgumentError solve_market(MarketData(regions = Symbol[],
+            products = [:g]))
+        @test_throws ArgumentError solve_market(MarketData(regions = [:A],
+            products = Symbol[]))
+    end
+
+    @testset "a solver verdict is not a suggestion" begin
+        # demand with no source anywhere is infeasible; it used to be returned
+        # as LOCALLY_SOLVED because the violation sat under Ipopt's tolerance
+        starved = MarketData(regions = [:A], products = [:x],
+            demand = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10,
+                                 elasticity = 1.5)])
+        @test_throws ErrorException solve_market(starved)
+        quiet = solve_market(starved; on_failure = :ignore)
+        @test !solved(quiet)                       # the status says so plainly
+        @test quiet.status == Markets.MOI.LOCALLY_INFEASIBLE
+        @test_logs (:warn,) solve_market(starved; on_failure = :warn)
+        @test_throws ArgumentError solve_market(starved; on_failure = :nonsense)
     end
 end
 

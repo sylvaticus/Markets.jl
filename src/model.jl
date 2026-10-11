@@ -233,7 +233,7 @@ function armington_quantity(m, node, p::Symbol, r::Symbol, X, qfloor, in_power::
     # the composite only needs a positive floor where it is itself raised to a
     # power, i.e. where the group it belongs to substitutes imperfectly
     composite = @variable(m, lower_bound = in_power ? qfloor : 0.0,
-                             start = sum(start_value, qs))
+                             start = sum(start_value, qs), base_name = "origin_composite[$p,$r]")
     if isinf(node.sigma)
         # perfect substitutes: the group is one good, pooled by plain addition
         # (the limit of the CES below, where δ^(1/σ) → 1 and ρ → 1)
@@ -261,7 +261,7 @@ function demand_quantity(m, node, r::Symbol, D, qfloor, start, in_power::Bool = 
         haskey(D, (r, node)) && throw(ArgumentError(
             "$(node) has more than one final demand in region $r"))
         return D[(r, node)] = @variable(m, lower_bound = in_power ? qfloor : 0.0,
-                                           start = max(start, qfloor))
+                                           start = max(start, qfloor), base_name = "D[$r,$node]")
     end
     weights = Float64[node.shares; [sub.share for sub in node.nests]]
     weights ./= sum(weights)
@@ -271,49 +271,50 @@ function demand_quantity(m, node, r::Symbol, D, qfloor, start, in_power::Bool = 
           for (i, member) in enumerate(members)]
     length(qs) == 1 && return qs[1]
     composite = @variable(m, lower_bound = in_power ? qfloor : 0.0,
-                             start = sum(start_value, qs))
-    ρ = (node.sigma - 1) / node.sigma
-    aggr = @expression(m, sum(weights[i]^(1 / node.sigma) * qs[i]^ρ for i in eachindex(qs)))
-    @constraint(m, aggr^(1 / ρ) >= composite)
+                             start = sum(start_value, qs), base_name = "demand_composite[$r]")
+    if isinf(node.sigma)
+        # perfect substitutes: one good to the consumer, so the composite is
+        # the plain sum, which is the limit of the CES below
+        @constraint(m, sum(qs) >= composite)
+    else
+        ρ = (node.sigma - 1) / node.sigma
+        aggr = @expression(m, sum(weights[i]^(1 / node.sigma) * qs[i]^ρ
+                                  for i in eachindex(qs)))
+        @constraint(m, aggr^(1 / ρ) >= composite)
+    end
     return composite
 end
 
 """
 $(TYPEDSIGNATURES)
 
-The tax falling on a final-demand curve.  A curve over a group of substitutes
-describes their composite, so a tax on it must be one the whole group shares:
-if the products of the group are taxed differently, that is an error rather
-than something to average away.
+The *relative* rate of tax on a final-demand curve.  An ad valorem rate scales
+the price of every member of a group alike, and so scales the group's price
+index; a rate that differed between members would not, and there is no single
+curve left to put it on.  Per-unit rates have no such problem — they are
+charged on each product's own quantity — so only this one has to be shared.
 """
-function demand_tax(d::MarketData, s::DemandSpec)
+function demand_relative_tax(d::MarketData, s::DemandSpec)
     products = nest_products(s.product)
-    rates = [tax_rates(d.taxes, :demand; product = p, region = s.region) for p in products]
+    rates = [tax_rates(d.taxes, :demand; product = p, region = s.region).relative
+             for p in products]
     allequal(rates) || throw(ArgumentError(
         "the products $(join(products, ", ")) share one demand curve in region " *
-        "$(s.region) but are taxed differently; tax them alike, or give them " *
-        "separate curves"))
+        "$(s.region) but carry different ad valorem rates, which cannot be " *
+        "expressed on their composite; tax them at one rate, use per-unit rates, " *
+        "or give them separate curves"))
     return first(rates)
 end
 
 """
 $(TYPEDSIGNATURES)
 
-Build and solve the equilibrium for the economy `d` and return a
-[`Results`](@ref).
+Build the JuMP model for `d` and solve it once, with the ad valorem trade
+tariffs held at the money equivalents given in `tariff`.
 
-A warning is emitted if the solver does not report an optimal (or locally
-optimal) solution.
-
-* `optimizer` is any JuMP solver able to handle nonlinear constraints and to
-  return duals, and `silent` suppresses its output.
-* `qfloor` is the lower bound given to the quantities that are raised to a
-  power below 1, which an interior-point solver cannot differentiate at zero.
-* `tol` is the quantity below which a flow, an output or an activity is treated
-  as zero and left out of the result tables.
-
-Both default to a multiple of the smallest reference quantity in `d`, so that
-they scale with the units the economy is written in.
+Internal: [`solve_market`](@ref) is the entry point, and is what validates the
+economy, acts on the solver's verdict and iterates this function when an ad
+valorem rate on trade has to be found by fixed point.
 """
 function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Float64};
                     optimizer = Ipopt.Optimizer, silent::Bool = true,
@@ -321,8 +322,21 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
                     tol::Real = 1e-3 * quantity_scale(d))
     m = Model(optimizer)
     silent && set_silent(m)
-    # Ipopt prints its licence banner even when silent unless "sb" is set
-    silent && optimizer === Ipopt.Optimizer && set_attribute(m, "sb", "yes")
+    if optimizer === Ipopt.Optimizer
+        # Ipopt prints its licence banner even when silent unless "sb" is set
+        silent && set_attribute(m, "sb", "yes")
+        # Its feasibility tolerance is absolute, and its default (1e-4) can be
+        # coarser than the quantities of an economy written in small units: an
+        # infeasible model then comes back reported as solved. Tie it to the
+        # scale of the data, as `qfloor` and `tol` already are.
+        # It has to be tighter than `qfloor`, or a quantity that the model
+        # holds at its floor can violate a balance by more than the solver
+        # minds and an infeasible economy comes back reported as solved. Two
+        # orders below the floor is enough to see that, without asking for a
+        # precision the problem cannot deliver.
+        set_attribute(m, "constr_viol_tol", max(1e-12, 1e-2 * qfloor))
+        set_attribute(m, "acceptable_constr_viol_tol", max(1e-10, qfloor))
+    end
 
     supply_of = Dict((s.region, s.product) => s for s in d.supply)
     # the reference quantity of whatever curve a consumed product belongs to,
@@ -348,7 +362,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     # so no floor is needed
     S = Dict{Tuple{Symbol,Symbol},VariableRef}()
     for s in d.supply
-        v = @variable(m, lower_bound = 0.0, start = min(s.shift * s.q0, s.capacity))
+        v = @variable(m, lower_bound = 0.0, start = min(s.shift * s.q0, s.capacity), base_name = "S[$(s.region),$(s.product)]")
         isfinite(s.capacity) && set_upper_bound(v, s.capacity)
         S[(s.region, s.product)] = v
     end
@@ -356,7 +370,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     z = Dict{Tuple{Symbol,Symbol},VariableRef}()
     for proc in d.processes, r in regions_of(proc, d)
         cap = capacity_of(proc, r)
-        v = @variable(m, lower_bound = 0.0, start = min(1.0, cap))
+        v = @variable(m, lower_bound = 0.0, start = min(1.0, cap), base_name = "z[$r,$(proc.name)]")
         isfinite(cap) && set_upper_bound(v, cap)
         z[(r, proc.name)] = v
     end
@@ -366,7 +380,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     T = Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}()
     for ((p, from, to), _) in d.transport
         p in arm_products && continue    # Armington products use X instead
-        T[(p, from, to)] = @variable(m, lower_bound = 0.0, start = 0.0)
+        T[(p, from, to)] = @variable(m, lower_bound = 0.0, start = 0.0, base_name = "T[$p,$from,$to]")
     end
     # Armington products: quantity of the variety of each origin used in each
     # destination, X[(product, origin, destination)], and the composite that
@@ -386,10 +400,10 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
         # a rough but useful starting point: the local reference consumption
         a0 = get(demand_of, (r, p), nothing)
         start = a0 === nothing ? 1.0 : a0.q0
-        A[(p, r)] = @variable(m, lower_bound = 0.0, start = start)
+        A[(p, r)] = @variable(m, lower_bound = 0.0, start = start, base_name = "A[$p,$r]")
         for (i, o) in pairs(origins)
             X[(p, o, r)] = @variable(m, lower_bound = o in floored ? qfloor : 0.0,
-                                        start = shares[i] * start)
+                                        start = shares[i] * start, base_name = "X[$p,$o,$r]")
         end
     end
 
@@ -425,7 +439,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
             else                                     # CES
                 qs = VariableRef[]
                 for p in nest.products
-                    q = @variable(m, lower_bound = qfloor, start = nest.composite)
+                    q = @variable(m, lower_bound = qfloor, start = nest.composite, base_name = "x[$r,$(proc.name),$p]")
                     push!(qs, q)
                     addto!(used, (r, p), q)
                 end
@@ -434,10 +448,14 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
                 # composite-input price equal the input price when prices are
                 # uniform (and total physical input = composite·z), so the dual
                 # prices reproduce the genuine marginal cost of production.
-                ρ = (nest.sigma - 1) / nest.sigma
-                aggr = @expression(m, sum(nest.shares[i]^(1 / nest.sigma) * qs[i]^ρ
-                                          for i in eachindex(qs)))
-                @constraint(m, nest.phi * aggr^(1 / ρ) >= nest.composite * zk)
+                if isinf(nest.sigma)
+                    @constraint(m, nest.phi * sum(qs) >= nest.composite * zk)
+                else
+                    ρ = (nest.sigma - 1) / nest.sigma
+                    aggr = @expression(m, sum(nest.shares[i]^(1 / nest.sigma) * qs[i]^ρ
+                                              for i in eachindex(qs)))
+                    @constraint(m, nest.phi * aggr^(1 / ρ) >= nest.composite * zk)
+                end
             end
         end
     end
@@ -497,10 +515,15 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     # has to equal: hence the division by (1 + relative) and the term in
     # `absolute` below.
     cons_benefit = @expression(m, sum(
-        let t = demand_tax(d, s), w = 1 + t.relative,
+        let w = 1 + demand_relative_tax(d, s),
             a = s.p0 * (s.shift * s.q0)^(1 / s.elasticity) / w,
             e = 1 - 1 / s.elasticity
-            (abs(e) < 1e-8 ? a * log(C) : (a / e) * C^e) - (t.absolute / w) * C
+            (abs(e) < 1e-8 ? a * log(C) : (a / e) * C^e) -
+            # per-unit rates are charged on each product's own quantity: the
+            # composite is an index, and a tax per m³ is not a tax per index
+            # point unless every member happens to cost the same
+            sum(tax_rates(d.taxes, :demand; product = p, region = s.region).absolute /
+                w * D[(s.region, p)] for p in nest_products(s.product))
         end for (s, C) in composites))
     # A tax on production sits between the market price and what the producer
     # keeps, so it raises the marginal cost the market has to cover.
@@ -524,9 +547,6 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost)
 
     optimize!(m)
-    st = termination_status(m)
-    (st == MOI.LOCALLY_SOLVED || st == MOI.OPTIMAL) ||
-        @warn "solver returned status $st — results may be unreliable"
 
     return build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit,
                          tariff, tol)
@@ -559,11 +579,15 @@ the loop stops when the two agree to `tax_tolerance` (relative), or warns after
 `max_tax_iterations`. Everything else is solved exactly, once.
 """
 function solve_market(d::MarketData; max_tax_iterations::Int = 50,
-                      tax_tolerance::Real = 1e-8, kwargs...)
+                      tax_tolerance::Real = 1e-8, on_failure::Symbol = :error,
+                      kwargs...)
+    on_failure in (:error, :warn, :ignore) || throw(ArgumentError(
+        "on_failure is :error, :warn or :ignore, got $on_failure"))
+    validate(d)
     advalorem = [t for t in d.taxes if t.on === :trade && t.relative]
     tariff = Dict{Tuple{Symbol,Symbol,Symbol},Float64}()
     res = solve_once(d, tariff; kwargs...)
-    isempty(advalorem) && return res
+    isempty(advalorem) && return report(res, on_failure)
 
     routes = collect(keys(d.transport))
     for _ in 1:max_tax_iterations
@@ -579,8 +603,34 @@ function solve_market(d::MarketData; max_tax_iterations::Int = 50,
                       for k in routes; init = 0.0)
         tariff = updated
         res = solve_once(d, tariff; kwargs...)
-        gap <= tax_tolerance && return res
+        gap <= tax_tolerance && return report(res, on_failure)
     end
     @warn "ad valorem trade taxes did not settle in $max_tax_iterations solves"
+    return report(res, on_failure)
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+Act on the solver's verdict: a solution that is neither optimal nor locally
+optimal is an error by default, since the tables that come with it look exactly
+like those of a solved model.  `on_failure` chooses between throwing, warning
+and saying nothing.
+"""
+function report(res::Results, on_failure::Symbol)
+    res.status in (MOI.OPTIMAL, MOI.LOCALLY_SOLVED) && return res
+    if res.status in (MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED)
+        # the solver stopped at its looser, "acceptable" tolerance: the
+        # solution is an equilibrium, just a less exact one
+        on_failure === :ignore || @warn "the solver returned $(res.status): the " *
+            "solution satisfies its acceptable tolerance but not its target one, " *
+            "so treat the last digits with suspicion"
+        return res
+    end
+    message = "the solver returned $(res.status): the economy may be infeasible, " *
+              "unbounded or too hard to solve, and the tables returned with this " *
+              "result do not describe an equilibrium"
+    on_failure === :error && throw(ErrorException(message))
+    on_failure === :warn  && @warn message
     return res
 end

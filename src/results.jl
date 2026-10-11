@@ -18,8 +18,29 @@ Base.@kwdef struct Results
     data::MarketData
     "The underlying JuMP model, solved"
     model::Model
+    """
+    What the solver made of it. Anything but `OPTIMAL` or `LOCALLY_SOLVED`
+    means the tables below do not describe an equilibrium, whatever they look
+    like; [`solve_market`](@ref) throws on those unless told otherwise
+    """
+    status::MOI.TerminationStatusCode
+    """
+    The value of the maximised objective: net social surplus, **less** any tax
+    revenue, which the program counts as a cost rather than a transfer
+    """
+    objective::Float64
+    """
+    The objective with the tax revenue added back, which is the surplus the
+    economy actually enjoys and the figure to compare across policy scenarios
+    """
+    welfare::Float64
     "Primary supply + manufactured output: `region`, `product`, `quantity`"
     production::DataFrame
+    """
+    Primary supply alone: `region`, `product`, `quantity`, the `capacity`
+    bounding it and the scarcity `rent` a binding capacity earns per unit
+    """
+    supply::DataFrame
     "Final demand: `region`, `product`, `quantity`"
     consumption::DataFrame
     "Bilateral trade flows, positive ones only: `product`, `from`, `to`, `quantity`"
@@ -56,6 +77,15 @@ end
 
 # Build the result tables from the solved model.  Internal: users get a
 # `Results` from `solve_market`.
+"""
+$(TYPEDSIGNATURES)
+
+Zero when `x` is within solver noise of it, and `x` otherwise.  Used on rents
+so that numerical dust reads as no rent while a genuinely wrong sign survives
+to be seen.
+"""
+denoise(x, atol = 1e-9) = abs(x) < atol ? zero(x) : x
+
 function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit,
                        tariff, tol)
     val(x) = value(x)
@@ -84,9 +114,24 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
         q > tol && push!(production, (r, p, q))
     end
 
+    # primary supply on its own, with the ceiling and what a binding one earns
+    supply = DataFrame(region = Symbol[], product = Symbol[], quantity = Float64[],
+                       capacity = Float64[], rent = Float64[])
+    for spec in d.supply
+        q = val(S[(spec.region, spec.product)])
+        # the rent is the gap the ceiling opens between the price and what the
+        # curve says the last unit cost to produce
+        marginal = spec.p0 * (q / (spec.shift * spec.q0))^(1 / spec.elasticity)
+        rent = has_duals(m) && isfinite(spec.capacity) ?
+               denoise(dual(balance[(spec.region, spec.product)]) - marginal) : 0.0
+        push!(supply, (spec.region, spec.product, q, spec.capacity, rent))
+    end
+    sort!(supply, [:region, :product])
+
     consumption = DataFrame(region = Symbol[], product = Symbol[], quantity = Float64[])
     for ((r, p), v) in D
-        push!(consumption, (r, p, val(v)))
+        q = val(v)
+        q > tol && push!(consumption, (r, p, q))   # the same rule as the others
     end
     sort!(consumption, [:region, :product])
 
@@ -140,8 +185,10 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
         lvl > tol || continue
         cap  = capacity_of(proc, r)
         # a capacity that binds earns a quasi-rent per unit of activity: what
-        # the process would pay for one more unit of itself
-        rent = has_duals(m) && isfinite(cap) ? max(reduced_cost(z[(r, proc.name)]), 0.0) : 0.0
+        # the process would pay for one more unit of itself. The value is taken
+        # as the solver gives it — only numerical dust around zero is swept
+        # away, so that a wrong sign would show rather than be clipped to 0
+        rent = has_duals(m) && isfinite(cap) ? denoise(reduced_cost(z[(r, proc.name)])) : 0.0
         push!(activity, (r, proc.name, lvl, cap, rent))
     end
 
@@ -151,9 +198,10 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
         c = trade_limit[limit.name]
         used = sum(get(limit.weights, k[1], 1.0) * val(v)
                    for (k, v) in flows if covers(limit, k...); init = 0.0)
-        # the dual of a binding ceiling is what an extra unit of capacity is
-        # worth: the congestion rent of the port, corridor or quota
-        rent = has_duals(m) ? abs(dual(c)) : 0.0
+        # `shadow_price` is the gain from relaxing the constraint by one unit,
+        # which is exactly the congestion rent. (For an *equality* it is the
+        # wrong function, as it discards the sign — see the prices below.)
+        rent = has_duals(m) ? denoise(shadow_price(c)) : 0.0
         push!(limits, (limit.name, limit.capacity, used, rent))
     end
 
@@ -194,7 +242,10 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
         push!(taxes, (t.name, t.on, revenue))
     end
 
-    return Results(data = d, model = m, production = production,
+    objective = has_values(m) ? objective_value(m) : NaN
+    return Results(data = d, model = m, status = termination_status(m),
+                   objective = objective, welfare = objective + sum(taxes.revenue; init = 0.0),
+                   supply = supply, production = production,
                    consumption = consumption, trade = trade, net_trade = net,
                    prices = prices, activity = activity, limits = limits, taxes = taxes)
 end
@@ -205,11 +256,15 @@ $(TYPEDSIGNATURES)
 Slice every table of `res` for a single `region` (trade keeps both incoming and
 outgoing flows).
 
-Returns a `NamedTuple` `(; production, consumption, prices, net_trade, activity, trade)`.
+Returns a `NamedTuple`
+`(; production, supply, consumption, prices, net_trade, activity, trade)`.
+The `limits` and `taxes` tables are not among them: a trade ceiling spans
+routes and a tax may span regions, so neither belongs to one region.
 """
 function for_region(res::Results, region::Symbol)
     f(df, col) = df[df[!, col] .== region, :]
     (production  = f(res.production, :region),
+     supply      = f(res.supply, :region),
      consumption = f(res.consumption, :region),
      prices      = f(res.prices, :region),
      net_trade   = f(res.net_trade, :region),

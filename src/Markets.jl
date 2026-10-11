@@ -32,10 +32,12 @@ using DocStringExtensions: TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 
 export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
        TradeLimit, DemandNest, Tax,
-       leontief, ces, armington_shares, exogenous_shift, solve_market, Results, for_region
+       leontief, ces, armington_shares, exogenous_shift,
+       validate, solve_market, Results, for_region
 
 include("types.jl")
+include("validate.jl")
+include("results.jl")     # defines Results, which model.jl dispatches on
 include("model.jl")
-include("results.jl")
 
 end # module

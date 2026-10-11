@@ -26,9 +26,9 @@
     * **Read some results more cautiously than others.** Unless a process is
       given a capacity, it has constant returns and nothing holds it in place,
       so processing location is bang-bang; see
-      [What the model does not constrain](@ref). The forest example sets no
-      capacities, so its prices and final demand are on firmer ground than its
-      geography of milling.
+      [What the model does not constrain](@ref). The forest example bounds its
+      pellet mills but nothing else, so its prices and final demand are on
+      firmer ground than its geography of milling.
 
 Markets.jl solves a **spatial partial-equilibrium model** of an economic sector
 made of an arbitrary set of products, regions and transformation processes.

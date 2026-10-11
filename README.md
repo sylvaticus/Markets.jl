@@ -30,7 +30,8 @@ arbitrary set of products, regions and transformation processes.
 > * **Read processing location with particular caution.** Unless a process is
 >   given a capacity, it has constant returns and nothing holds it in place, so
 >   where milling happens is bang-bang: a small cost advantage takes the whole
->   industry. The forest example sets no capacities.
+>   industry. The forest example does bound its pellet mills, but nothing
+>   else.
 
 You describe the economy with data — demand and supply curves, processes that
 transform products (with substitutable inputs and joint by-products), transport

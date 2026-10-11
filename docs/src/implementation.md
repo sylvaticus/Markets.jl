@@ -63,11 +63,12 @@ combinations present in the data, and stored in dictionaries keyed by symbols
 | ``C_{s}`` | demand curves `s` over a group | the composite of a group of substitutes, whose members are the ``D`` of each |
 | ``x_{r,k,n,i} \ge q_{min}`` | CES nests ``n``, ``i \in I_n`` | quantity of input ``i`` used in nest ``n`` |
 | ``T_{p,r,r'} \ge 0`` | ``(p,r,r') \in \mathcal{T}``, ``p \in P^H`` | trade flow from ``r`` to ``r'`` |
-| ``X_{p,o,r} \ge q_{min}`` | ``p \in P^A``, ``o \in O_{p,r}`` | quantity of the variety of origin ``o`` used in ``r`` |
-| ``A_{p,r} \ge q_{min}`` | ``p \in P^A``, ``r \in R`` | composite of ``p`` available to the users of ``r`` |
-| ``C_{\nu} \ge q_{min}`` | internal nodes ``\nu`` of ``\mathcal{N}_{p,r}`` | quantity of the sub-composite of a group of origins |
+| ``X_{p,o,r} \ge 0`` | ``p \in P^A``, ``o \in O_{p,r}`` | quantity of the variety of origin ``o`` used in ``r``; floored only under a finite-``\sigma`` node |
+| ``A_{p,r} \ge 0`` | ``p \in P^A``, ``r \in R`` | composite of ``p`` available to the users of ``r``, built only where ``r`` uses it |
+| ``C_{\nu} \ge 0`` | internal nodes ``\nu`` of ``\mathcal{N}_{p,r}`` | sub-composite of a group of origins; floored only when its parent is a finite-``\sigma`` node |
 
-``q_{min} = 10^{-4}`` is the constant `QFLOOR` (see
+``q_{min}`` is the `qfloor` keyword of [`solve_market`](@ref), which defaults to
+``10^{-6}`` of the smallest reference quantity in the economy (see
 [Numerical details](@ref)).
 
 ### Objective
@@ -263,6 +264,21 @@ for ``\rho < 1``, so the set where it is above a linear function is convex. The
 material balances are linear. The problem is therefore a convex program, and
 the local optimum found by Ipopt is the global one.
 
+## Validation
+
+[`validate`](@ref) runs before anything is built, and
+[`solve_market`](@ref) calls it. It exists because of how the program is
+assembled: the balances are created by looping over `regions × products`, so a
+name outside those two lists gets variables and objective terms but **no
+balance**. A mistyped process input then becomes a free input, a mistyped
+consumed product becomes an unbounded one, and the solver reports success
+either way. Rather than guard each site, every name, duplicate and selector is
+checked once, up front, against the declared sets.
+
+The same pass rejects two economies that have no finite answer to give: one
+with no regions or no products, and one containing a process with no inputs, no
+value-added cost and no capacity, which is a free source of its own output.
+
 ## From the solution to prices
 
 The balance faced by the users of a region is stored in `balance[(r, p)]`, and
@@ -357,15 +373,26 @@ be recovered from `res.model`.
   million m³. An absolute floor would be negligible in one and gross in the
   other. Both are keyword arguments of [`solve_market`](@ref) if you want to
   set them yourself.
-* **Starting point.** ``D`` and ``S`` start at their reference quantities
-  ``q_0``, ``z`` at 1, CES inputs at ``\bar a_n``, and trade flows at 0.
+* **Starting point.** ``D`` and ``S`` start at ``m\,q_0``, their shifted
+  reference quantities, capped by any capacity; ``z`` at 1 or its capacity,
+  whichever is smaller; CES inputs at ``\bar a_n``; and trade flows at 0.
 * **The unit-elastic case.** At ``\eta = 1`` the exponent ``1 - 1/\eta`` is
   zero and the power form of the benefit term is undefined; the code switches
   to ``a \log D`` when ``|1 - 1/\eta| < 10^{-8}``, which also avoids the
   cancellation that the power form would suffer just either side of 1.
-* **Solver status.** If the termination status is neither `OPTIMAL` nor
-  `LOCALLY_SOLVED`, [`solve_market`](@ref) emits a warning and still returns the
-  results, which may then be unreliable.
+* **Solver status.** It is carried on `Results.status`, and by default anything
+  but `OPTIMAL`, `LOCALLY_SOLVED` or one of the two `ALMOST_` statuses is an
+  **error**: an infeasible or unbounded economy returns tables that look exactly
+  like those of a solved one, so returning them quietly is the dangerous
+  choice. `on_failure = :warn` or `:ignore` restores the older behaviour. The
+  `ALMOST_` statuses, where the solver met its acceptable but not its target
+  tolerance, warn and return.
+* **Feasibility tolerance.** Ipopt's `constr_viol_tol` is absolute, and its
+  default of ``10^{-4}`` can be coarser than the quantities of an economy
+  written in small units — in which case a violated balance passes as satisfied
+  and an infeasible model is reported as solved. It is therefore set to
+  ``10^{-2}`` of `qfloor`, and the acceptable tolerance to `qfloor` itself.
+  Another solver needs the same treatment.
 * **Other solvers.** Any JuMP solver that supports nonlinear constraints and
   duals can be passed with the `optimizer` keyword.
 

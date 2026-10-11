@@ -95,11 +95,13 @@ well defined, which is what a comparative exercise uses.
     demand is really inelastic makes a model systematically under-react in
     price and over-react in volume.
 
-Each final demand depends on its own price only; there are no cross-price
-effects between final products. Substitution between products happens on the
-input side, inside processes. This separability is also what makes the
-surplus-maximisation equivalence legitimate: the demand system is integrable by
-construction.
+A demand curve on its own depends on its own price alone. Products that compete
+for the same use are instead grouped under one curve, which is what gives
+cross-price effects between them — see
+[Substitution in final demand](@ref). Either way the demand system is the
+gradient of the objective's benefit term, and that integrability is what makes
+the surplus-maximisation equivalence legitimate in the first place; it is also
+why the cross-price structure has to be a tree rather than a free matrix.
 
 ## Everything other than the price
 
@@ -213,10 +215,6 @@ which a reduced-form shifter does not need.
 The sensible default for a sector model is the first column of devices, with
 ceilings wherever a physical limit is known, and the structural route reserved
 for the questions that are really about factors.
-
-Each final demand depends on its own price only; there are no cross-price
-effects between final products. Substitution between products happens on the
-input side, inside processes.
 
 ## Processes, nests and input substitution
 

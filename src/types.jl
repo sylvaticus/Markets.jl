@@ -45,7 +45,9 @@ DemandNest(sigma = 1.6, products = [:sawn_hw], shares = [0.25],
 Base.@kwdef struct DemandNest
     """
     Elasticity of substitution ``\\sigma`` between the members of the group. It
-    must be `> 1`, and at least the `sigma` of the nest enclosing it
+    must be `> 1`, and at least the `sigma` of the nest enclosing it. `Inf`
+    makes the members perfect substitutes — one good to the consumer, bought
+    for whichever of them is cheapest
     """
     sigma::Float64
     "Products belonging directly to the group"
@@ -297,12 +299,30 @@ Base.@kwdef struct Nest
     shares::Vector{Float64} = fill(1 / length(products), length(products))
     """
     Elasticity of substitution ``\\sigma`` between the products of the nest.
-    It must be `> 1`; it is ignored (and conventionally set to 0) for a
-    single-product (Leontief) nest
+    It must be `> 1`, or `Inf` for inputs that are perfect substitutes; it is
+    ignored (and conventionally set to 0) for a single-product (Leontief) nest
     """
     sigma::Float64
     "Scale parameter ``\\phi`` of the CES aggregator"
     phi::Float64 = 1.0
+
+    function Nest(composite, products, shares, sigma, phi)
+        composite > 0 || throw(ArgumentError(
+            "a nest must need a positive quantity of its input, got $composite"))
+        isempty(products) && throw(ArgumentError("a nest must have at least one product"))
+        length(products) == length(shares) || throw(ArgumentError(
+            "a nest needs one share per product, got $(length(products)) products " *
+            "and $(length(shares)) shares"))
+        allunique(products) || throw(ArgumentError(
+            "the products of a nest must differ, got $products"))
+        all(>(0), shares) || throw(ArgumentError("the shares of a nest must be positive"))
+        phi > 0 || throw(ArgumentError("the scale of a nest must be positive, got $phi"))
+        # a single-product nest is a fixed coefficient and never consults sigma
+        length(products) == 1 || sigma > 1 || throw(ArgumentError(
+            "a nest of several products needs an elasticity of substitution above 1 " *
+            "(or Inf for perfect substitutes), got $sigma"))
+        new(composite, products, shares, sigma, phi)
+    end
 end
 
 """
@@ -338,8 +358,11 @@ ces(composite = 1.30, products = [:chips, :swr, :hwr],
 function ces(; composite::Real, products::Vector{Symbol},
                shares::Vector{<:Real} = fill(1.0, length(products)),
                sigma::Real, phi::Real = 1.0)
-    @assert length(products) == length(shares) "products and shares must align"
-    @assert sigma > 1 "use σ > 1 for a well-behaved (smooth) CES nest"
+    length(products) == length(shares) || throw(ArgumentError(
+        "ces needs one share per product, got $(length(products)) products and " *
+        "$(length(shares)) shares"))
+    sigma > 1 || throw(ArgumentError(
+        "ces needs an elasticity of substitution above 1, got $sigma"))
     s = collect(float.(shares)); s ./= sum(s)
     Nest(composite = composite, products = products, shares = s, sigma = sigma, phi = phi)
 end

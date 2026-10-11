@@ -174,9 +174,12 @@ activity.
 
 ### Trade
 
-`tradable` lists the products that may be traded, and `transport` maps each
-allowed route `(product, from, to)` to a unit transport cost, per unit of
-**quantity** shipped. A route missing from `transport` cannot be used.
+`transport` maps each allowed route `(product, from, to)` to a unit transport
+cost, per unit of **quantity** shipped; a route missing from it cannot be used.
+`tradable` is the declaration that goes with it: every product with a route
+must appear there, and [`validate`](@ref) rejects the economy otherwise. It is
+a check rather than a filter, so that a product dropped from `tradable` while
+its routes remain is an error instead of a surprise.
 
 ```julia
 transport = Dict((:swr, :NA, :AS) => 13.2, (:swr, :AS, :NA) => 13.2, ...)
@@ -341,16 +344,29 @@ res = solve_market(market; silent = false)       # show the Ipopt log
 res = solve_market(market; optimizer = MyOpt)    # any JuMP nonlinear solver
 ```
 
-`solve_market` warns if the solver does not report an optimal (or locally
-optimal) solution.
+Before building anything, `solve_market` calls [`validate`](@ref) on the
+economy. That check is not a formality: the model has one balance per declared
+region and product, so a name outside those lists would get variables and no
+balance — a mistyped process input would become a *free* input and the solver
+would report success. Every name, duplicate and selector is therefore checked
+first, and a problem is an `ArgumentError` saying which entry is at fault.
+
+If the solver then returns anything but an optimal or locally optimal solution,
+`solve_market` **throws**. An infeasible or unbounded economy comes back with
+tables that look exactly like those of a solved one, so returning them quietly
+is the more dangerous default. Pass `on_failure = :warn` or `:ignore` to get
+them anyway, and read `res.status` to see what happened.
 
 ## Reading the results
 
-A [`Results`](@ref) holds six `DataFrame`s:
+A [`Results`](@ref) carries the solver's verdict in `status`, the value of the
+maximised `objective`, the `welfare` that objective implies once tax revenue is
+counted as the transfer it is, and nine `DataFrame`s:
 
 | Field | Columns | Content |
 |:------|:--------|:--------|
 | `production`  | region, product, quantity | primary supply + manufactured output |
+| `supply`      | region, product, quantity, capacity, rent | primary supply alone, with its ceiling and the scarcity rent a binding one earns |
 | `consumption` | region, product, quantity | final demand |
 | `trade`       | product, from, to, quantity | bilateral flows (positive only) |
 | `net_trade`   | region, product, exports, imports, net | net = exports − imports |
