@@ -123,37 +123,117 @@ nothing # hide
 
 # ## Final demand
 #
-# Only finished products are consumed: construction lumber, appearance-grade
-# hardwood lumber, panels and paper. The reference quantities are roughly
+# Only finished products are consumed. The reference quantities are roughly
 # proportional to population and income, so `OF` — which holds two thirds of
-# the French population — is much the largest French market.
-#
+# the French population — is much the largest French market, and the reference
+# prices are those of the base year.
+
+reference = Dict(
+    ## product    => (price, quantities by region)
+    :sawn_sw   => (250.0,  Dict(:SEF => 1.90, :SWF => 0.90, :GEF => 0.80, :OF => 5.60,
+                                :EU => 75.0, :NA => 120.0, :AS => 80.0,  :RW => 45.0)),
+    :sawn_hw   => (300.0,  Dict(:SEF => 0.25, :SWF => 0.12, :GEF => 0.11, :OF => 0.72,
+                                :EU => 12.0, :NA =>  20.0, :AS => 60.0,  :RW => 15.0)),
+    :panel     => (350.0,  Dict(:SEF => 0.90, :SWF => 0.40, :GEF => 0.40, :OF => 2.80,
+                                :EU => 45.0, :NA =>  40.0, :AS => 90.0,  :RW => 25.0)),
+    :paper     => (1000.0, Dict(:SEF => 1.80, :SWF => 0.80, :GEF => 0.75, :OF => 5.60,
+                                :EU => 70.0, :NA =>  80.0, :AS => 130.0, :RW => 40.0)),
+    ## firewood: smallwood bought and burnt as it comes, the oldest use of all
+    :smallwood => (55.0,   Dict(:SEF => 3.20, :SWF => 1.50, :GEF => 2.60, :OF => 7.00,
+                                :EU => 90.0, :NA =>  35.0, :AS => 150.0, :RW => 190.0)),
+    ## pellets: the same energy, dried, ground and compressed
+    :pellets   => (250.0,  Dict(:SEF => 0.50, :SWF => 0.25, :GEF => 0.30, :OF => 1.40,
+                                :EU => 22.0, :NA =>   9.0, :AS =>  12.0, :RW =>   4.0)),
+)
+nothing # hide
+
 # The own-price elasticities are **below 1**: demand for forest products is
 # usually found to be price-inelastic, construction lumber and paper most of
 # all, since their cost is a small part of the building or the printed product
 # they end up in. An inelastic demand makes prices, rather than quantities,
 # absorb a supply shock — which matters for the storm scenario at the end.
+#
+# ### Products that compete for the same job
+#
+# Those six products are not six separate markets. Softwood lumber and panels
+# do the same job in a building and a builder swaps one for the other readily;
+# hardwood lumber is a more distant substitute for either. Pellets and firewood
+# are the same heat in different packaging. Paper competes with nothing else
+# here.
+#
+# That is a [`DemandNest`](@ref) each: a tree of products with one demand curve
+# on the bundle. It has to be a tree rather than a matrix of cross-price
+# elasticities, for the reason set out in
+# [Substitution in final demand](@ref) — a free matrix is not the gradient of
+# any benefit function, and the model would stop being the market it claims to
+# represent.
+#
+# The shares and the bundle's own reference point are *calibrated*, not
+# guessed. Inverting the CES demand condition at the base-year quantities and
+# prices gives the shares that reproduce them, the CES price index of the
+# bundle and the composite quantity that index buys:
 
-reference_demand = Dict(
-    ## product  => (price, quantities by region, elasticity)
-    :sawn_sw => (250.0,  Dict(:SEF => 1.90, :SWF => 0.90, :GEF => 0.80, :OF => 5.60,
-                              :EU => 75.0, :NA => 120.0, :AS => 80.0,  :RW => 45.0), 0.45),
-    :sawn_hw => (300.0,  Dict(:SEF => 0.25, :SWF => 0.12, :GEF => 0.11, :OF => 0.72,
-                              :EU => 12.0, :NA =>  20.0, :AS => 60.0,  :RW => 15.0), 0.55),
-    :panel   => (350.0,  Dict(:SEF => 0.90, :SWF => 0.40, :GEF => 0.40, :OF => 2.80,
-                              :EU => 45.0, :NA =>  40.0, :AS => 90.0,  :RW => 25.0), 0.50),
-    :paper   => (1000.0, Dict(:SEF => 1.80, :SWF => 0.80, :GEF => 0.75, :OF => 5.60,
-                              :EU => 70.0, :NA =>  80.0, :AS => 130.0, :RW => 40.0), 0.30),
-    ## firewood: smallwood bought and burnt as it comes, the oldest use of all
-    :smallwood => (55.0, Dict(:SEF => 3.20, :SWF => 1.50, :GEF => 2.60, :OF => 7.00,
-                              :EU => 90.0, :NA =>  35.0, :AS => 150.0, :RW => 190.0), 0.35),
-    ## pellets: the same energy, dried, ground and compressed
-    :pellets   => (250.0, Dict(:SEF => 0.50, :SWF => 0.25, :GEF => 0.30, :OF => 1.40,
-                              :EU => 22.0, :NA =>   9.0, :AS =>  12.0, :RW =>   4.0), 0.60),
-)
+function calibrate(members, sigma)             # members: (quantity, price) pairs
+    weights = [q * p^sigma for (q, p) in members]
+    shares  = weights ./ sum(weights)
+    index   = sum(shares[i] * last(members[i])^(1 - sigma)
+                  for i in eachindex(members))^(1 / (1 - sigma))
+    return shares, index, sum(q * p for (q, p) in members) / index
+end
 
-demand = [DemandSpec(product = p, region = r, p0 = price, q0 = quantities[r], elasticity = η)
-          for (p, (price, quantities, η)) in reference_demand for r in regions]
+# Note what the bundle's quantity is: expenditure divided by the price index,
+# an **index number**, not a volume. Adding m³ of firewood to tonnes of pellets
+# would mean nothing physically; adding their values at a common price index
+# means something, and that is what a CES composite is.
+#
+# Construction, then, is a nest inside a nest — softwood lumber and panels
+# together at `σ = 5`, hardwood lumber against that pair at `σ = 1.6`:
+
+σ_lumber, σ_construction, σ_fuel = 5.0, 1.6, 3.0
+
+function construction_demand(r)
+    q(p) = reference[p][2][r]
+    price(p) = reference[p][1]
+    inner_shares, inner_price, inner_q =
+        calibrate([(q(:sawn_sw), price(:sawn_sw)), (q(:panel), price(:panel))], σ_lumber)
+    outer_shares, outer_price, outer_q =
+        calibrate([(inner_q, inner_price), (q(:sawn_hw), price(:sawn_hw))], σ_construction)
+    return DemandSpec(region = r, p0 = outer_price, q0 = outer_q, elasticity = 0.45,
+        product = DemandNest(sigma = σ_construction,
+            products = [:sawn_hw], shares = [outer_shares[2]],
+            nests = [DemandNest(sigma = σ_lumber, share = outer_shares[1],
+                                products = [:sawn_sw, :panel], shares = inner_shares)]))
+end
+
+# Wood fuel is a single nest, and the one place where a price from outside the
+# model matters: firewood and pellets both compete with gas and oil, whose
+# prices this sector does not determine. An exogenous price needs no nest at
+# all — being a constant, it shifts the whole curve — so the cross-price
+# elasticity goes into [`exogenous_shift`](@ref). Here gas sits at its
+# reference level, which leaves the shifter at exactly 1; the scenario at the
+# end moves it.
+
+gas_price, gas_reference, gas_cross_elasticity = 30.0, 30.0, 0.35
+
+function fuel_demand(r, gas = gas_price)
+    q(p) = reference[p][2][r]
+    price(p) = reference[p][1]
+    shares, index, quantity =
+        calibrate([(q(:smallwood), price(:smallwood)), (q(:pellets), price(:pellets))], σ_fuel)
+    return DemandSpec(region = r, p0 = index, q0 = quantity, elasticity = 0.35,
+        shift = exogenous_shift(gas = (level = gas, reference = gas_reference,
+                                       elasticity = gas_cross_elasticity)),
+        product = DemandNest(sigma = σ_fuel, products = [:smallwood, :pellets],
+                             shares = shares))
+end
+
+build_demand(gas = gas_price) =
+    [[construction_demand(r) for r in regions];
+     [fuel_demand(r, gas) for r in regions];
+     [DemandSpec(product = :paper, region = r, p0 = reference[:paper][1],
+                 q0 = reference[:paper][2][r], elasticity = 0.30) for r in regions]]
+
+demand = build_demand()
 nothing # hide
 
 # ## Processes
@@ -169,6 +249,14 @@ nothing # hide
 # must buy it from somewhere else.
 
 pulp_regions = [:SWF, :OF, :EU, :NA, :AS, :RW]
+
+# Pellet mills, by contrast, exist everywhere — but only so many of them. A
+# [`Process`](@ref) with constant returns and no `capacity` would pile into
+# whichever region makes pellets most cheaply; the installed plant is what
+# stops it, region by region:
+
+pellet_capacity = Dict(:SEF => 0.35, :SWF => 0.50, :GEF => 0.35, :OF => 1.10,
+                       :EU  => 20.0, :NA  => 12.0, :AS  => 15.0, :RW => 10.0)
 
 processes = [
     Process(name    = :sawmill_sw,
@@ -201,6 +289,7 @@ processes = [
     ## the pellet mill bids for the same wood as the panel and pulp mills, and
     ## for the same smallwood that households would otherwise burn as it comes
     Process(name    = :pelletmill,
+            capacity = pellet_capacity,
             inputs  = [ces(composite = 2.2,            # m³ of wood per tonne
                            products  = [:chips, :smallwood, :swr, :hwr],
                            shares    = [0.40, 0.40, 0.12, 0.08],
@@ -318,10 +407,33 @@ armington = [Armington(product = p,
              for p in products]
 nothing # hide
 
+# ## What cannot move, and what is taxed
+#
+# Two last things stand between the economy as described and the equilibrium.
+#
+# Wood leaving the Landes has to be carried on the roads and through the ports
+# that are there. A [`TradeLimit`](@ref) caps the **sum** of the flows it
+# covers, so one entry limits all the roundwood `SWF` can send anywhere. At
+# 18 Mm³ it is slack in a normal year — the region ships about 12 — and the
+# storm scenario at the end is what makes it bite.
+
+trade_limits = [TradeLimit(name = :landes_evacuation, products = [:swr, :smallwood],
+                           from = :SWF, capacity = 18.0)]
+
+# And the rest of the world taxes its log exports, as several timber exporters
+# do, to keep the wood at home for its own mills. The rate is **ad valorem**, a
+# quarter of the price at the border, which is the one kind of wedge this model
+# cannot write into its objective — the price is a dual of the problem. It is
+# found by iteration instead, which [`solve_market`](@ref) does on its own; see
+# [Why ad valorem rates on trade are special](@ref).
+
+taxes = [Tax(name = :rw_log_duty, on = :trade, product = [:swr, :hwr], from = :RW,
+             rate = 0.25, relative = true)]
+
 # ## Solving
 
-example_market = MarketData(; regions, products, demand, supply,
-                              processes, tradable, transport, armington)
+example_market = MarketData(; regions, products, demand, supply, processes,
+                              tradable, transport, armington, trade_limits, taxes)
 
 res = solve_market(example_market)
 nothing # hide
@@ -352,6 +464,34 @@ unstack(res.production, :region, :product, :quantity)
 #-
 
 unstack(res.consumption, :region, :product, :quantity)
+
+# ## What binds, and what it is worth
+#
+# Three of the things set up above are limits rather than curves, and the
+# solution says what each is worth at the margin.
+#
+# The pellet mills first. Where the installed plant is enough, the capacity
+# shows no rent; where it is not, the bound binds and the rent is what another
+# tonne of annual capacity would earn its owner — the signal that would, in a
+# model with investment, build the next mill:
+
+res.activity[res.activity.process .== :pelletmill, :]
+
+# The Landes evacuation limit is slack in a normal year: the region ships about
+# 12 Mm³ of roundwood against a ceiling of 18, so the ceiling costs nothing and
+# earns nothing.
+
+res.limits
+
+# And the export duty on logs leaving the rest of the world raises this, at a
+# quarter of the border price on every m³ that still crosses:
+
+res.taxes
+
+# That revenue is a **transfer**, not a cost: the program subtracts it like any
+# other cost, so the objective of this model is welfare minus the revenue
+# rather than welfare. Adding it back is what makes a taxed run comparable with
+# an untaxed one.
 
 # ## Firewood or raw material?
 #
@@ -476,9 +616,7 @@ first(sort(gaps, :slack), 6)
 # everything else is left alone:
 
 reconfigure(d; kwargs...) =
-    MarketData(; regions = d.regions, products = d.products, demand = d.demand,
-                 supply = d.supply, processes = d.processes, tradable = d.tradable,
-                 transport = d.transport, armington = d.armington, kwargs...)
+    MarketData(; (f => get(kwargs, f, getfield(d, f)) for f in fieldnames(MarketData))...)
 nothing # hide
 
 salvage = [s.region == :SWF && s.product == :swr ?
@@ -503,19 +641,77 @@ DataFrame((region = r,
            change_pct = 100 * (price_of(r, :swr, storm) / price_of(r, :swr, res) - 1))
           for r in regions)
 
-# The gradient is the whole point. The salvage lands hardest on France, where
-# the varieties are the same good and the extra wood simply adds to one pool;
-# it passes with some loss into the rest of the EU, a close substitute; and it
-# barely reaches North America or Asia, which buy a different good. Had every
-# product been homogeneous worldwide, a single world price would have moved
-# everywhere at once; had every variety been equally distant, the shock would
-# have stayed bottled up in `SWF`. Neither is what the forest sector looks
-# like.
+# Two things are going on at once, and they are worth separating.
+#
+# The **gradient across the blocs** is the Armington structure at work. The
+# salvage lands on France, passes with some loss into the rest of the EU, a
+# close substitute, and barely reaches North America or Asia, which buy a
+# different good. Had every product been homogeneous worldwide, a single world
+# price would have moved everywhere at once; had every variety been equally
+# distant, the shock would have stayed bottled up in `SWF`. Neither is what the
+# forest sector looks like.
+#
+# The **gap inside France** is the evacuation limit. `SWF` loses far more than
+# its neighbours, which were declared perfect substitutes for it — a pool that
+# should share one price up to transport. What breaks the pool is that the wood
+# cannot get out:
+
+storm.limits
+
+# The ceiling that cost nothing in a normal year is now full, and its
+# congestion rent is the price of a m³ of capacity to move wood out of the
+# Landes. That rent is exactly what drives a wedge between `SWF` and the rest
+# of the French market, and it is why a salvage price collapse is a local
+# event: not because the wood is worth less in principle, but because it cannot
+# reach anyone who would pay more for it.
+
+# ## When gas gets dearer
+#
+# The last of the exogenous things is the price of the fuels wood competes
+# with. Doubling the gas price does not touch any curve in the model — gas is
+# not in it — but it shifts the wood-fuel bundle's demand by
+# `(60/30)^0.35 ≈ 1.27`, which [`exogenous_shift`](@ref) works out from the
+# cross-price elasticity:
+
+gas = solve_market(reconfigure(example_market, demand = build_demand(60.0)))
+
+DataFrame((region = r,
+           firewood = 100 * (quantity_of(gas.consumption, r, :smallwood) /
+                             quantity_of(res.consumption, r, :smallwood) - 1),
+           pellets  = 100 * (quantity_of(gas.consumption, r, :pellets) /
+                             quantity_of(res.consumption, r, :pellets) - 1),
+           roundwood_price = 100 * (price_of(r, :swr, gas) / price_of(r, :swr, res) - 1))
+          for r in regions)
+
+# Households burn much more wood, and the pull reaches back up the chain to the
+# price of standing timber — which is how an energy policy becomes a forestry
+# question.
+#
+# But the two columns do not move together, and the reason is the mills. The
+# shifter raises demand for the *bundle*; which half of it grows depends on
+# which half can grow. Pellets are made in plants whose capacity was fixed
+# above, and in the regions where that capacity already binds they can barely
+# expand at all, so most of the extra demand lands on the fuel that needs no
+# plant: a log in a stove. In the rest of the world, where the mills are
+# capped and the competition for wood is fiercest, pellet consumption actually
+# *falls*.
+#
+# Three of the features set up in this example meet in that one table — a
+# bundle of substitutes in demand, a capacity bound on transformation, and a
+# price from outside the model — and the result is not what any of them would
+# have given alone.
 
 # ## Where to go from here
 #
 # * Change the elasticities in `σ_blocs` and `σ_europe` and watch the gradient
-#   above widen or flatten.
+#   above widen or flatten, or those in `σ_lumber`, `σ_construction` and
+#   `σ_fuel` and watch demand move between products instead of between
+#   regions.
+# * Raise or remove the pellet capacities and see how much of the energy shock
+#   moves from firewood to pellets.
+# * Put a tariff on something and compare the objective with and without the
+#   revenue added back; the difference is the transfer the program counts as a
+#   cost.
 # * Replace the gravity shares with a base-year trade matrix. The `shares` are
 #   the shares *at equal delivered prices*, not the observed ones, so pass the
 #   matrix through [`armington_shares`](@ref) rather than using it directly.
@@ -524,8 +720,9 @@ DataFrame((region = r,
 # * Make transport concave in distance, or compute distances between the
 #   centres of gravity of the forest resource and of the population rather than
 #   between region centroids.
-# * Add capacity bounds to the mills, and link periods through forest growth,
-#   for a recursive-dynamic run.
+# * Link periods through forest growth, updating each region's supply `shift`
+#   from the standing volume left after the harvest, for a recursive-dynamic
+#   run.
 
 #src ---------------------------------------------------------------------------
 #src When run as a script rather than rendered as a page, print the main tables.
