@@ -55,7 +55,7 @@ nothing # hide
 # which it is depends on what the two uses are willing to pay.
 
 products = [:swr, :hwr, :smallwood, :chips, :pulp,
-            :sawn_sw, :sawn_hw, :panel, :paper, :pellets]
+            :sawn_sw, :sawn_hw, :panel, :plywood, :paper, :pellets]
 nothing # hide
 
 # They are connected by the transformations set up further down:
@@ -64,6 +64,7 @@ nothing # hide
 #   FOREST ── swr ───────┬─ sawmill_sw ─→ sawn_sw + chips
 #          ── hwr ───────┼─ sawmill_hw ─→ sawn_hw + chips
 #          ── smallwood ─┤
+#                        ├─ plymill    : CES(swr, hwr) ───────────────────→ plywood + chips
 #                        ├─ panelmill  : CES(chips, smallwood, swr, hwr) ─→ panel
 #                        ├─ pulpmill   : CES(swr, hwr, chips, smallwood) ─→ pulp ─→ papermill ─→ paper
 #                        └─ pelletmill : CES(chips, smallwood, swr, hwr) ─→ pellets
@@ -141,6 +142,10 @@ reference = Dict(
                                 :EU => 12.0, :NA =>  20.0, :AS => 60.0,  :RW => 15.0)),
     :panel     => (350.0,  Dict(:SEF => 0.90, :SWF => 0.40, :GEF => 0.40, :OF => 2.80,
                                 :EU => 45.0, :NA =>  40.0, :AS => 90.0,  :RW => 25.0)),
+    ## plywood: veneers glued crosswise, dearer than a particleboard and used
+    ## where a panel has to carry a load
+    :plywood   => (450.0,  Dict(:SEF => 0.12, :SWF => 0.06, :GEF => 0.05, :OF => 0.35,
+                                :EU =>  6.0, :NA =>  14.0, :AS => 60.0,  :RW =>  9.0)),
     :paper     => (1000.0, Dict(:SEF => 1.80, :SWF => 0.80, :GEF => 0.75, :OF => 5.60,
                                 :EU => 70.0, :NA =>  80.0, :AS => 130.0, :RW => 40.0)),
     ## firewood: smallwood bought and burnt as it comes, the oldest use of all
@@ -191,8 +196,11 @@ end
 # would mean nothing physically; adding their values at a common price index
 # means something, and that is what a CES composite is.
 #
-# Construction, then, is a nest inside a nest — softwood lumber and panels
-# together at `σ = 5`, hardwood lumber against that pair at `σ = 1.6`:
+# Construction, then, is a nest inside a nest — softwood lumber, particleboard
+# and plywood together at `σ = 5`, hardwood lumber against that group at
+# `σ = 1.6`. The three in the inner group are what a builder actually chooses
+# between for a floor or a wall; appearance-grade hardwood is a different kind
+# of purchase:
 
 σ_lumber, σ_construction, σ_fuel = 5.0, 1.6, 3.0
 
@@ -200,14 +208,16 @@ function construction_demand(r)
     q(p) = reference[p][2][r]
     price(p) = reference[p][1]
     inner_shares, inner_price, inner_q =
-        calibrate([(q(:sawn_sw), price(:sawn_sw)), (q(:panel), price(:panel))], σ_lumber)
+        calibrate([(q(:sawn_sw), price(:sawn_sw)), (q(:panel), price(:panel)),
+                   (q(:plywood), price(:plywood))], σ_lumber)
     outer_shares, outer_price, outer_q =
         calibrate([(inner_q, inner_price), (q(:sawn_hw), price(:sawn_hw))], σ_construction)
     return DemandSpec(region = r, p0 = outer_price, q0 = outer_q, elasticity = 0.45,
         product = DemandNest(sigma = σ_construction,
             products = [:sawn_hw], shares = [outer_shares[2]],
             nests = [DemandNest(sigma = σ_lumber, share = outer_shares[1],
-                                products = [:sawn_sw, :panel], shares = inner_shares)]))
+                                products = [:sawn_sw, :panel, :plywood],
+                                shares   = inner_shares)]))
 end
 
 # Wood fuel is a single nest, and the one place where a price from outside the
@@ -243,10 +253,29 @@ nothing # hide
 
 # ## Processes
 #
-# Five transformations. Sawmilling is fixed-proportion joint production: a log
-# yields lumber *and* chips. Panel and pulp mills instead draw on a CES bundle
-# of wood inputs, so when chips become scarce — because the other mill is
-# bidding for them — each mill shifts smoothly toward roundwood.
+# Six transformations, of three kinds.
+#
+# **Fixed proportions with a by-product.** Sawmilling turns a log into lumber
+# *and* chips in set amounts. The plywood mill is the same shape — veneer is
+# peeled from the log, and what is left, nearly half of it, comes out as chips
+# — except that its input is a CES bundle of the two roundwood grades, because
+# a veneer mill can work softwood or hardwood and will lean toward whichever is
+# cheaper.
+#
+# **A CES bundle of wood.** Panel, pulp and pellet mills draw on a mix of
+# chips, smallwood and roundwood, so when chips become scarce — because the
+# other mills are bidding for them — each shifts smoothly toward roundwood.
+#
+# Plywood sits on both sides of that: it sheds chips, which helps the pulp
+# mill, and bids for the same logs, which does not. Which effect wins is not
+# something to guess at — doubling plywood demand in this example leaves the
+# chip price almost exactly where it was, the extra residues offsetting the
+# extra competition for them, while hardwood logs rise about 10% and pulp
+# about 2%. The log market wins. That is the kind of link a sector model
+# exists to settle.
+#
+# **Fixed proportions, single input.** The paper mill takes pulp and nothing
+# else.
 #
 # Pulp mills are capital-heavy and few: in France only the Landes (`SWF`) and a
 # handful of sites elsewhere (`OF`) have the capacity, which the `regions`
@@ -272,6 +301,16 @@ processes = [
             inputs  = [leontief(product = :hwr, coeff = 1.0)],
             outputs = [:sawn_hw => 0.45, :chips => 0.35],
             vacost  = 45),
+    ## Plywood is peeled from veneer logs, so it takes roundwood and nothing
+    ## else — and leaves a great deal of it behind as chips, which the panel,
+    ## pulp and pellet mills then bid for.
+    Process(name    = :plymill,
+            inputs  = [ces(composite = 2.0,
+                           products  = [:swr, :hwr],
+                           shares    = [0.45, 0.55],
+                           sigma     = 1.8)],
+            outputs = [:plywood => 1.0, :chips => 0.8],
+            vacost  = 180),
     Process(name    = :panelmill,
             inputs  = [ces(composite = 1.30,
                            products  = [:chips, :smallwood, :swr, :hwr],
@@ -330,7 +369,7 @@ nothing # hide
 
 freight = Dict(:swr => 12.0, :hwr => 12.0, :smallwood => 13.0, :chips => 14.0,
                :pulp => 35.0, :sawn_sw => 30.0, :sawn_hw => 32.0, :panel => 35.0,
-               :paper => 55.0, :pellets => 28.0)
+               :plywood => 38.0, :paper => 55.0, :pellets => 28.0)
 
 tradable  = products
 transport = Dict((p, a, b) => freight[p] * distance(a, b)
@@ -364,7 +403,7 @@ length(transport)
 
 σ_blocs = Dict(:swr => 6.0, :hwr => 6.0, :smallwood => 7.0, :chips => 7.0,
                :pulp => 5.0, :sawn_sw => 3.5, :sawn_hw => 3.0, :panel => 3.0,
-               :paper => 4.0, :pellets => 6.0)
+               :plywood => 2.5, :paper => 4.0, :pellets => 6.0)
 
 # Commodities graded to a standard (chips, roundwood, pulp) substitute readily
 # between blocs; manufactured products, where origin carries a reputation, do
