@@ -728,9 +728,10 @@ DataFrame((region = r,
 # * Make transport concave in distance, or compute distances between the
 #   centres of gravity of the forest resource and of the population rather than
 #   between region centroids.
-# * Link periods through forest growth, updating each region's supply `shift`
-#   from the standing volume left after the harvest, for a recursive-dynamic
-#   run.
+# * Drive a multi-period run from outside: call `solve_market` once per period
+#   and update each region's supply `shift` from the standing volume left after
+#   the harvest, and each mill's `capacity` from what was built. The engine
+#   stays static on purpose — the time loop belongs to whatever uses it.
 
 #src ---------------------------------------------------------------------------
 #src When run as a script rather than rendered as a page, print the main tables.

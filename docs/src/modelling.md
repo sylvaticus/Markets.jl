@@ -666,19 +666,32 @@ cautiously than that of prices or of final demand.
 the model knows nothing of indivisible investments, minimum efficient scale or
 shutdown decisions.
 
-## Dynamics
+## Dynamics are somebody else's job
 
-The model is static: one call to [`solve_market`](@ref) computes one equilibrium.
-The intended approach to multi-period runs is **recursive dynamics**: solve a
-full static equilibrium each period and link periods only through physical
-state, updated from the previous period's solution:
+This package solves **one equilibrium, at one point in time**, and that is the
+whole of its remit. There is no time index anywhere in it and there will not
+be: a model that needs several periods runs `solve_market` once per period and
+carries the state between them itself. Keeping the boundary there is what lets
+the same engine sit under a forest model with annual steps, a capacity-planning
+study with five-year ones, and a one-shot policy comparison with no time at
+all.
+
+What follows is therefore advice to whoever writes that loop, not a description
+of something `Markets.jl` does.
+
+The approach worth taking is **recursive dynamics**: solve a full static
+equilibrium each period and link periods only through physical state, updated
+from the previous period's solution:
 
 * resource stocks and their growth shift the primary supply curves;
 * installed capacity bounds process activity;
 * exogenous drivers (income, population, ...) shift the demand curves.
 
 Demand and supply remain *level* functions of price in every period,
-e.g. ``D_t(P) = \alpha_t P^{-\eta}``.
+e.g. ``D_t(P) = \alpha_t P^{-\eta}``, with the shifters of
+[Everything other than the price](@ref) carrying ``\alpha_t``. That is the
+intended seam: the loop updates `shift` and `capacity` between periods and
+never touches the fitted curves.
 
 This deliberately avoids the form used in some recursive models, where
 demand in a period is a function of demand and price in the previous period,
@@ -701,8 +714,9 @@ code remains in the git history.
 
 ## Planned extensions
 
-* **Recursive dynamics**: a time loop around [`solve_market`](@ref), as
-  described above.
+These are things the engine itself might grow. A time loop is not among them,
+for the reason given under [Dynamics are somebody else's job](@ref).
+
 * **Armington refinements**: a separate composite per user (final demand and
   each process) instead of one per region, as GTAP does for the
   domestic-versus-imported margin; and a CET nest on the export side, so that
