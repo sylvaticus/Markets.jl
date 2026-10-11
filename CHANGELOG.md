@@ -30,6 +30,20 @@ breaking changes.
 - Rents are reported with the sign the solver gives them rather than through
   `abs`, and `for_region` includes the `supply` table.
 
+### Changed (robustness)
+- The quantity floor is now set **per variable**, at a millionth of that
+  variable's own reference magnitude, instead of one absolute floor for the
+  whole economy. A single obscure product with a tiny reference quantity used
+  to drag every other variable's floor down with it.
+- The fixed-point loop for ad valorem trade taxes halves its step whenever a
+  pass increases the error rather than reducing it. Successive substitution
+  contracts quickly here — several-hundred-per-cent rates settle in three to
+  seven passes — but it has no guarantee, and the damping costs nothing when it
+  is not needed.
+- `disposal(product = ..., cost = ...)` writes the process that gives a
+  by-product somewhere to go, so that free (or paid) disposal no longer has to
+  be hand-rolled.
+
 ### Fixed
 - A per-unit tax on the demand for a group of substitutes was levied on the
   group's composite — an index number — instead of on each product's own

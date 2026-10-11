@@ -2,6 +2,7 @@ using Test
 using Markets
 using DataFrames
 using JuMP: termination_status, objective_value, all_variables, name
+import JuMP
 
 # helpers to read single values out of the result tables
 price(res, r, p) = only(res.prices[(res.prices.region .== r) .& (res.prices.product .== p), :price])
@@ -631,6 +632,86 @@ end
                                   outputs = Pair{Symbol,Float64}[])]))
     @test solved(free)
     @test abs(price(free, :A, :junk)) < 1e-6
+end
+
+@testset "Numerical robustness" begin
+    @testset "the quantity floor is set per variable, not per economy" begin
+        # one obscure product with a tiny reference quantity must not drag the
+        # floor of every other variable down with it
+        d = MarketData(regions = [:A], products = [:x, :dust],
+            demand = [DemandSpec(product = :x,    region = :A, p0 = 100, q0 = 50,
+                                 elasticity = 1.3),
+                      DemandSpec(product = :dust, region = :A, p0 = 5, q0 = 0.001,
+                                 elasticity = 1.3)],
+            supply = [SupplySpec(product = :x,    region = :A, p0 = 40, q0 = 120,
+                                 elasticity = 0.8),
+                      SupplySpec(product = :dust, region = :A, p0 = 5, q0 = 0.001,
+                                 elasticity = 0.8)])
+        res = solve_market(d)
+        @test solved(res)
+        floors = Dict(name(v) => JuMP.lower_bound(v) for v in all_variables(res.model)
+                      if JuMP.has_lower_bound(v))
+        @test floors["D[A,x]"] > 1e3 * floors["D[A,dust]"]   # each to its own scale
+        @test floors["D[A,x]"] < 1e-3 * 50                   # and negligible for it
+        # an explicit qfloor overrides the rule with one absolute floor
+        flat = solve_market(d; qfloor = 1e-7)
+        @test all(≈(1e-7), [JuMP.lower_bound(v) for v in all_variables(flat.model)
+                            if JuMP.has_lower_bound(v) && JuMP.lower_bound(v) > 0])
+    end
+
+    @testset "an ad valorem tariff settles even when it is enormous" begin
+        # homogeneous trade, so that the price gap on a used route is exactly
+        # freight plus the wedge and the fixed point can be read off it
+        economy(rate, eta) = MarketData(regions = [:A, :B], products = [:x],
+            demand = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10,
+                                 elasticity = eta) for r in (:A, :B)],
+            supply = [SupplySpec(product = :x, region = :A, p0 = 30,  q0 = 40,
+                                 elasticity = 3.0),
+                      SupplySpec(product = :x, region = :B, p0 = 200, q0 = 2,
+                                 elasticity = 3.0)],
+            tradable = [:x], transport = Dict((:x, :A, :B) => 1.0, (:x, :B, :A) => 1.0),
+            taxes = [Tax(on = :trade, product = :x, from = :A, to = :B, rate = rate,
+                         relative = true)])
+        for rate in (0.2, 0.5, 1.0, 2.0, 4.0)        # up to a 400% tariff
+            res = solve_market(economy(rate, 2.0))
+            @test solved(res)
+            @test flow(res, :x, :A, :B) > 1e-3            # the route is still used
+            # at the fixed point the wedge is the rate times the origin price
+            @test price(res, :B, :x) - price(res, :A, :x) ≈
+                  1.0 + rate * price(res, :A, :x) rtol = 1e-5
+        end
+        # beyond that the tariff is prohibitive: the route empties, and the gap
+        # is then bounded by the wedge rather than equal to it
+        choked = solve_market(economy(40.0, 2.0))
+        @test solved(choked)
+        @test flow(choked, :x, :A, :B) <= 1e-3
+        @test price(choked, :B, :x) - price(choked, :A, :x) <=
+              1.0 + 40.0 * price(choked, :A, :x) + 1e-6
+    end
+end
+
+@testset "Disposal of an unwanted by-product" begin
+    economy(extra) = MarketData(regions = [:A], products = [:w, :g, :junk],
+        demand = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
+                             elasticity = 1.5)],
+        supply = [SupplySpec(product = :w, region = :A, p0 = 50, q0 = 20,
+                             elasticity = 1.0)],
+        processes = [Process(name = :mill, vacost = 20,
+                             inputs = [leontief(product = :w, coeff = 1.0)],
+                             outputs = [:g => 1.0, :junk => 0.5]); extra])
+    # with only a costly route out, the by-product is a bad worth minus that cost
+    burn = solve_market(economy([Process(name = :burn, vacost = 15,
+                                 inputs = [leontief(product = :junk, coeff = 1.0)],
+                                 outputs = Pair{Symbol,Float64}[])]))
+    @test price(burn, :A, :junk) ≈ -15 rtol = 1e-6
+    # `disposal` is the same thing, written once
+    free = solve_market(economy([disposal(product = :junk)]))
+    @test abs(price(free, :A, :junk)) < 1e-6              # free disposal: price 0
+    paid = solve_market(economy([disposal(product = :junk, cost = 12)]))
+    @test price(paid, :A, :junk) ≈ -12 rtol = 1e-6
+    @test :dispose_junk in solve_market(economy([disposal(product = :junk)])).activity.process
+    # and the good products are unaffected in sign
+    @test price(free, :A, :g) > 0 && price(free, :A, :w) > 0
 end
 
 @testset "Armington share calibration" begin

@@ -249,7 +249,18 @@ valorem part is a fraction of ``\pi^s_{p,o}``, a dual, so `solve_market` runs
 `solve_once` repeatedly, each pass holding the tariff at the money equivalent
 implied by the previous pass's producer prices, until successive passes agree
 to `tax_tolerance`. At the fixed point the wedge equals the rate times the
-origin price by construction.
+origin price by construction, which is what a tariff means.
+
+That loop is successive substitution, and it converges only where the map
+contracts. In practice it contracts hard — the price at the origin barely moves
+with the tariff, being set mostly by the exporter's own market — and rates of
+several hundred per cent settle in three to seven passes. There is no guarantee
+of it, though, so the step is halved whenever a pass increases the error rather
+than reducing it: a well-behaved problem never triggers that and runs at full
+speed, an oscillating one is damped until it settles. Beyond some rate a tariff
+becomes prohibitive, the route empties, and the price gap is then bounded by
+the wedge rather than equal to it — which is the equilibrium, not a failure of
+the loop.
 
 Revenue is recomputed afterwards from the solution, instrument by instrument,
 and reported in `Results.taxes`; the objective does not include it as a
@@ -366,13 +377,21 @@ be recovered from `res.model`.
   slack rather than binding. And every origin–destination pair that is part of
   a CES node trades at least `qfloor`, whatever the prices.
 
-* **`qfloor` and `tol` scale with the data.** Both default to a multiple of the
-  smallest reference quantity in the economy — ``10^{-6}`` of it for the floor,
-  ``10^{-3}`` of it for the threshold below which a quantity is not reported —
-  so that they mean the same thing whether the model is written in m³ or in
-  million m³. An absolute floor would be negligible in one and gross in the
-  other. Both are keyword arguments of [`solve_market`](@ref) if you want to
-  set them yourself.
+* **The floor is set per variable.** Each floored variable is bounded below by
+  ``10^{-6}`` of *its own* reference magnitude — the reference quantity of the
+  curve it belongs to, the composite requirement of the nest it sits in, or the
+  share of local absorption it is expected to carry. One absolute floor for the
+  whole model would be chosen by the smallest product in it and then applied to
+  the largest: add one obscure product with a reference quantity of 0.001 to an
+  economy measured in hundreds, and every variable inherits a floor of
+  ``10^{-9}``, where gradients of the form ``\rho x^{\rho-1}`` are large enough
+  to give an interior-point solver trouble. Passing `qfloor` explicitly
+  overrides the rule with a single absolute floor.
+* **`tol` scales with the data.** The threshold below which a quantity is not
+  reported defaults to ``10^{-3}`` of the smallest reference quantity in the
+  economy, so that it means the same thing whether the model is written in m³
+  or in million m³, and never hides a flow that matters for the smallest
+  product.
 * **Starting point.** ``D`` and ``S`` start at ``m\,q_0``, their shifted
   reference quantities, capped by any capacity; ``z`` at 1 or its capacity,
   whichever is smaller; CES inputs at ``\bar a_n``; and trade flows at 0.

@@ -226,13 +226,13 @@ variety of an origin when `node` is a `Symbol`, otherwise a fresh variable tied
 to its children by the CES aggregator of the group.  Called on the root of an
 [`armington_tree`](@ref), it adds one variable and one constraint per group.
 """
-function armington_quantity(m, node, p::Symbol, r::Symbol, X, qfloor, in_power::Bool = false)
+function armington_quantity(m, node, p::Symbol, r::Symbol, X, floor_at, in_power::Bool = false)
     node isa Symbol && return X[(p, node, r)]
-    qs = [armington_quantity(m, c, p, r, X, qfloor, isfinite(node.sigma))
+    qs = [armington_quantity(m, c, p, r, X, floor_at, isfinite(node.sigma))
           for c in node.children]
     # the composite only needs a positive floor where it is itself raised to a
     # power, i.e. where the group it belongs to substitutes imperfectly
-    composite = @variable(m, lower_bound = in_power ? qfloor : 0.0,
+    composite = @variable(m, lower_bound = in_power ? floor_at(sum(start_value, qs)) : 0.0,
                              start = sum(start_value, qs), base_name = "origin_composite[$p,$r]")
     if isinf(node.sigma)
         # perfect substitutes: the group is one good, pooled by plain addition
@@ -256,21 +256,22 @@ fresh variable tied to its members by the CES aggregator of the group. Called
 on the `product` field of a [`DemandSpec`](@ref), it creates one consumption
 variable per product of the group and one composite per nest.
 """
-function demand_quantity(m, node, r::Symbol, D, qfloor, start, in_power::Bool = true)
+function demand_quantity(m, node, r::Symbol, D, floor_at, start, in_power::Bool = true)
     if node isa Symbol
         haskey(D, (r, node)) && throw(ArgumentError(
             "$(node) has more than one final demand in region $r"))
-        return D[(r, node)] = @variable(m, lower_bound = in_power ? qfloor : 0.0,
-                                           start = max(start, qfloor), base_name = "D[$r,$node]")
+        f = floor_at(start)
+        return D[(r, node)] = @variable(m, lower_bound = in_power ? f : 0.0,
+                                           start = max(start, f), base_name = "D[$r,$node]")
     end
     weights = Float64[node.shares; [sub.share for sub in node.nests]]
     weights ./= sum(weights)
     members = Any[node.products; node.nests]
-    qs = [demand_quantity(m, member, r, D, qfloor, weights[i] * start,
+    qs = [demand_quantity(m, member, r, D, floor_at, weights[i] * start,
                           isfinite(node.sigma))
           for (i, member) in enumerate(members)]
     length(qs) == 1 && return qs[1]
-    composite = @variable(m, lower_bound = in_power ? qfloor : 0.0,
+    composite = @variable(m, lower_bound = in_power ? floor_at(sum(start_value, qs)) : 0.0,
                              start = sum(start_value, qs), base_name = "demand_composite[$r]")
     if isinf(node.sigma)
         # perfect substitutes: one good to the consumer, so the composite is
@@ -318,8 +319,18 @@ valorem rate on trade has to be found by fixed point.
 """
 function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Float64};
                     optimizer = Ipopt.Optimizer, silent::Bool = true,
-                    qfloor::Real = 1e-6 * quantity_scale(d),
+                    qfloor::Union{Nothing,Real} = nothing,
                     tol::Real = 1e-3 * quantity_scale(d))
+    # The floor exists so that a variable raised to a power below 1 is never
+    # differentiated at zero. What counts as "near zero" depends on the
+    # variable: a millionth of what the data says that variable should be is
+    # negligible for it, whatever the other quantities in the economy are. A
+    # single absolute floor would instead be set by the smallest product in the
+    # model and applied to the largest. Passing `qfloor` explicitly overrides
+    # this with one absolute floor for everything.
+    floor_at(reference) = qfloor === nothing ? max(1e-12, 1e-6 * reference) :
+                                               float(qfloor)
+    smallest_floor = floor_at(quantity_scale(d))
     m = Model(optimizer)
     silent && set_silent(m)
     if optimizer === Ipopt.Optimizer
@@ -334,8 +345,8 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
         # minds and an infeasible economy comes back reported as solved. Two
         # orders below the floor is enough to see that, without asking for a
         # precision the problem cannot deliver.
-        set_attribute(m, "constr_viol_tol", max(1e-12, 1e-2 * qfloor))
-        set_attribute(m, "acceptable_constr_viol_tol", max(1e-10, qfloor))
+        set_attribute(m, "constr_viol_tol", max(1e-12, 1e-2 * smallest_floor))
+        set_attribute(m, "acceptable_constr_viol_tol", max(1e-10, smallest_floor))
     end
 
     supply_of = Dict((s.region, s.product) => s for s in d.supply)
@@ -356,7 +367,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     composites = Tuple{DemandSpec,Any}[]
     for s in d.demand
         push!(composites,
-              (s, demand_quantity(m, s.product, s.region, D, qfloor, s.shift * s.q0)))
+              (s, demand_quantity(m, s.product, s.region, D, floor_at, s.shift * s.q0)))
     end
     # primary supply quantities: the marginal cost b·S^(1/ε) is finite at zero,
     # so no floor is needed
@@ -402,7 +413,8 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
         start = a0 === nothing ? 1.0 : a0.q0
         A[(p, r)] = @variable(m, lower_bound = 0.0, start = start, base_name = "A[$p,$r]")
         for (i, o) in pairs(origins)
-            X[(p, o, r)] = @variable(m, lower_bound = o in floored ? qfloor : 0.0,
+            X[(p, o, r)] = @variable(m, lower_bound = o in floored ?
+                                                      floor_at(shares[i] * start) : 0.0,
                                         start = shares[i] * start, base_name = "X[$p,$o,$r]")
         end
     end
@@ -439,7 +451,9 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
             else                                     # CES
                 qs = VariableRef[]
                 for p in nest.products
-                    q = @variable(m, lower_bound = qfloor, start = nest.composite, base_name = "x[$r,$(proc.name),$p]")
+                    q = @variable(m, lower_bound = floor_at(nest.composite),
+                                     start = nest.composite,
+                                     base_name = "x[$r,$(proc.name),$p]")
                     push!(qs, q)
                     addto!(used, (r, p), q)
                 end
@@ -489,7 +503,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
             # bought: one composite variable and one constraint per group
             if haskey(A, (p, r))
                 balance[(r, p)] = @constraint(m, A[(p, r)] - use == 0.0)
-                @constraint(m, armington_quantity(m, tree_of[(p, r)], p, r, X, qfloor) >=
+                @constraint(m, armington_quantity(m, tree_of[(p, r)], p, r, X, floor_at) >=
                                A[(p, r)])
             end
         else
@@ -577,6 +591,12 @@ has one, the equilibrium is found by repeated solves: each holds the tariff at
 the money equivalent implied by the previous solution's producer prices, and
 the loop stops when the two agree to `tax_tolerance` (relative), or warns after
 `max_tax_iterations`. Everything else is solved exactly, once.
+
+That iteration is successive substitution, which converges only where the map
+contracts — quickly in every case tried here, including rates of several
+hundred per cent, but without a guarantee. The step is therefore halved
+whenever an iteration increases the error rather than reducing it, which
+rescues an oscillating case and leaves a well-behaved one at full speed.
 """
 function solve_market(d::MarketData; max_tax_iterations::Int = 50,
                       tax_tolerance::Real = 1e-8, on_failure::Symbol = :error,
@@ -590,6 +610,8 @@ function solve_market(d::MarketData; max_tax_iterations::Int = 50,
     isempty(advalorem) && return report(res, on_failure)
 
     routes = collect(keys(d.transport))
+    previous_gap = Inf
+    step = 1.0
     for _ in 1:max_tax_iterations
         # the money a rate of `relative` comes to, at the prices just found
         origin_price(p, o) = begin
@@ -601,7 +623,14 @@ function solve_market(d::MarketData; max_tax_iterations::Int = 50,
                        for key in routes)
         gap = maximum(abs(updated[k] - get(tariff, k, 0.0)) / max(abs(updated[k]), 1.0)
                       for k in routes; init = 0.0)
-        tariff = updated
+        # Successive substitution has no convergence guarantee: if the error
+        # grows the map is not contracting at this step length, so halve it.
+        # A full step is kept while the error falls, which is the usual case
+        # and costs nothing.
+        gap > previous_gap && (step = max(step / 2, 0.05))
+        previous_gap = gap
+        tariff = Dict(k => step * updated[k] + (1 - step) * get(tariff, k, 0.0)
+                      for k in routes)
         res = solve_once(d, tariff; kwargs...)
         gap <= tax_tolerance && return report(res, on_failure)
     end

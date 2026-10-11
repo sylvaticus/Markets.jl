@@ -32,7 +32,7 @@ using DocStringExtensions: TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 
 export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
        TradeLimit, DemandNest, Tax,
-       leontief, ces, armington_shares, exogenous_shift,
+       leontief, ces, disposal, armington_shares, exogenous_shift,
        validate, solve_market, Results, for_region
 
 include("types.jl")

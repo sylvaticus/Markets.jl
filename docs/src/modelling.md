@@ -300,16 +300,22 @@ worth stating plainly. A by-product that nobody wants is a *bad*: somebody must
 be paid to take it, and its equilibrium price is **negative**. The model
 reports it that way, since the price is the signed dual of the balance.
 
-If free disposal is what you want instead, add a process that consumes the
-by-product and produces nothing:
+That is the right answer to the question as posed, but it is rarely the
+question meant, and under a large supply shock it can take a local market
+somewhere surprising. If free disposal is what you want instead, give the
+by-product somewhere to go — [`disposal`](@ref) writes the process for you:
 
 ```julia
-Process(name = :dump, inputs = [leontief(product = :chips, coeff = 1.0)],
-        outputs = Pair{Symbol,Float64}[], vacost = 0.0)
+processes = [sawmill, panelmill,
+             disposal(product = :chips),                   # free: price ≥ 0
+             disposal(product = :blackliquor, cost = 12)]   # paid: price ≥ −12
 ```
 
 Its price then settles at zero rather than going negative, and a positive
-`vacost` on it represents a real disposal cost instead. Writing the balances as
+`cost` represents a real disposal charge — a landfill fee, an incinerator, the
+cost of leaving residues on the forest floor. Deciding which by-products have a
+way out is a modelling choice the model cannot make for you, which is why there
+is no default. Writing the balances as
 inequalities, as a mixed-complementarity formulation would, is the other route
 to the same thing; it is not what this package does.
 

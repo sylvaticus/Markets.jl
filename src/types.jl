@@ -542,6 +542,37 @@ Base.@kwdef struct OriginNest
 end
 
 """
+$(TYPEDSIGNATURES)
+
+A process that consumes a product and yields nothing: the way to give a
+by-product somewhere to go.
+
+Material balances here are equalities, so every unit produced must be used,
+traded or consumed. A by-product nobody wants is then a *bad*, and its
+equilibrium price is negative — the amount somebody must be paid to take it.
+That is the right answer to the question as posed, but it is rarely the
+question meant, and under a large supply shock it can drag a local market
+somewhere surprising.
+
+Adding a disposal route restores the usual assumption. With `cost = 0` the
+price of the product settles at zero rather than going negative, which is free
+disposal; with a positive `cost` it settles at minus that cost, which is
+disposal that has to be paid for — a landfill charge, an incinerator, the cost
+of leaving residues on the forest floor.
+
+# Example
+```julia
+processes = [sawmill, panelmill,
+             disposal(product = :chips),                   # free disposal
+             disposal(product = :blackliquor, cost = 12)]  # paid disposal
+```
+"""
+disposal(; product::Symbol, cost::Real = 0.0, regions = :all,
+           name::Symbol = Symbol("dispose_", product)) =
+    Process(name = name, inputs = [leontief(product = product, coeff = 1.0)],
+            outputs = Pair{Symbol,Float64}[], regions = regions, vacost = cost)
+
+"""
 $(TYPEDEF)
 
 Imperfect substitution between the regional varieties of one product
