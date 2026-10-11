@@ -25,6 +25,7 @@ makedocs(
             "implementation.md",
             "API reference" => "api.md",
         ],
+        "References"          => "references.md",
     ],
     format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true"),
 )

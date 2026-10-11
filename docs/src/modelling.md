@@ -16,8 +16,12 @@ of the sector.
 ## The equilibrium as surplus maximisation
 
 Under perfect competition, the competitive spatial equilibrium is the solution
-of a single optimisation that maximises **net social surplus** (Samuelson,
-1952; Takayama & Judge, 1971):
+of a single optimisation that maximises **net social surplus**. The problem was
+posed by [Enke (1951)](@ref enke1951) — who solved it by building an electrical
+circuit — turned into an optimisation by [Samuelson (1952)](@ref samuelson1952),
+and given the programming formulation everything since has used by
+[Takayama & Judge (1964)](@ref takayama1964). The same formulation, applied to
+the global forest sector, is what [[C3]](@ref C3) solves:
 
 ```math
 \max \; \underbrace{\sum \int_0^{D} P^D(x)\,dx}_{\text{gross consumer benefit}}
@@ -69,7 +73,8 @@ P^S(S) = p_0 \left(\frac{S}{q_0}\right)^{1/\varepsilon}
 ```
 
 Both elasticities need only be **positive**. Demand may be inelastic, which
-matters because that is how demand for most forest products is estimated:
+matters because that is how demand for most forest products is estimated — see
+[Buongiorno (2015)](@ref buongiorno2015) for the orders of magnitude:
 earlier versions of this package required ``\eta > 1``, on the grounds that for
 ``\eta \le 1`` the area under the demand curve from zero is infinite. That
 argument does not hold. The objective needs an *antiderivative* of the inverse
@@ -235,8 +240,8 @@ are written as several Leontief nests.
 
 ### CES nests
 
-A nest with several products is a constant-elasticity-of-substitution (CES)
-bundle. The aim is **smooth** substitution: if one input becomes more
+A nest with several products is a constant-elasticity-of-substitution bundle,
+the function of [Arrow, Chenery, Minhas & Solow (1961)](@ref acms1961). The aim is **smooth** substitution: if one input becomes more
 expensive, the process uses proportionally less of it, rather than switching
 entirely from one input to another as a linear model with alternative
 processes would do. For instance, a mill that uses 30% chips at equal prices
@@ -414,7 +419,9 @@ price **at the origin**, which is a dual of the problem and therefore not
 available to the objective that produces it.
 
 The honest routes out are to restate the model as a complementarity problem,
-where prices are variables, or to iterate. This package iterates:
+where prices are variables — the approach of [Mathiesen (1985)](@ref mathiesen1985)
+and [Rutherford (1995)](@ref rutherford1995), available in Julia as
+[[C4]](@ref C4) on the solver [[C5]](@ref C5) — or to iterate. This package iterates:
 [`solve_market`](@ref) solves repeatedly, each time holding the tariff at the
 money equivalent implied by the previous solution's producer prices, and stops
 when the two agree. The fixed point is the ad valorem equilibrium — at it, the
@@ -447,7 +454,8 @@ is the default; the next section is the way out of it.
 Observed trade does not look like that. Countries import and export the same
 product at the same time, market shares move gradually when prices change, and
 a region's own product keeps a share of its home market even when it is not
-the cheapest. The standard answer (Armington, 1969) is to treat the varieties
+the cheapest. The standard answer, [Armington (1969)](@ref armington1969), is
+to treat the varieties
 of a product coming from different origins as **imperfect substitutes**:
 "paper from Europe" and "paper from Asia" are related but distinct goods.
 
@@ -536,6 +544,9 @@ The two parameters are easy to confuse, and they pull in different directions:
   producers hold — belongs here, as a low share.
 * ``\sigma`` sets **how readily buyers switch** when relative prices move. It is
   about technical interchangeability, not about preference.
+  [McDaniel & Balistreri (2003)](@ref mcdaniel2003) review what it has actually
+  been estimated to be, and how widely those estimates differ — worth reading
+  before settling on a number.
 
 A low ``\sigma`` is therefore not a barrier against an origin. It means buyers
 *cannot get away from it*: as ``\sigma \to 1`` the value shares stay at
@@ -553,7 +564,8 @@ while a third whose products need re-grading, or meet the importer's
 non-tariff measures only partly, is a distant substitute for both.
 
 A single CES cannot express this — equal pairwise substitution is what CES
-*means*. The structure that can is a **nest of nests**: group the origins that
+*means*. The structure that can is a **nest of nests**, after
+[Sato (1967)](@ref sato1967): group the origins that
 are interchangeable, give the group its own higher ``\sigma``, and let the group
 as a whole substitute against the rest at the lower ``\sigma`` of the level
 above. In this package that is an [`OriginNest`](@ref) inside an
@@ -703,13 +715,9 @@ code remains in the git history.
   as a complementarity problem rather than an optimisation.
 * **Estimation** of the parameters from data.
 
-## References
+## Where these ideas come from
 
-* Armington, P. S. (1969). A theory of demand for products distinguished by
-  place of production. *IMF Staff Papers* 16(1).
-* Buongiorno, J., Zhu, S., Zhang, D., Turner, J. & Tomberlin, D. (2003).
-  *The Global Forest Products Model.* Academic Press.
-* Samuelson, P. A. (1952). Spatial price equilibrium and linear programming.
-  *American Economic Review* 42(3).
-* Takayama, T. & Judge, G. G. (1971). *Spatial and Temporal Price and
-  Allocation Models.* North-Holland.
+The works behind the choices on this page, and the code they can be read in,
+are collected on the [References](@ref) page: a theory list cited as
+*Author (year)*, and an implementation list cited as *[C1]*, *[C2]* and so on,
+pointing at repositories where the same concept is written out and runs.

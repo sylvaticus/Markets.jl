@@ -24,9 +24,10 @@ definitions with
 The two nest builders, [`leontief`](@ref) and [`ces`](@ref), take keyword
 arguments too.
 
-The model is written with [JuMP](https://jump.dev) and solved by default with
-[Ipopt](https://github.com/coin-or/Ipopt), an interior-point solver for
-nonlinear programs. Variables and constraints are created only for the
+The model is written with JuMP ([[C1]](@ref C1),
+[Lubin et al. 2023](@ref jump2023)) and solved by default with Ipopt
+([[C2]](@ref C2)), the interior-point method of
+[Wächter & Biegler (2006)](@ref wachter2006). Variables and constraints are created only for the
 combinations present in the data, and stored in dictionaries keyed by symbols
 (e.g. `D[(region, product)]`, `T[(product, from, to)]`), not in dense arrays.
 

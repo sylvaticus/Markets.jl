@@ -27,6 +27,11 @@
 # products are **perfect substitutes for each other**, close substitutes for
 # the rest of the EU, and more distant substitutes for the other blocs.
 #
+# The sector modelled here is the one the Global Forest Products Model
+# established as the reference, [Buongiorno et al. (2003)](@ref gfpm2003); for
+# the same economics in working open-source code, with different choices about
+# dynamics and data, see TiMBA, [[C3]](@ref C3).
+#
 # All the figures are illustrative — plausible orders of magnitude, not
 # calibrated statistics. Quantities are in million m³ for wood products and
 # million tonnes for pulp and paper; prices are in USD per m³ or per tonne.
@@ -712,6 +717,9 @@ DataFrame((region = r,
 # * Put a tariff on something and compare the objective with and without the
 #   revenue added back; the difference is the transfer the program counts as a
 #   cost.
+# * Put real elasticities in. [Buongiorno (2015)](@ref buongiorno2015) for the
+#   demand side, [McDaniel & Balistreri (2003)](@ref mcdaniel2003) for the
+#   Armington ones.
 # * Replace the gravity shares with a base-year trade matrix. The `shares` are
 #   the shares *at equal delivered prices*, not the observed ones, so pass the
 #   matrix through [`armington_shares`](@ref) rather than using it directly.

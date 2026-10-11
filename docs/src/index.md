@@ -106,3 +106,6 @@ page, generated from the source with Literate.jl.
   equilibrium, surplus maximisation, spatial trade, CES substitution, dynamics.
 * [Code implementation](@ref) — the exact mathematical program the code builds,
   how prices are recovered, numerical details, and the [API reference](@ref).
+* [References](@ref) — two lists: the papers behind each concept, cited as
+  *Author (year)*, and open-source code in which the same concept can be read,
+  cited as *[C1]*, *[C2]* and so on.

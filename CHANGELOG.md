@@ -7,6 +7,11 @@ breaking changes.
 ## [Unreleased]
 
 ### Added
+- A **References** documentation page carrying two lists: the theory behind
+  each concept, cited as *Author (year)*, and open-source implementations of
+  the same concept, cited as *[C1]*, *[C2]*… Citations are placed at the
+  concepts throughout the documentation, and every DOI and repository was
+  checked against CrossRef or the GitHub API.
 - `validate(::MarketData)`, run by `solve_market` before anything is built. It
   rejects names the economy does not declare, duplicate regions, products,
   process names and curves, transport routes for products left out of
