@@ -24,8 +24,7 @@ be called directly.  The checks are:
   [`Tax`](@ref) — is one of those declared;
 * no two [`SupplySpec`](@ref)s and no two [`DemandSpec`](@ref)s describe the
   same product in the same region, and no two [`Process`](@ref)es share a name;
-* a transport route goes between two different regions, and its product is one
-  the economy says is `tradable`;
+* a transport route goes between two different regions;
 * a selector of a tax or a trade limit matches something;
 * no process produces out of nothing at no cost, which would make the economy
   unbounded.
@@ -98,18 +97,11 @@ function validate(d::MarketData)
     end
 
     # --- trade --------------------------------------------------------------
-    tradable = Set(d.tradable)
-    for p in d.tradable
-        check_product(p, "the list of tradable products")
-    end
-    for (p, o, r) in keys(d.transport)
+    for (p, o, r) in keys(d.transport_costs)
         check_product(p, "a transport route")
         check_region(o, "a transport route of $p")
         check_region(r, "a transport route of $p")
         o === r && fail("the transport route of $p from $o to $r goes nowhere")
-        isempty(tradable) || p in tradable ||
-            fail("there is a transport route for $p, which the economy does not " *
-                 "list as tradable; add it to `tradable` or drop the route")
     end
 
     # --- Armington ----------------------------------------------------------

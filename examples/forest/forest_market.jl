@@ -371,10 +371,9 @@ freight = Dict(:swr => 12.0, :hwr => 12.0, :smallwood => 13.0, :chips => 14.0,
                :pulp => 35.0, :sawn_sw => 30.0, :sawn_hw => 32.0, :panel => 35.0,
                :plywood => 38.0, :paper => 55.0, :pellets => 28.0)
 
-tradable  = products
-transport = Dict((p, a, b) => freight[p] * distance(a, b)
-                 for p in tradable, a in regions, b in regions if a != b)
-length(transport)
+transport_costs = Dict((p, a, b) => freight[p] * distance(a, b)
+                       for p in products, a in regions, b in regions if a != b)
+length(transport_costs)
 
 # ## Who substitutes for whom
 #
@@ -477,7 +476,7 @@ taxes = [Tax(name = :rw_log_duty, on = :trade, product = [:swr, :hwr], from = :R
 # ## Solving
 
 example_market = MarketData(; regions, products, demand, supply, processes,
-                              tradable, transport, armington, trade_limits, taxes)
+                              transport_costs, armington, trade_limits, taxes)
 
 res = solve_market(example_market)
 nothing # hide

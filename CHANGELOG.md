@@ -6,7 +6,24 @@ breaking changes.
 
 ## [Unreleased]
 
+### Changed
+- `MarketData.transport` is now `MarketData.transport_costs`, which is what it
+  always held: the cost per unit of quantity carried on a route.
+- `MarketData.tradable` is **removed**. It never reached the solver — a product
+  was tradable because it had a route, and the list only existed to be checked
+  against those routes. Writing a route in `transport_costs` is now the whole
+  declaration, so there are no longer two lists to keep in step. A product that
+  may move at no cost takes a route priced `0.0`.
+
 ### Added
+- A minimal worked example — two regions, two products, one dairy, and a milk
+  that is both drunk and turned into cheese — as the first of an **Examples**
+  section, in the README and as the opening documentation page. The forest
+  model follows it as the advanced one.
+- A **Calibration** section in the modelling documentation: what calibration
+  buys you, that a consistent benchmark is a fixed point while inconsistent
+  data is not, which parameters are actually calibrated, and why a multi-period
+  run must never re-anchor `p0`/`q0` on its own output.
 - A **References** documentation page carrying two lists: the theory behind
   each concept, cited as *Author (year)*, and open-source implementations of
   the same concept, cited as *[C1]*, *[C2]*… Citations are placed at the
@@ -14,9 +31,9 @@ breaking changes.
   checked against CrossRef or the GitHub API.
 - `validate(::MarketData)`, run by `solve_market` before anything is built. It
   rejects names the economy does not declare, duplicate regions, products,
-  process names and curves, transport routes for products left out of
-  `tradable`, tax and trade-limit selectors that match nothing or that the tax
-  base ignores, and processes that would produce without limit.
+  process names and curves, routes that go nowhere, tax and trade-limit
+  selectors that match nothing or that the tax base ignores, and processes that
+  would produce without limit.
 - `Results` carries `status`, `objective` and `welfare` (the objective with tax
   revenue added back), and a `supply` table reporting primary supply with its
   capacity and the scarcity rent a binding one earns.

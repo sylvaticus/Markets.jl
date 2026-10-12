@@ -136,7 +136,7 @@ function armington_origins(d::MarketData, a::Armington, r::Symbol,
                            can::Set{Tuple{Symbol,Symbol}} = producible(d))
     p = a.product
     available = [o for o in [r; [o for o in d.regions
-                                 if o != r && haskey(d.transport, (p, o, r))]]
+                                 if o != r && haskey(d.transport_costs, (p, o, r))]]
                  if (p, o) in can]
     isempty(available) && throw(ArgumentError(
         "no origin can supply $p to region $r: it is produced nowhere that $r " *
@@ -389,7 +389,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     arm = armington_of(d)
     arm_products = Set(p for (p, _) in keys(arm))
     T = Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}()
-    for ((p, from, to), _) in d.transport
+    for ((p, from, to), _) in d.transport_costs
         p in arm_products && continue    # Armington products use X instead
         T[(p, from, to)] = @variable(m, lower_bound = 0.0, start = 0.0, base_name = "T[$p,$from,$to]")
     end
@@ -552,7 +552,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
         let t = tax_rates(d.taxes, :process; process = proc.name, region = r)
             ((1 + t.relative) * proc.vacost + t.absolute) * z[(r, proc.name)]
         end for proc in d.processes for r in regions_of(proc, d)))
-    route_cost(key) = d.transport[key] + get(tariff, key, 0.0) +
+    route_cost(key) = d.transport_costs[key] + get(tariff, key, 0.0) +
         tax_rates(d.taxes, :trade; product = key[1], from = key[2], to = key[3]).absolute
     trans_cost = @expression(m,
         sum(route_cost(key) * T[key] for key in keys(T); init = 0.0) +
@@ -609,7 +609,7 @@ function solve_market(d::MarketData; max_tax_iterations::Int = 50,
     res = solve_once(d, tariff; kwargs...)
     isempty(advalorem) && return report(res, on_failure)
 
-    routes = collect(keys(d.transport))
+    routes = collect(keys(d.transport_costs))
     previous_gap = Inf
     step = 1.0
     for _ in 1:max_tax_iterations

@@ -42,7 +42,7 @@ combinations present in the data, and stored in dictionaries keyed by symbols
 | ``k \in K`` | processes; ``R_k \subseteq R`` the regions where ``k`` operates |
 | ``n \in N_k`` | input nests of process ``k``; ``I_n`` the products of nest ``n`` |
 | ``\mathcal{D}, \mathcal{S} \subseteq R \times P`` | (region, product) pairs with a demand / supply curve |
-| ``\mathcal{T}`` | trade routes ``(p, r, r')`` present in `transport` |
+| ``\mathcal{T}`` | trade routes ``(p, r, r')`` present in `transport_costs` |
 | ``P^A \subseteq P`` | products with a finite Armington elasticity; ``P^H = P \setminus P^A`` the homogeneous ones |
 | ``O_{p,r} \subseteq R`` | origins destination ``r`` buys ``p \in P^A`` from: itself, plus every origin with a route into ``r`` and a positive share |
 | ``p_0, q_0, \eta, \varepsilon`` | reference price, reference quantity, demand and supply elasticities |

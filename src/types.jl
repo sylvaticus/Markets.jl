@@ -880,8 +880,8 @@ MarketData(regions   = [:EU, :NA],
            demand    = demand,      # vector of DemandSpec
            supply    = supply,      # vector of SupplySpec
            processes = processes,   # vector of Process
-           tradable  = [:swr, :sawn_sw],
-           transport = Dict((:swr, :EU, :NA) => 12.0))
+           transport_costs = Dict((:swr, :EU, :NA) => 12.0,
+                                  (:swr, :NA, :EU) => 12.0))
 ```
 """
 Base.@kwdef struct MarketData
@@ -895,8 +895,6 @@ Base.@kwdef struct MarketData
     supply::Vector{SupplySpec} = SupplySpec[]
     "Transformation activities, a vector of [`Process`](@ref)es"
     processes::Vector{Process} = Process[]
-    "Products that may be traded between regions"
-    tradable::Vector{Symbol} = Symbol[]
     """
     Products whose regional varieties are imperfect substitutes, as a vector of
     [`Armington`](@ref) specifications. A product that is not listed here (the
@@ -915,10 +913,12 @@ Base.@kwdef struct MarketData
     taxes::Vector{Tax} = Tax[]
     """
     Unit transport costs, mapping `(product, from_region, to_region)` to the
-    cost per unit of quantity shipped. A route that is missing from this
-    dictionary cannot be used
+    cost per unit of quantity shipped. This is also what declares trade: a
+    route that is missing from this dictionary cannot be used, and a product
+    with no route at all is not traded. Routes are directional, so a product
+    that moves both ways needs an entry each way
     """
-    transport::Dict{Tuple{Symbol,Symbol,Symbol},Float64} =
+    transport_costs::Dict{Tuple{Symbol,Symbol,Symbol},Float64} =
         Dict{Tuple{Symbol,Symbol,Symbol},Float64}()
 end
 

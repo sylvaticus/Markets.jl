@@ -666,6 +666,100 @@ cautiously than that of prices or of final demand.
 the model knows nothing of indivisible investments, minimum efficient scale or
 shutdown decisions.
 
+## Calibration
+
+A reasonable first reaction to all of this is: if I already know what was
+produced last year, and at what price, what is the model for?
+
+The answer is that an observation is a **point**, and a point with an
+elasticity attached is a **curve**. The model never tells you the base year —
+you measured it. It tells you where the curve's intersection moves when
+something changes, and it does so for every product, region and process at
+once, with material balance, zero profit and no-arbitrage all holding
+simultaneously. That joint consistency is the thing no observation can give
+you, because it is a property of the system rather than of any one market.
+
+### A consistent benchmark is a fixed point
+
+There is a sharp way to see what calibration does. If the data you anchor on
+*is* an equilibrium, the model reproduces it exactly and adds nothing:
+
+```
+A  lumber   price 163.8222 → 163.8222    relative difference 2.6e-15
+B  lumber   price 171.8222 → 171.8222    relative difference 1.5e-12
+A  logs     price  56.9111 →  56.9111    relative difference 1.1e-12
+```
+
+That is *benchmark replication*, and reproducing it is the standard test that
+the data and the structure agree with each other.
+
+Real data never is an equilibrium — it carries measurement error, aggregation
+over products and periods, margins the model does not represent, and markets
+that were not clearing. Anchor one price 5% away from its consistent value and
+the model refuses to return it:
+
+```
+A  lumber   anchored at 172.013   model returns 166.62   gap 3.1%
+A  logs     anchored at  56.911   model returns  58.31   gap 2.5%
+```
+
+It splits the difference, because your numbers cannot all be true at once. That
+gap is not a nuisance: it is the model telling you so, and its size is a
+measure of how far your data is from being a coherent description of a market.
+
+### What is actually calibrated
+
+Entering `p0` and `q0` is not calibration, it is data entry. Calibration is
+choosing the parameters you do **not** observe so that the benchmark becomes an
+equilibrium:
+
+* `vacost` of each process, from the observed output price less the observed
+  cost of its inputs — which makes zero profit hold exactly at base-year
+  prices;
+* `transport_costs` on each route, from the observed price gap between its ends on
+  routes that were actually used;
+* [`armington_shares`](@ref) for the trade shares, from the base-year bilateral
+  matrix at base-year delivered prices — not from the raw observed shares, for
+  the reason given under
+  [Imperfect substitution between origins (Armington)](@ref);
+* `shift` on the curves, to absorb what remains.
+
+The example in [The forest sector: France in the world](@ref) does none of
+this. Its reference points are plausible figures, not a jointly consistent
+benchmark, which is exactly why its equilibrium prices sit some way from them.
+It is an illustration of the machinery, not a calibrated model.
+
+### Never re-anchor on your own output
+
+In a multi-period run the temptation is to re-base each period on the last:
+set `q0` and `p0` to the quantities and prices the model just produced, and
+carry on. **Do not.** Written out, that makes demand
+
+```math
+D_t = q_{t-1}\left(\frac{P_t}{P_{t-1}}\right)^{-\eta}
+```
+
+which is precisely the lagged-ratio form this package avoids, arrived at from
+another direction. Its results depend on the path taken rather than the state
+reached, its errors compound, and the elasticity you estimated is no longer
+anchored at the level you estimated it for.
+
+`p0` and `q0` stay at the calibration point for the whole run. Everything that
+moves between periods moves through `shift` and `capacity`, computed from state
+and from exogenous drivers. The discipline in one sentence:
+
+> Use model output to update **physical state**, never **behavioural
+> parameters**.
+
+Updating a forest stock by `stock + growth − harvest` is an accounting
+identity, and the harvest may perfectly well come from the model. Updating `q0`
+to last period's quantity is a silent re-estimation of behaviour from your own
+output, and is a different thing entirely.
+
+The one re-anchoring that is legitimate is to **new data**: if observations for
+a later year arrive and you want to forecast from there, that is a fresh
+calibration against reality.
+
 ## Dynamics are somebody else's job
 
 This package solves **one equilibrium, at one point in time**, and that is the

@@ -40,7 +40,7 @@ solved(res)      = res.status in (Markets.MOI.LOCALLY_SOLVED, Markets.MOI.OPTIMA
     @test_throws UndefKeywordError Process(name = :mill, inputs = Nest[])
     d = MarketData(regions = [:A], products = [:x])
     @test isempty(d.demand) && isempty(d.supply) && isempty(d.processes) &&
-          isempty(d.tradable) && isempty(d.transport)
+          isempty(d.transport_costs)
     @test_throws UndefKeywordError DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1)
 end
 
@@ -53,8 +53,7 @@ end
                      DemandSpec(product = :x, region = :B, p0 = 100, q0 = 10, elasticity = 1.5)],
         supply    = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 30, elasticity = 1.0),   # cheap
                      SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],  # expensive
-        tradable  = [:x],
-        transport = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
+        transport_costs = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
     )
     res = solve_market(d)
     @test solved(res)
@@ -142,7 +141,7 @@ end
                     for r in (:A, :B)],
         supply   = [SupplySpec(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 1.0),
                     SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 1.0)],
-        tradable = [:x], transport = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0))
+        transport_costs = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0))
 
     # η ≤ 1 is not a restriction: the benefit term is an antiderivative of the
     # inverse demand, which stays concave and leaves the equilibrium defined
@@ -165,7 +164,7 @@ end
                  demand = economy(η).demand,
                  supply = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 45, elasticity = 1.0),
                            SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],
-                 tradable = [:x], transport = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0))
+                 transport_costs = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0))
         1 - price(solve_market(more), :A, :x) / price(base, :A, :x)
     end
     @test shock(0.4) > shock(1.5) > 0
@@ -287,10 +286,10 @@ end
             [Process(name = :mill, vacost = 1,
                      inputs = [leontief(product = :logs, coeff = 1)],
                      outputs = [:nope => 1.0])]))
-        @test_throws ArgumentError solve_market(good(tradable = [:board],
-            transport = Dict((:board, :A, :Mars) => 1.0)))
-        @test_throws ArgumentError solve_market(good(tradable = [:board],
-            transport = Dict((:nope, :A, :B) => 1.0)))
+        @test_throws ArgumentError solve_market(good(
+            transport_costs = Dict((:board, :A, :Mars) => 1.0)))
+        @test_throws ArgumentError solve_market(good(
+            transport_costs = Dict((:nope, :A, :B) => 1.0)))
         @test_throws ArgumentError solve_market(good(armington =
             [Armington(product = :nope, sigma = 3)]))
     end
@@ -311,15 +310,12 @@ end
              DemandSpec(product = :board, region = :A, p0 = 300, q0 = 10, elasticity = 1.2)]))
     end
 
-    @testset "trade that the economy does not declare" begin
-        # a route for a product left out of `tradable` used to trade anyway
-        @test_throws ArgumentError solve_market(good(tradable = [:board],
-            transport = Dict((:logs, :A, :B) => 5.0)))
-        @test_throws ArgumentError solve_market(good(tradable = [:logs, :board],
-            transport = Dict((:logs, :A, :A) => 5.0)))        # a route to itself
-        # declaring it makes the same economy legal
-        @test solved(solve_market(good(tradable = [:logs, :board],
-            transport = Dict((:logs, :A, :B) => 5.0, (:logs, :B, :A) => 5.0))))
+    @testset "routes that go nowhere" begin
+        @test_throws ArgumentError solve_market(good(
+            transport_costs = Dict((:logs, :A, :A) => 5.0)))   # a route to itself
+        # a route is all it takes to make a product tradable
+        @test solved(solve_market(good(
+            transport_costs = Dict((:logs, :A, :B) => 5.0, (:logs, :B, :A) => 5.0))))
     end
 
     @testset "selectors that cannot bite" begin
@@ -388,8 +384,7 @@ end
         processes = [Process(name = :mill, vacost = 50, capacity = cap,
                              inputs  = [leontief(product = :w, coeff = 2.0)],
                              outputs = [:g => 1.0])],
-        tradable  = [:w, :g],
-        transport = Dict((p, o, r) => (p === :w ? 6.0 : 10.0)
+        transport_costs = Dict((p, o, r) => (p === :w ? 6.0 : 10.0)
                          for p in (:w, :g), o in (:A, :B), r in (:A, :B) if o != r),
         trade_limits = limits)
     level(res, r) = only(res.activity[res.activity.region .== r, :level])
@@ -516,7 +511,7 @@ end
                     for r in (:A, :B)],
         supply   = [SupplySpec(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 0.8),
                     SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 0.8)],
-        tradable = [:x], transport = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0),
+        transport_costs = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0),
         taxes    = taxes)
     base = solve_market(economy(Tax[]))
 
@@ -669,7 +664,7 @@ end
                                  elasticity = 3.0),
                       SupplySpec(product = :x, region = :B, p0 = 200, q0 = 2,
                                  elasticity = 3.0)],
-            tradable = [:x], transport = Dict((:x, :A, :B) => 1.0, (:x, :B, :A) => 1.0),
+            transport_costs = Dict((:x, :A, :B) => 1.0, (:x, :B, :A) => 1.0),
             taxes = [Tax(on = :trade, product = :x, from = :A, to = :B, rate = rate,
                          relative = true)])
         for rate in (0.2, 0.5, 1.0, 2.0, 4.0)        # up to a 400% tariff
@@ -752,8 +747,7 @@ end
                      DemandSpec(product = :x, region = :B, p0 = 100, q0 = 10, elasticity = 1.5)],
         supply    = [SupplySpec(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 1.0),
                      SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 1.0)],
-        tradable  = [:x],
-        transport = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
+        transport_costs = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
         armington = arm)
 
     hom = solve_market(economy(Armington[]))
@@ -832,8 +826,7 @@ end
             demand    = economy(spec).demand,
             supply    = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 39, elasticity = 1.0),
                          SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],
-            tradable  = [:x],
-            transport = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
+            transport_costs = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
             armington = spec))
         @test solved(shocked)
         # it reaches region B: cheaper there too, and B buys more from A
@@ -854,8 +847,7 @@ end
             processes = [Process(name = :mill, vacost = 50,
                                  inputs  = [leontief(product = :w, coeff = 2.0)],
                                  outputs = [:f => 1.0])],
-            tradable  = [:w],
-            transport = Dict((:w, :A, :B) => 8.0, (:w, :B, :A) => 8.0),
+            transport_costs = Dict((:w, :A, :B) => 8.0, (:w, :B, :A) => 8.0),
             armington = [Armington(product = :w, sigma = 5)])
         res = solve_market(d)
         @test solved(res)
@@ -884,7 +876,7 @@ end
 
 @testset "Origin groups (nested substitution)" begin
     regions   = [:EU, :NA, :AS]
-    transport = Dict((:x, o, r) => 6.0 for o in regions, r in regions if o != r)
+    transport_costs = Dict((:x, o, r) => 6.0 for o in regions, r in regions if o != r)
     shares    = Dict((:EU, :EU) => 0.5,  (:NA, :EU) => 0.3,  (:AS, :EU) => 0.2,
                      (:NA, :NA) => 0.6,  (:EU, :NA) => 0.25, (:AS, :NA) => 0.15,
                      (:AS, :AS) => 0.55, (:EU, :AS) => 0.2,  (:NA, :AS) => 0.25)
@@ -895,7 +887,7 @@ end
         supply   = [SupplySpec(product = :x, region = :EU, p0 = 60, q0 = 20, elasticity = 1.0),
                     SupplySpec(product = :x, region = :NA, p0 = 55, q0 = 25, elasticity = 1.0),
                     SupplySpec(product = :x, region = :AS, p0 = 70, q0 = 15, elasticity = 1.0)],
-        tradable = [:x], transport = transport, armington = arm)
+        transport_costs = transport_costs, armington = arm)
 
     @testset "a group as substitutable as its parent changes nothing" begin
         flat   = solve_market(economy([Armington(product = :x, sigma = 3, shares = shares)]))
@@ -997,8 +989,7 @@ end
             processes = [Process(name = :mill, regions = [:EU, :NA], vacost = 30,
                                  inputs  = [leontief(product = :x, coeff = 1.5)],
                                  outputs = [:y => 1.0])],
-            tradable  = [:x, :y],
-            transport = merge(transport, Dict((:y, o, r) => 9.0 for o in regions, r in regions if o != r)),
+            transport_costs = merge(transport_costs, Dict((:y, o, r) => 9.0 for o in regions, r in regions if o != r)),
             armington = [Armington(product = :y, sigma = 3)])
         res = solve_market(d)
         @test solved(res)
@@ -1017,7 +1008,7 @@ end
                          for r in (:EU, :NA)],                      # nothing in AS
             supply    = [SupplySpec(product = :x, region = r, p0 = 60, q0 = 15, elasticity = 1.0)
                          for r in regions],
-            tradable  = [:x], transport = transport,
+            transport_costs = transport_costs,
             armington = [Armington(product = :x, sigma = 3)])
         res = solve_market(d)
         @test solved(res)                       # used to be infeasible
@@ -1060,6 +1051,48 @@ end
     end
 end
 
+@testset "Minimal example" begin
+    # the README and the first documentation page quote these numbers; running
+    # the script is what keeps them true
+    ex = Module(:MinimalExample)
+    Base.include(ex, joinpath(@__DIR__, "..", "examples", "minimal", "minimal_market.jl"))
+    res = ex.result
+    @test solved(res)
+    @test nrow(res.prices) == 4
+    # the two conditions the page checks by hand
+    @test price(res, :Pasture, :cheese) ≈ 10 * price(res, :Pasture, :milk) + 1300 rtol = 1e-6
+    @test price(res, :City, :milk) - price(res, :Pasture, :milk) ≈ 45 rtol = 1e-6
+    @test price(res, :City, :cheese) - price(res, :Pasture, :cheese) ≈ 45 rtol = 1e-6
+    # the data are a consistent benchmark, so the solver reproduces them
+    @test price(res, :Pasture, :milk) ≈ 400 rtol = 1e-2
+    @test price(res, :City, :cheese) ≈ 5350 rtol = 1e-2
+    # the City makes no cheese at all: a tonne of it costs 45 to carry, the ten
+    # tonnes of milk behind it 450
+    @test isempty(res.production[(res.production.region .== :City) .&
+                                 (res.production.product .== :cheese), :])
+    @test getq(res.production, :Pasture, :cheese) > 100
+    # milk crosses, but only the milk that is drunk
+    @test flow(res, :milk, :Pasture, :City) > 1
+    @test flow(res, :cheese, :Pasture, :City) > 1
+    @test flow(res, :milk, :City, :Pasture) <= 1e-6
+    @test getq(res.consumption, :City, :milk) ≈
+          getq(res.production, :City, :milk) + flow(res, :milk, :Pasture, :City) rtol = 1e-6
+    # the milk splits itself between the glass and the dairy
+    milk_made  = sum(skipmissing(res.production.quantity[res.production.product .== :milk]))
+    milk_drunk = sum(skipmissing(res.consumption.quantity[res.consumption.product .== :milk]))
+    @test milk_made ≈ milk_drunk + 10 * getq(res.production, :Pasture, :cheese) rtol = 1e-6
+    @test 0.3 < milk_drunk / milk_made < 0.4
+    # a thirstier City makes cheese dearer everywhere, although no taste for
+    # cheese changed, and takes milk away from the dairy
+    for r in (:Pasture, :City)
+        @test only(ex.thirst.prices[(ex.thirst.prices.region .== r) .&
+                                    (ex.thirst.prices.product .== :cheese), :price]) >
+              price(res, r, :cheese)
+    end
+    @test getq(ex.thirst.production, :Pasture, :cheese) <
+          getq(res.production, :Pasture, :cheese)
+end
+
 @testset "Forest example" begin
     # the documented example is a runnable script: run it, then check that the
     # equilibrium it reports satisfies the conditions it claims
@@ -1091,10 +1124,10 @@ end
         a < b || continue
         (ismissing(pprice(res, a, p)) || ismissing(pprice(res, b, p))) && continue
         @test abs(pprice(res, a, p) - pprice(res, b, p)) <=
-              d.transport[(p, a, b)] + 1e-6
+              d.transport_costs[(p, a, b)] + 1e-6
     end
     # between blocs that no longer holds: the varieties are different goods
-    @test any(abs(pprice(res, :NA, p) - pprice(res, :AS, p)) > d.transport[(p, :NA, :AS)]
+    @test any(abs(pprice(res, :NA, p) - pprice(res, :AS, p)) > d.transport_costs[(p, :NA, :AS)]
               for p in d.products)
 
     # world trade balances: total exports = total imports for each product

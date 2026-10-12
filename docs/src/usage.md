@@ -174,16 +174,19 @@ activity.
 
 ### Trade
 
-`transport` maps each allowed route `(product, from, to)` to a unit transport
-cost, per unit of **quantity** shipped; a route missing from it cannot be used.
-`tradable` is the declaration that goes with it: every product with a route
-must appear there, and [`validate`](@ref) rejects the economy otherwise. It is
-a check rather than a filter, so that a product dropped from `tradable` while
-its routes remain is an error instead of a surprise.
+`transport_costs` maps each allowed route `(product, from, to)` to a unit
+transport cost, per unit of **quantity** shipped. It is also the whole
+declaration of trade: a route missing from it cannot be used, and a product
+with no route anywhere is simply not traded, so there is no separate list of
+tradable products to keep in step with it. Routes are directional, which is
+what lets a corridor cost more one way than the other, so a product that moves
+both ways needs an entry each way.
 
 ```julia
-transport = Dict((:swr, :NA, :AS) => 13.2, (:swr, :AS, :NA) => 13.2, ...)
+transport_costs = Dict((:swr, :NA, :AS) => 13.2, (:swr, :AS, :NA) => 13.2, ...)
 ```
+
+A free route is written `=> 0.0`, not omitted.
 
 A [`TradeLimit`](@ref) caps what may actually move: the capacity of a port or a
 corridor, or a quota. It applies to the **sum** of the flows it covers, so one
@@ -302,16 +305,15 @@ market = MarketData(regions   = regions,
                     demand    = demand,
                     supply    = supply,
                     processes = processes,
-                    tradable  = tradable,
-                    transport = transport)
+                    transport_costs = transport_costs)
 ```
 
-Only `regions` and `products` are required; `demand`, `supply`, `processes`,
-`tradable` and `transport` default to empty. When your variables already carry
-the field names, Julia's shorthand saves the repetition:
+Only `regions` and `products` are required; `demand`, `supply`, `processes` and
+`transport_costs` all default to empty. When your variables already carry the
+field names, Julia's shorthand saves the repetition:
 
 ```julia
-market = MarketData(; regions, products, demand, supply, processes, tradable, transport)
+market = MarketData(; regions, products, demand, supply, processes, transport_costs)
 ```
 
 ### Taxes and subsidies
@@ -387,9 +389,13 @@ producers sell their own; for every other product the two columns are equal.
 [`for_region`](@ref) slices all tables for one region at once. The input data
 and the underlying JuMP model are kept in `res.data` and `res.model`.
 
-## A worked example
+## Worked examples
 
-The [Forest example](@ref "The forest sector: France in the world") page builds
+[Two regions and a dairy](@ref) is the smallest complete model — two products,
+one process, one route, and a milk that is both drunk and turned into cheese —
+and the place to start.
+
+The [forest example](@ref "The forest sector: France in the world") page builds
 a complete economy with this API and solves it: eight regions (four of them
 French), the roundwood-to-paper-and-pellets chain, a product that is both burnt
 directly and milled, joint products, CES input bundles, a
@@ -411,7 +417,7 @@ julia --project=. examples/forest/forest_market.jl
 
 * **Add a product**: add its symbol to `products`; give it a `DemandSpec` and/or
   `SupplySpec` where it is consumed or harvested; wire it into processes; list it
-  in `tradable` and add `transport` entries if it can be shipped.
+  add `transport_costs` entries if it can be shipped.
 * **Add or change a process**: add a `Process`. Chains of any length are built by
   making the output of one process an input of another (e.g.
   roundwood → sawnwood → pallets). A product can be primary-supplied,

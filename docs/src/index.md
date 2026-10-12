@@ -89,19 +89,22 @@ older and entirely different formulation described in
 
 ```julia
 using Markets
-include(joinpath(pkgdir(Markets), "examples", "forest", "forest_market.jl"))
-res.prices
+include(joinpath(pkgdir(Markets), "examples", "minimal", "minimal_market.jl"))
+result.prices
 ```
 
-That script is the [Forest example](@ref "The forest sector: France in the world")
-page, generated from the source with Literate.jl.
+That script is the [Two regions and a dairy](@ref) page, generated from the
+source with Literate.jl, as is the larger
+[forest example](@ref "The forest sector: France in the world").
 
 ## How this documentation is organised
 
 * [Using the module](@ref) — how to describe an economy, solve it and read the
   results.
-* [The forest sector: France in the world](@ref) — a complete model worked
-  through, from the data to a storm-salvage scenario.
+* **Examples** — [Two regions and a dairy](@ref) first, the smallest model
+  that is still a market; then
+  [The forest sector: France in the world](@ref), the same machinery at full
+  size, from the data to a storm-salvage scenario.
 * [Modelling choices](@ref) — what the model assumes and why: partial
   equilibrium, surplus maximisation, spatial trade, CES substitution, dynamics.
 * [Code implementation](@ref) — the exact mathematical program the code builds,
