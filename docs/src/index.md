@@ -23,12 +23,13 @@
       which the Armington formulation collapses to the homogeneous one. That
       makes the model internally coherent. It does not make it right about the
       world.
-    * **Read some results more cautiously than others.** Unless a process is
-      given a capacity, it has constant returns and nothing holds it in place,
-      so processing location is bang-bang; see
-      [What the model does not constrain](@ref). The forest example bounds its
-      pellet mills but nothing else, so its prices and final demand are on
-      firmer ground than its geography of milling.
+    * **Read some results more cautiously than others.** Processes have
+      constant returns, so processing location does not respond smoothly to
+      processing costs unless the output is an [`Armington`](@ref) product or
+      the process is given a capacity; see
+      [Why processes, and not supply and demand per transformation](@ref).
+      The forest example does both, but a model that does neither should have
+      its geography of milling read far more cautiously than its prices.
 
 Markets.jl solves a **spatial partial-equilibrium model** of an economic sector
 made of an arbitrary set of products, regions and transformation processes.

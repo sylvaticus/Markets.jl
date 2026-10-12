@@ -72,6 +72,37 @@ Equilibrium among spatially separated markets: solution by electric analogue.
 > The problem posed, one year before Samuelson turned it into an optimisation —
 > and solved, memorably, by building the circuit.
 
+#### [Ferris, M. C. & Pang, J.-S. (1997)](@id ferris1997)
+
+Engineering and economic applications of complementarity problems.
+*SIAM Review* 39(4), 669–713.
+[doi:10.1137/S0036144595285963](https://doi.org/10.1137/S0036144595285963)
+
+> The survey of what complementarity formulations can express that an
+> optimisation cannot, which is the case for leaving the route this package
+> takes; see
+> [Why processes, and not supply and demand per transformation](@ref).
+
+#### [Howitt, R. E. (1995)](@id howitt1995)
+
+Positive mathematical programming.
+*American Journal of Agricultural Economics* 77(2), 329–342.
+[doi:10.2307/1243543](https://doi.org/10.2307/1243543)
+
+> Calibrating a programming model so that the observed activity is an interior
+> optimum rather than a corner held by a constraint — the standard remedy for
+> the constant-returns behaviour discussed in
+> [Why processes, and not supply and demand per transformation](@ref).
+
+#### [Latta, G. S., Sjølie, H. K. & Solberg, B. (2013)](@id latta2013)
+
+A review of recent developments and applications of partial equilibrium models
+of the forest sector. *Journal of Forest Economics* 19(4), 350–360.
+[doi:10.1016/j.jfe.2013.06.006](https://doi.org/10.1016/j.jfe.2013.06.006)
+
+> What the forest-sector partial-equilibrium literature contains and how its
+> models are built, which is the lineage this package's example belongs to.
+
 #### [Lubin, M., Dowson, O., Garcia, J., Huchette, J. & Legat, B. (2023)](@id jump2023)
 
 JuMP 1.0: recent improvements to a modeling language for mathematical
@@ -90,6 +121,16 @@ problems. *Mathematical Programming Studies*, 144–162.
 > optimisation route taken here, and the one that would make ad valorem
 > tariffs exact; see
 > [Why ad valorem rates on trade are special](@ref).
+
+#### [McCarl, B. A. & Spreen, T. H. (1980)](@id mccarl1980)
+
+Price endogenous mathematical programming as a tool for sector analysis.
+*American Journal of Agricultural Economics* 62(1), 87–102.
+[doi:10.2307/1239475](https://doi.org/10.2307/1239475)
+
+> The case for representing a sector as a programming problem whose prices are
+> duals, including what integrability demands of it. Directly on the choice
+> made in [Why processes, and not supply and demand per transformation](@ref).
 
 #### [McDaniel, C. A. & Balistreri, E. J. (2003)](@id mcdaniel2003)
 
@@ -137,6 +178,15 @@ Equilibrium among spatially separated markets: a reformulation.
 > The quadratic-programming formulation of the spatial equilibrium, and the
 > standard reference for solving it numerically. Extended in their 1971 book
 > *Spatial and Temporal Price and Allocation Models* (North-Holland).
+
+#### [van Tongeren, F., van Meijl, H. & Surry, Y. (2001)](@id vantongeren2001)
+
+Global models applied to agricultural and trade policies: a review and
+assessment. *Agricultural Economics* 26(2), 149–172.
+[doi:10.1111/j.1574-0862.2001.tb00060.x](https://doi.org/10.1111/j.1574-0862.2001.tb00060.x)
+
+> A classification of sector models by what they assume rather than by what
+> they cover, and the source for which paradigm prevails in which community.
 
 #### [Wächter, A. & Biegler, L. T. (2006)](@id wachter2006)
 

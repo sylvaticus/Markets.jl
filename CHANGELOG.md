@@ -20,6 +20,13 @@ breaking changes.
   that is both drunk and turned into cheese — as the first of an **Examples**
   section, in the README and as the opening documentation page. The forest
   model follows it as the advanced one.
+- A modelling-choices section, **Why processes, and not supply and demand per
+  transformation**, on the paradigm this package takes: what fixed-coefficient
+  transformations buy in mass-balance consistency and data, what constant
+  returns cost in behavioural realism, a measurement of how sharply processing
+  location switches and why an `Armington` output removes it, and what a
+  decreasing-returns process would cost in modelling and in data if it were
+  added. Five references were added with it.
 - A **Calibration** section in the modelling documentation: what calibration
   buys you, that a consistent benchmark is a fixed point while inconsistent
   data is not, which parameters are actually calibrated, and why a multi-period

@@ -27,11 +27,13 @@ arbitrary set of products, regions and transformation processes, with partial su
 >   marginal cost, zero profit on active processes, no-arbitrage across trade
 >   routes, the CES demand and price-index conditions, and the limits in which
 >   the Armington model collapses to the homogeneous one.
-> * **Read processing location with particular caution.** Unless a process is
->   given a capacity, it has constant returns and nothing holds it in place, so
->   where milling happens is bang-bang: a small cost advantage takes the whole
->   industry. The forest example does bound its pellet mills, but nothing
->   else.
+> * **Read processing location with particular caution.** Processes have
+>   constant returns, so a process has no supply response of its own: below a
+>   threshold set by freight it does not move at all, and above it the whole
+>   industry moves at once. Declaring the output an Armington product or giving
+>   the process a capacity restores a smooth response, and the forest example
+>   does both — but a model that does neither should not be read for where
+>   industry locates.
 
 You describe the economy with data — demand and supply curves, processes that
 transform products (with substitutable inputs and joint by-products), transport

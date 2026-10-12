@@ -292,6 +292,139 @@ explicit input: labour, energy, capital, chemicals. It is a constant, so
 these inputs have an exogenous price and cannot substitute for the modelled
 inputs.
 
+### Why processes, and not supply and demand per transformation
+
+There is another way to write the same economy. Instead of a transformation
+with fixed coefficients whose scale the material balances determine, each
+industry could carry its own estimated **output supply** and **input demand**
+functions — ideally derived from a profit function, so that Hotelling's lemma
+makes them consistent — and prices would become unknowns of a square system
+rather than duals of a balance. That is the behavioural or equation-system
+paradigm, and the choice between the two is old enough to have a standard
+reference in [McCarl & Spreen (1980)](@ref mccarl1980).
+
+Which one a model uses is largely a matter of which literature it grew up in.
+Forest-sector, land-use and bioeconomy models are mostly process-based, as the
+review in [Latta et al. (2013)](@ref latta2013) shows; agricultural outlook and
+trade-policy models are mostly behavioural, as the classification in
+[van Tongeren et al. (2001)](@ref vantongeren2001) shows; and the large models
+in both camps end up hybrids, because a behavioural model that does not tie its
+input demands to its output supplies by a fixed yield can imply impossible
+physical conversions.
+
+This package takes the process route, and the reasons are worth stating plainly
+because they are also its limitations.
+
+**What the choice buys.** Mass and yield consistency hold by construction: what
+goes into a mill comes out of it, as product or as residue, and no combination
+of estimated elasticities can violate that. The parameters are engineering
+coefficients, which exist for most transformations, where econometric estimates
+on intermediate markets usually do not. A technology with no history at all can
+be added by writing down its recipe. And because the problem stays a single
+convex optimisation, the equilibrium exists, the welfare measure means
+something, and one solve delivers both.
+
+**What it costs.** Constant returns to scale mean a process has no supply
+response of its own. At the zero-profit price it would run at any scale, so its
+level is pinned entirely by the balances around it — never by its own
+profitability. A transformation in this model does not decide how much to
+produce; the rest of the economy decides for it.
+
+#### What that looks like in practice
+
+Sharper than "the cheapest region takes everything". Take two otherwise
+identical regions, each able to run the same process (ten units of input per
+unit of output, a value-added cost of 1300, freight of 5 on both products), and
+lower one region's value-added cost step by step:
+
+| cost in A | output in A | output in B |
+|----------:|------------:|------------:|
+| 1300      | 79.8        | 79.8        |
+| 1247      | 80.4        | 79.6        |
+| 1245      | 104.6       | 55.4        |
+| 1243      | 160.0       | **0.0**     |
+
+Two failures, not one. Over the first 53 units of cost advantage — 4% —
+**nothing happens at all**; then the whole industry moves over a change of 4
+units, or 0.3%. Processing location is a step function: numb, then total.
+
+The width of the numb zone is not arbitrary. A local processor is protected by
+the freight on everything it would otherwise import, which is the freight on
+the *inputs multiplied by the recipe coefficient*, plus the freight on the
+output: ``10 \times 5 + 5 = 55`` here, and the step duly falls at
+``1300 - 55``. Raise the input freight to 60 and the protection becomes 605: a
+46% cost advantage then buys nothing whatever. In a sector whose raw material
+is expensive to move and whose recipes take several units of input per unit of
+output — forestry, exactly — a model is normally deep inside the numb zone, so
+the practical symptom is inertia rather than volatility.
+
+#### Why this is usually not the problem it appears to be
+
+Because [Armington](@ref "Imperfect substitution between origins (Armington)")
+restores the missing slope. If a product's regional varieties are imperfect
+substitutes, every region that makes it faces a downward-sloping demand for its
+own variety, and the step disappears. The same experiment, with
+``\sigma = 4`` on the output:
+
+| cost in A | output in A | output in B |
+|----------:|------------:|------------:|
+| 1255      | 80.3        | 79.6        |
+| 1243      | 80.4        | 79.6        |
+| 1200      | 81.8        | 78.4        |
+| 1100      | 85.7        | 75.2        |
+
+Smooth, and gentle: a 15% cost advantage moves the split from 50/50 to 53/47.
+The [forest example](@ref "The forest sector: France in the world") declares an
+`Armington` specification for every product, so it does not exhibit the
+behaviour above at all. **Read the caveat as applying to products you have
+deliberately left homogeneous**, which in practice means intermediates for
+which no trade shares were available.
+
+#### The fix that is not implemented, and why
+
+The principled remedy is not to abandon processes but to give them decreasing
+returns: replace the constant `vacost` with a cost rising in the activity
+level, calibrated so that the observed activity is what a processor would
+choose at observed margins. This is [positive mathematical
+programming](@ref howitt1995), the standard answer in agricultural sector
+models, and it would sit comfortably in this package — the objective term would
+take the same shape as the supply curves already do, the problem would stay
+convex, and an infinite elasticity would recover today's behaviour exactly.
+Between that limit and `Process`'s `capacity`, which is the opposite limit of a
+perfectly inelastic process, the parameter would simply interpolate.
+
+It is not implemented because of what it would need as data, not because of
+what it would need as code. Per process and per region it asks for a reference
+activity, a base-year margin — the difference between the output price and the
+input costs, which requires consistent price data on intermediate products in
+every region, the thinnest data in the sector — and an elasticity of processing
+supply, which is not an estimated quantity anywhere. Choosing it would mean
+replacing capacity bounds that were invented with an elasticity that was
+invented.
+
+That trade may still be worth making, and for a model used to study where
+industry locates it probably is: a slope is a weaker assumption than a bound,
+it has an unambiguous direction, it can be swept in sensitivity analysis, and
+it makes the base year an interior optimum rather than a corner held in place
+by a constraint. But it should be made deliberately, and documented as a
+calibration choice rather than presented as measurement. Two details to get
+right if you do: the rising cost needs a positive intercept — an isoelastic
+cost alone makes the first unit free, so every region would produce a little of
+everything — and the inframarginal profit it creates has to enter the welfare
+measure, or welfare stops being comparable across model versions.
+
+A full switch to the behavioural paradigm is a different and much larger
+decision. Independently estimated response functions are generally not
+integrable, so no objective exists and the equilibrium has to be posed as a
+complementarity problem and solved as one — [Mathiesen (1985)](@ref
+mathiesen1985), [Rutherford (1995)](@ref rutherford1995),
+[Ferris & Pang (1997)](@ref ferris1997), and [[C4]](@ref C4) and
+[[C5]](@ref C5) for the tooling. That route would handle ad valorem wedges
+exactly instead of by iteration, and would accept asymmetric cross-price
+effects; it would also give up the guarantee of existence, the single welfare
+number, and the mass-balance consistency that is the main reason this package
+is built the way it is.
+
 ## Joint products and residues
 
 A process can have several outputs. Residues (e.g. sawmill chips) are ordinary
@@ -649,18 +782,20 @@ product rather than global.
 Two limitations are inherent to the formulation rather than to the data, and
 both bear on how results should be read.
 
-**Processing location is sharp unless you bound it.** Processes have constant
-returns to scale and a constant value-added cost, so nothing in the economics
-stops the whole of a process from concentrating in whichever region is
-cheapest: location is bang-bang, the same sharpness the homogeneous trade
-assumption produces, and Armington on the *outputs* only softens it indirectly
-by making each region's variety wanted somewhere.
+**Processing location does not respond smoothly.** Processes have constant
+returns to scale and a constant value-added cost, so a process has no supply
+response of its own: below a threshold set by freight it does not move at all,
+and above it the whole industry moves at once.
+[Why processes, and not supply and demand per transformation](@ref) measures
+this and explains where it bites — chiefly on products left homogeneous, since
+an [`Armington`](@ref) specification on the output restores a smooth response.
 
-The remedy is to say what capacity exists. [`Process`](@ref)'s `capacity` bounds
-the activity level, region by region if need be, and a binding bound earns a
-quasi-rent reported in `Results.activity` — what another unit of mill would be
-worth there. Without such a bound, read the geography of *processing* far more
-cautiously than that of prices or of final demand.
+Otherwise the remedy is to say what capacity exists. [`Process`](@ref)'s
+`capacity` bounds the activity level, region by region if need be, and a
+binding bound earns a quasi-rent reported in `Results.activity` — what another
+unit of mill would be worth there. Without such a bound, and without Armington
+on its output, read the geography of *processing* far more cautiously than that
+of prices or of final demand.
 
 **Prices come from a continuous relaxation.** All quantities are continuous, so
 the model knows nothing of indivisible investments, minimum efficient scale or
