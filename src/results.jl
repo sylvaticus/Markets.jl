@@ -91,14 +91,14 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
     val(x) = value(x)
     # bilateral flows: the trade variables of the homogeneous products and the
     # cross-border varieties of the Armington ones
-    flows = Dict{Tuple{Symbol,Symbol,Symbol},Any}(T)
+    flows = Dict{Tuple{String,String,String},Any}(T)
     for (key, v) in X
         key[2] == key[3] && continue      # domestic variety, not trade
         flows[key] = v
     end
 
     # production = primary supply + summed process outputs
-    prod = Dict{Tuple{Symbol,Symbol},Float64}()
+    prod = Dict{Tuple{String,String},Float64}()
     for (k, v) in S
         prod[k] = get(prod, k, 0.0) + val(v)
     end
@@ -108,14 +108,14 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
             prod[(r, p)] = get(prod, (r, p), 0.0) + yield * zk
         end
     end
-    production = DataFrame(region = Symbol[], product = Symbol[], quantity = Float64[])
+    production = DataFrame(region = String[], product = String[], quantity = Float64[])
     for r in d.regions, p in d.products
         q = get(prod, (r, p), 0.0)
         q > tol && push!(production, (r, p, q))
     end
 
     # primary supply on its own, with the ceiling and what a binding one earns
-    supply = DataFrame(region = Symbol[], product = Symbol[], quantity = Float64[],
+    supply = DataFrame(region = String[], product = String[], quantity = Float64[],
                        capacity = Float64[], rent = Float64[])
     for spec in d.supply
         q = val(S[(spec.region, spec.product)])
@@ -128,21 +128,21 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
     end
     sort!(supply, [:region, :product])
 
-    consumption = DataFrame(region = Symbol[], product = Symbol[], quantity = Float64[])
+    consumption = DataFrame(region = String[], product = String[], quantity = Float64[])
     for ((r, p), v) in D
         q = val(v)
         q > tol && push!(consumption, (r, p, q))   # the same rule as the others
     end
     sort!(consumption, [:region, :product])
 
-    trade = DataFrame(product = Symbol[], from = Symbol[], to = Symbol[], quantity = Float64[])
+    trade = DataFrame(product = String[], from = String[], to = String[], quantity = Float64[])
     for ((p, from, to), v) in flows
         q = val(v)
         q > tol && push!(trade, (p, from, to, q))
     end
     sort!(trade, [:product, :from, :to])
 
-    net = DataFrame(region = Symbol[], product = Symbol[],
+    net = DataFrame(region = String[], product = String[],
                     exports = Float64[], imports = Float64[], net = Float64[])
     for r in d.regions, p in d.products
         ex = sum((val(flows[(p, r, o)]) for o in d.regions if haskey(flows, (p, r, o))); init = 0.0)
@@ -155,7 +155,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
     # price.  (`shadow_price` must not be used here: for an equality constraint
     # it reports the gain from relaxing it in whichever direction helps, which
     # discards that sign.)
-    prices = DataFrame(region = Symbol[], product = Symbol[])
+    prices = DataFrame(region = String[], product = String[])
     user = Any[]
     producer = Any[]
     if has_duals(m)
@@ -178,7 +178,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
         prices.producer_price = Float64[]
     end
 
-    activity = DataFrame(region = Symbol[], process = Symbol[], level = Float64[],
+    activity = DataFrame(region = String[], process = String[], level = Float64[],
                          capacity = Float64[], rent = Float64[])
     for proc in d.processes, r in regions_of(proc, d)
         lvl = val(z[(r, proc.name)])
@@ -192,7 +192,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
         push!(activity, (r, proc.name, lvl, cap, rent))
     end
 
-    limits = DataFrame(limit = Symbol[], capacity = Float64[], used = Float64[],
+    limits = DataFrame(limit = String[], capacity = Float64[], used = Float64[],
                        rent = Float64[])
     for limit in d.trade_limits
         c = trade_limit[limit.name]
@@ -207,14 +207,14 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
 
     # what each tax raises, so that the transfer the objective treats as a
     # cost can be added back
-    taxes = DataFrame(tax = Symbol[], on = Symbol[], revenue = Float64[])
+    taxes = DataFrame(tax = String[], on = String[], revenue = Float64[])
     price_at(r, p) = (rows = prices[(prices.region .== r) .& (prices.product .== p), :];
                       isempty(rows) ? 0.0 : coalesce(only(rows.price), 0.0))
     producer_at(r, p) = (rows = prices[(prices.region .== r) .& (prices.product .== p), :];
                          isempty(rows) ? 0.0 : coalesce(only(rows.producer_price), 0.0))
     for t in d.taxes
         revenue = 0.0
-        if t.on === :supply
+        if t.on == "supply"
             for spec in d.supply
                 selects(t.product, spec.product) && selects(t.region, spec.region) || continue
                 q  = val(S[(spec.region, spec.product)])
@@ -222,13 +222,13 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
                      q^(1 / spec.elasticity)        # the untaxed marginal cost
                 revenue += (t.relative ? t.rate * mc : t.rate) * q
             end
-        elseif t.on === :demand
+        elseif t.on == "demand"
             for spec in d.demand, p in nest_products(spec.product)
                 selects(t.product, p) && selects(t.region, spec.region) || continue
                 q = val(D[(spec.region, p)])
                 revenue += (t.relative ? t.rate * price_at(spec.region, p) : t.rate) * q
             end
-        elseif t.on === :process
+        elseif t.on == "process"
             for proc in d.processes, r in regions_of(proc, d)
                 selects(t.process, proc.name) && selects(t.region, r) || continue
                 revenue += (t.relative ? t.rate * proc.vacost : t.rate) * val(z[(r, proc.name)])
@@ -250,6 +250,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
                    prices = prices, activity = activity, limits = limits, taxes = taxes)
 end
 
+
 """
 $(TYPEDSIGNATURES)
 
@@ -261,7 +262,8 @@ Returns a `NamedTuple`
 The `limits` and `taxes` tables are not among them: a trade ceiling spans
 routes and a tax may span regions, so neither belongs to one region.
 """
-function for_region(res::Results, region::Symbol)
+function for_region(res::Results, region::Name)
+    region = string(region)
     f(df, col) = df[df[!, col] .== region, :]
     (production  = f(res.production, :region),
      supply      = f(res.supply, :region),

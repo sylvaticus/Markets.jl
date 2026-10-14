@@ -445,8 +445,8 @@ by-product somewhere to go — [`disposal`](@ref) writes the process for you:
 
 ```julia
 processes = [sawmill, panelmill,
-             disposal(product = :chips),                   # free: price ≥ 0
-             disposal(product = :blackliquor, cost = 12)]   # paid: price ≥ −12
+             disposal(product = "chips"),                   # free: price ≥ 0
+             disposal(product = "blackliquor", cost = 12)]   # paid: price ≥ −12
 ```
 
 Its price then settles at zero rather than going negative, and a positive
@@ -481,10 +481,10 @@ high ``\sigma``; the group as a whole substitutes against the rest at the lower
 [`DemandSpec`](@ref) curve, which describes the composite. So
 
 ```julia
-DemandSpec(region = :EU, p0 = 260, q0 = 110, elasticity = 0.5,
-           product = DemandNest(sigma = 1.6, products = [:sawn_hw], shares = [0.25],
+DemandSpec(region = "EU", p0 = 260, q0 = 110, elasticity = 0.5,
+           product = DemandNest(sigma = 1.6, products = ["sawn_hw"], shares = [0.25],
                        nests = [DemandNest(sigma = 5.0, share = 0.75,
-                                           products = [:sawn_sw, :panel],
+                                           products = ["sawn_sw", "panel"],
                                            shares   = [0.65, 0.35])]))
 ```
 
@@ -507,7 +507,7 @@ constant, so its effect on demand is a **shift of the whole curve**. Put the
 cross-price elasticity in [`exogenous_shift`](@ref) as the driver elasticity:
 
 ```julia
-DemandSpec(product = pellets_and_firewood, region = :EU, p0 = ..., q0 = ...,
+DemandSpec(product = pellets_and_firewood, region = "EU", p0 = ..., q0 = ...,
            elasticity = 0.4,
            shift = exogenous_shift(gas = (level = 48.0, reference = 30.0,
                                           elasticity = 0.35)))
@@ -705,8 +705,8 @@ above. In this package that is an [`OriginNest`](@ref) inside an
 [`Armington`](@ref):
 
 ```julia
-Armington(product = :sawn_sw, destination = :EU, sigma = 2.5,
-          nests = [OriginNest(sigma = 12, origins = [:EU, :NA])])
+Armington(product = "sawn_sw", destination = "EU", sigma = 2.5,
+          nests = [OriginNest(sigma = 12, origins = ["EU", "NA"])])
 ```
 
 Buyers in the EU swap EU for NA sawnwood readily (``\sigma = 12``) and replace
@@ -743,7 +743,7 @@ Technical standards and non-tariff measures are set by the **importer**, so
 they are asymmetric: the EU may treat Asian sawnwood as a distant substitute
 while Asian buyers treat European sawnwood as a close one. A specification
 therefore applies to the destinations given in its `destination` field, with an
-`:all` entry as the fallback, and the elasticity, the groups and the shares may
+`"all"` entry as the fallback, and the elasticity, the groups and the shares may
 all differ between importing markets.
 
 A product is nonetheless either homogeneous everywhere or imperfectly

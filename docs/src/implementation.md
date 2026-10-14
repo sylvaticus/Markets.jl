@@ -28,8 +28,9 @@ The model is written with JuMP ([[C1]](@ref C1),
 [Lubin et al. 2023](@ref jump2023)) and solved by default with Ipopt
 ([[C2]](@ref C2)), the interior-point method of
 [Wächter & Biegler (2006)](@ref wachter2006). Variables and constraints are created only for the
-combinations present in the data, and stored in dictionaries keyed by symbols
-(e.g. `D[(region, product)]`, `T[(product, from, to)]`), not in dense arrays.
+combinations present in the data, and stored in dictionaries keyed by the
+names themselves (e.g. `D[(region, product)]`, `T[(product, from, to)]`), not
+in dense arrays.
 
 ## The mathematical program
 
@@ -194,7 +195,7 @@ normalised among siblings — so the data stays a plain bilateral matrix and the
 nesting only says how it is read.
 
 The specification applied to a (product, destination) pair is the one whose
-`destination` names it, or the `:all` one otherwise, which is what lets the
+`destination` names it, or the `"all"` one otherwise, which is what lets the
 elasticity, the groups and the shares differ between importing markets.
 
 ### Ceilings
@@ -404,7 +405,7 @@ be recovered from `res.model`.
   but `OPTIMAL`, `LOCALLY_SOLVED` or one of the two `ALMOST_` statuses is an
   **error**: an infeasible or unbounded economy returns tables that look exactly
   like those of a solved one, so returning them quietly is the dangerous
-  choice. `on_failure = :warn` or `:ignore` restores the older behaviour. The
+  choice. `on_failure = "warn"` or `"ignore"` restores the older behaviour. The
   `ALMOST_` statuses, where the solver met its acceptable but not its target
   tolerance, warn and return.
 * **Feasibility tolerance.** Ipopt's `constr_viol_tol` is absolute, and its
@@ -431,7 +432,7 @@ equilibrium:
 * origin groups: a group as substitutable as its parent changes nothing, the
   composite price matches the two-level CES index, a tightening group pulls its
   members' prices together, structures and elasticities differ by destination
-  as specified, the `:all` entry serves as the fallback, and inconsistent
+  as specified, the `"all"` entry serves as the fallback, and inconsistent
   groupings are rejected;
 * demand elasticities on both sides of 1: the equilibrium price equals the
   inverse demand for ``\eta`` from 0.3 to 3, the unit-elastic case matches the

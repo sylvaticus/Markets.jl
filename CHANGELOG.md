@@ -7,6 +7,20 @@ breaking changes.
 ## [Unreleased]
 
 ### Changed
+- **Names are strings.** Every region, product, process and tax is named with
+  a `String` — `"EU"` rather than `:EU` — in the data types, in the result
+  tables and throughout the documentation. A `Symbol` is still accepted
+  wherever a name is wanted and converted on the way in, so the two spellings
+  may be mixed and existing scripts keep working; what is stored, compared and
+  reported back is always the string. The `on` field of a `Tax`, the `"all"`
+  selector sentinel and the `on_failure` option of `solve_market` follow the
+  same rule.
+
+  Symbols would make the model's dictionary lookups about 7 ns cheaper each.
+  A model of the size this package is for spends two seconds in the solver, so
+  even a hundred thousand lookups would save under a millisecond of it — while
+  the price would be that `spec.region == "EU"` quietly answers `false` for
+  anyone who reads a field back off their own data.
 - `MarketData.transport` is now `MarketData.transport_costs`, which is what it
   always held: the cost per unit of quantity carried on a route.
 - `MarketData.tradable` is **removed**. It never reached the solver — a product

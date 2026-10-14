@@ -61,22 +61,22 @@ using Pkg; Pkg.add(url = "https://github.com/sylvaticus/Markets.jl")
 using Markets, DataFrames
 
 economy = MarketData(
-    regions   = [:Pasture, :City],
-    products  = [:milk, :cheese],
-    supply    = [SupplySpec(product = :milk, region = :Pasture, p0 = 400, q0 = 2000, elasticity = 0.6),
-                 SupplySpec(product = :milk, region = :City,    p0 = 450, q0 =  300, elasticity = 0.6)],
+    regions   = ["Pasture", "City"],
+    products  = ["milk", "cheese"],
+    supply    = [SupplySpec(product = "milk", region = "Pasture", p0 = 400, q0 = 2000, elasticity = 0.6),
+                 SupplySpec(product = "milk", region = "City",    p0 = 450, q0 =  300, elasticity = 0.6)],
     # milk is both drunk and made into cheese: each use has its own demand
-    demand    = [DemandSpec(product = :milk,   region = :Pasture, p0 =  400, q0 = 200, elasticity = 0.3),
-                 DemandSpec(product = :milk,   region = :City,    p0 =  450, q0 = 600, elasticity = 0.3),
-                 DemandSpec(product = :cheese, region = :Pasture, p0 = 5300, q0 =  30, elasticity = 0.5),
-                 DemandSpec(product = :cheese, region = :City,    p0 = 5350, q0 = 120, elasticity = 0.5)],
-    processes = [Process(name    = :dairy,      # 10 t of milk and EUR 1300 a tonne
-                         inputs  = [leontief(product = :milk, coeff = 10.0)], # ces nests are also available
-                         outputs = [:cheese => 1.0],  # multi-outputs is also supported
+    demand    = [DemandSpec(product = "milk",   region = "Pasture", p0 =  400, q0 = 200, elasticity = 0.3),
+                 DemandSpec(product = "milk",   region = "City",    p0 =  450, q0 = 600, elasticity = 0.3),
+                 DemandSpec(product = "cheese", region = "Pasture", p0 = 5300, q0 =  30, elasticity = 0.5),
+                 DemandSpec(product = "cheese", region = "City",    p0 = 5350, q0 = 120, elasticity = 0.5)],
+    processes = [Process(name    = "dairy",      # 10 t of milk and EUR 1300 a tonne
+                         inputs  = [leontief(product = "milk", coeff = 10.0)], # ces nests are also available
+                         outputs = ["cheese" => 1.0],  # multi-outputs is also supported
                          vacost  = 1300)],
     transport_costs = Dict(
-        (:milk,   :Pasture, :City) => 45.0, (:milk,   :City, :Pasture) => 45.0,
-        (:cheese, :Pasture, :City) => 45.0, (:cheese, :City, :Pasture) => 45.0))
+        ("milk",   "Pasture", "City") => 45.0, ("milk",   "City", "Pasture") => 45.0,
+        ("cheese", "Pasture", "City") => 45.0, ("cheese", "City", "Pasture") => 45.0))
 
 res = solve_market(economy)
 unstack(res.prices, :region, :product, :price)

@@ -46,13 +46,13 @@ function validate(d::MarketData)
     check_region(r, what) = r in regions ||
         fail("$what names the region $r, which the economy does not declare")
     check_selector(field, set, what, kind) =
-        field === :all || for x in (field isa Symbol ? [field] : field)
+        field == "all" || for x in (field isa AbstractString ? [field] : field)
             x in set || fail("$what selects the $kind $x, which the economy does " *
                              "not declare")
         end
 
     # --- curves -------------------------------------------------------------
-    seen_demand = Set{Tuple{Symbol,Symbol}}()
+    seen_demand = Set{Tuple{String,String}}()
     for s in d.demand
         check_region(s.region, "a demand curve")
         for p in nest_products(s.product)
@@ -62,7 +62,7 @@ function validate(d::MarketData)
             push!(seen_demand, (p, s.region))
         end
     end
-    seen_supply = Set{Tuple{Symbol,Symbol}}()
+    seen_supply = Set{Tuple{String,String}}()
     for s in d.supply
         check_region(s.region, "a supply curve")
         check_product(s.product, "the supply curve in $(s.region)")
@@ -76,7 +76,7 @@ function validate(d::MarketData)
     allunique(names) || fail("these processes are declared more than once: " *
                              "$(join(duplicates(names), ", "))")
     for proc in d.processes
-        proc.regions === :all || for r in proc.regions
+        proc.regions == "all" || for r in proc.regions
             check_region(r, "process $(proc.name)")
         end
         for nest in proc.inputs, p in nest.products
@@ -113,7 +113,7 @@ function validate(d::MarketData)
             check_region(o, "the Armington shares of $(a.product)")
             check_region(r, "the Armington shares of $(a.product)")
         end
-        for o in collect_origins!(Symbol[], a.nests)
+        for o in collect_origins!(String[], a.nests)
             check_region(o, "an origin group of $(a.product)")
         end
     end
@@ -132,7 +132,7 @@ function validate(d::MarketData)
         used, unused = tax_selectors(t.on)
         for (field, value) in ((:product, t.product), (:region, t.region),
                                (:process, t.process), (:from, t.from), (:to, t.to))
-            value === :all && continue
+            value == "all" && continue
             field in unused && fail("$what falls on $(t.on), which ignores the " *
                                     "`$field` selector; it would apply more widely " *
                                     "than it looks. Use $(join(used, ", ")) instead")
@@ -161,9 +161,9 @@ Which selector fields of a [`Tax`](@ref) the base `on` uses, and which it
 ignores.  A tax that sets a selector its base ignores would apply more widely
 than it appears to, so [`validate`](@ref) rejects it.
 """
-function tax_selectors(on::Symbol)
-    on === :supply  && return ((:product, :region), (:process, :from, :to))
-    on === :demand  && return ((:product, :region), (:process, :from, :to))
-    on === :process && return ((:process, :region), (:product, :from, :to))
-    return ((:product, :from, :to), (:region, :process))          # :trade
+function tax_selectors(on::AbstractString)
+    on == "supply"  && return ((:product, :region), (:process, :from, :to))
+    on == "demand"  && return ((:product, :region), (:process, :from, :to))
+    on == "process" && return ((:process, :region), (:product, :from, :to))
+    return ((:product, :from, :to), (:region, :process))          # "trade"
 end

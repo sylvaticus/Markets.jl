@@ -26,7 +26,7 @@ input of a process operating there.  A region that uses none of a product needs
 no composite of it, though it may still produce it for others.
 """
 function consumed(d::MarketData)
-    uses = Set{Tuple{Symbol,Symbol}}()
+    uses = Set{Tuple{String,String}}()
     for s in d.demand, p in nest_products(s.product)
         push!(uses, (p, s.region))
     end
@@ -43,10 +43,10 @@ The origins that sit directly under a CES node of `node` and therefore enter an
 aggregator as ``X^\\rho``.  Only those need a positive lower bound; a variety
 pooled by an infinitely substitutable group enters linearly and may go to zero.
 """
-function floored_origins(node, acc = Set{Symbol}())
-    node isa Symbol && return acc
+function floored_origins(node, acc = Set{String}())
+    node isa AbstractString && return acc
     for c in node.children
-        if c isa Symbol
+        if c isa AbstractString
             isfinite(node.sigma) && push!(acc, c)
         else
             floored_origins(c, acc)
@@ -65,22 +65,22 @@ Products absent from it are homogeneous.
 
 A product is Armington in every destination or in none, so a specification with
 a finite elasticity for some destinations must be matched either by one for
-each of the others or by an `:all` fallback.
+each of the others or by an `"all"` fallback.
 """
 function armington_of(d::MarketData)
-    specs    = Dict{Tuple{Symbol,Symbol},Armington}()   # (product, destination)
-    fallback = Dict{Symbol,Armington}()                 # product, from `:all`
-    products = Symbol[]
+    specs    = Dict{Tuple{String,String},Armington}()   # (product, destination)
+    fallback = Dict{String,Armington}()                 # product, from `"all"`
+    products = String[]
     for a in d.armington
         a.product in d.products ||
             throw(ArgumentError("Armington specification for unknown product $(a.product)"))
         isfinite(a.sigma) && push!(products, a.product)
-        if a.destination === :all
+        if a.destination == "all"
             haskey(fallback, a.product) && throw(ArgumentError(
                 "duplicate Armington specification for $(a.product)"))
             fallback[a.product] = a
         else
-            for r in (a.destination isa Symbol ? [a.destination] : a.destination)
+            for r in (a.destination isa AbstractString ? [a.destination] : a.destination)
                 r in d.regions || throw(ArgumentError(
                     "Armington specification of $(a.product) for unknown region $r"))
                 haskey(specs, (a.product, r)) && throw(ArgumentError(
@@ -90,12 +90,12 @@ function armington_of(d::MarketData)
         end
     end
 
-    arm = Dict{Tuple{Symbol,Symbol},Armington}()
+    arm = Dict{Tuple{String,String},Armington}()
     for p in unique(products), r in d.regions
         a = get(specs, (p, r), get(fallback, p, nothing))
         a === nothing && throw(ArgumentError(
             "$p is an Armington product but region $r has no specification for " *
-            "it: give one for every region, or one with destination = :all"))
+            "it: give one for every region, or one with destination = \"all\""))
         isfinite(a.sigma) || throw(ArgumentError(
             "$p is an Armington product in some regions but homogeneous in $r: " *
             "a product is either homogeneous everywhere or imperfectly " *
@@ -114,7 +114,7 @@ region that cannot produce a product has no variety of it, so it is nobody's
 origin for it — not even its own.
 """
 function producible(d::MarketData)
-    can = Set{Tuple{Symbol,Symbol}}()
+    can = Set{Tuple{String,String}}()
     for s in d.supply
         push!(can, (s.product, s.region))
     end
@@ -132,8 +132,8 @@ plus every origin with a transport route into `r`, keeping only those that can
 produce it — together with their normalised value shares.  Origins without a
 positive share are left out.
 """
-function armington_origins(d::MarketData, a::Armington, r::Symbol,
-                           can::Set{Tuple{Symbol,Symbol}} = producible(d))
+function armington_origins(d::MarketData, a::Armington, r::String,
+                           can::Set{Tuple{String,String}} = producible(d))
     p = a.product
     available = [o for o in [r; [o for o in d.regions
                                  if o != r && haskey(d.transport_costs, (p, o, r))]]
@@ -144,7 +144,7 @@ function armington_origins(d::MarketData, a::Armington, r::Symbol,
     if isempty(a.shares)
         return available, fill(1 / length(available), length(available))
     end
-    origins = Symbol[]
+    origins = String[]
     shares  = Float64[]
     for o in available
         s = get(a.shares, (o, r), 0.0)
@@ -159,7 +159,7 @@ function armington_origins(d::MarketData, a::Armington, r::Symbol,
 end
 
 # A node of the CES tree a destination aggregates its origins with: `children`
-# are origins (`Symbol`) or deeper nodes, `shares` their value shares among
+# are origins (`String`) or deeper nodes, `shares` their value shares among
 # themselves, `sigma` the elasticity they substitute at.
 struct ArmNode
     sigma::Float64
@@ -177,12 +177,12 @@ those of the origins beneath it, normalised among its siblings.  Groups that no
 available origin belongs to are dropped, and a group left with a single member
 collapses into it.
 """
-function armington_tree(d::MarketData, a::Armington, r::Symbol,
-                        can::Set{Tuple{Symbol,Symbol}} = producible(d))
+function armington_tree(d::MarketData, a::Armington, r::String,
+                        can::Set{Tuple{String,String}} = producible(d))
     origins, shares = armington_origins(d, a, r, can)
     weight = Dict(zip(origins, shares))
     # weight of everything below a child, origins being the leaves
-    subtotal(c) = c isa Symbol ? weight[c] : sum(subtotal, c.children)
+    subtotal(c) = c isa AbstractString ? weight[c] : sum(subtotal, c.children)
 
     # a group becomes a node over the available origins it holds, or `nothing`
     function group(n::OriginNest)
@@ -196,7 +196,7 @@ function armington_tree(d::MarketData, a::Armington, r::Symbol,
         return ArmNode(n.sigma, members, Float64[])  # shares filled in below
     end
 
-    placed = collect_origins!(Symbol[], a.nests)
+    placed = collect_origins!(String[], a.nests)
     children = Any[]
     for n in a.nests
         s = group(n)
@@ -222,12 +222,12 @@ end
 $(TYPEDSIGNATURES)
 
 The quantity of the composite that `node` stands for, as a variable of `m`: the
-variety of an origin when `node` is a `Symbol`, otherwise a fresh variable tied
+variety of an origin when `node` is a `String`, otherwise a fresh variable tied
 to its children by the CES aggregator of the group.  Called on the root of an
 [`armington_tree`](@ref), it adds one variable and one constraint per group.
 """
-function armington_quantity(m, node, p::Symbol, r::Symbol, X, floor_at, in_power::Bool = false)
-    node isa Symbol && return X[(p, node, r)]
+function armington_quantity(m, node, p::String, r::String, X, floor_at, in_power::Bool = false)
+    node isa AbstractString && return X[(p, node, r)]
     qs = [armington_quantity(m, c, p, r, X, floor_at, isfinite(node.sigma))
           for c in node.children]
     # the composite only needs a positive floor where it is itself raised to a
@@ -251,13 +251,13 @@ end
 $(TYPEDSIGNATURES)
 
 The quantity of the demand composite that `node` stands for, as a variable of
-`m`: the quantity consumed of a product when `node` is a `Symbol`, otherwise a
+`m`: the quantity consumed of a product when `node` is a `String`, otherwise a
 fresh variable tied to its members by the CES aggregator of the group. Called
 on the `product` field of a [`DemandSpec`](@ref), it creates one consumption
 variable per product of the group and one composite per nest.
 """
-function demand_quantity(m, node, r::Symbol, D, floor_at, start, in_power::Bool = true)
-    if node isa Symbol
+function demand_quantity(m, node, r::String, D, floor_at, start, in_power::Bool = true)
+    if node isa AbstractString
         haskey(D, (r, node)) && throw(ArgumentError(
             "$(node) has more than one final demand in region $r"))
         f = floor_at(start)
@@ -297,7 +297,7 @@ charged on each product's own quantity — so only this one has to be shared.
 """
 function demand_relative_tax(d::MarketData, s::DemandSpec)
     products = nest_products(s.product)
-    rates = [tax_rates(d.taxes, :demand; product = p, region = s.region).relative
+    rates = [tax_rates(d.taxes, "demand"; product = p, region = s.region).relative
              for p in products]
     allequal(rates) || throw(ArgumentError(
         "the products $(join(products, ", ")) share one demand curve in region " *
@@ -317,7 +317,7 @@ Internal: [`solve_market`](@ref) is the entry point, and is what validates the
 economy, acts on the solver's verdict and iterates this function when an ad
 valorem rate on trade has to be found by fixed point.
 """
-function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Float64};
+function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Float64};
                     optimizer = Ipopt.Optimizer, silent::Bool = true,
                     qfloor::Union{Nothing,Real} = nothing,
                     tol::Real = 1e-3 * quantity_scale(d))
@@ -352,7 +352,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     supply_of = Dict((s.region, s.product) => s for s in d.supply)
     # the reference quantity of whatever curve a consumed product belongs to,
     # used only to start the solver off in a sensible place
-    demand_of = Dict{Tuple{Symbol,Symbol},DemandSpec}()
+    demand_of = Dict{Tuple{String,String},DemandSpec}()
     for spec in d.demand, p in nest_products(spec.product)
         demand_of[(spec.region, p)] = spec
     end
@@ -363,7 +363,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     # Final demand. A plain product gets one variable; a group of substitutes
     # gets one per product plus the composite the curve actually describes, so
     # the balances and the result tables stay per product throughout.
-    D = Dict{Tuple{Symbol,Symbol},VariableRef}()
+    D = Dict{Tuple{String,String},VariableRef}()
     composites = Tuple{DemandSpec,Any}[]
     for s in d.demand
         push!(composites,
@@ -371,14 +371,14 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     end
     # primary supply quantities: the marginal cost b·S^(1/ε) is finite at zero,
     # so no floor is needed
-    S = Dict{Tuple{Symbol,Symbol},VariableRef}()
+    S = Dict{Tuple{String,String},VariableRef}()
     for s in d.supply
         v = @variable(m, lower_bound = 0.0, start = min(s.shift * s.q0, s.capacity), base_name = "S[$(s.region),$(s.product)]")
         isfinite(s.capacity) && set_upper_bound(v, s.capacity)
         S[(s.region, s.product)] = v
     end
     # process activity levels
-    z = Dict{Tuple{Symbol,Symbol},VariableRef}()
+    z = Dict{Tuple{String,String},VariableRef}()
     for proc in d.processes, r in regions_of(proc, d)
         cap = capacity_of(proc, r)
         v = @variable(m, lower_bound = 0.0, start = min(1.0, cap), base_name = "z[$r,$(proc.name)]")
@@ -388,7 +388,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     # trade flows of the homogeneous products  T[(product, from, to)]
     arm = armington_of(d)
     arm_products = Set(p for (p, _) in keys(arm))
-    T = Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}()
+    T = Dict{Tuple{String,String,String},VariableRef}()
     for ((p, from, to), _) in d.transport_costs
         p in arm_products && continue    # Armington products use X instead
         T[(p, from, to)] = @variable(m, lower_bound = 0.0, start = 0.0, base_name = "T[$p,$from,$to]")
@@ -396,9 +396,9 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     # Armington products: quantity of the variety of each origin used in each
     # destination, X[(product, origin, destination)], and the composite that
     # the destination actually uses, A[(product, destination)]
-    X = Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}()
-    A = Dict{Tuple{Symbol,Symbol},VariableRef}()
-    tree_of = Dict{Tuple{Symbol,Symbol},Any}()
+    X = Dict{Tuple{String,String,String},VariableRef}()
+    A = Dict{Tuple{String,String},VariableRef}()
+    tree_of = Dict{Tuple{String,String},Any}()
     can  = producible(d)
     uses = consumed(d)
     for ((p, r), a) in arm
@@ -422,9 +422,9 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     # --- ceilings on what may be carried between regions --------------------
     # one constraint per limit, over the weighted sum of the flows it covers,
     # whether those are homogeneous trade variables or Armington varieties
-    flow_vars = merge(Dict{Tuple{Symbol,Symbol,Symbol},VariableRef}(T),
+    flow_vars = merge(Dict{Tuple{String,String,String},VariableRef}(T),
                       Dict(k => v for (k, v) in X if k[2] != k[3]))
-    trade_limit = Dict{Symbol,ConstraintRef}()
+    trade_limit = Dict{String,ConstraintRef}()
     for limit in d.trade_limits
         haskey(trade_limit, limit.name) && throw(ArgumentError(
             "duplicate trade limit named $(limit.name)"))
@@ -436,8 +436,8 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     end
 
     # --- assemble per-(region,product) sources & uses -----------------------
-    produced = Dict{Tuple{Symbol,Symbol},Any}()   # process outputs + primary supply
-    used     = Dict{Tuple{Symbol,Symbol},Any}()   # process inputs + final demand
+    produced = Dict{Tuple{String,String},Any}()   # process outputs + primary supply
+    used     = Dict{Tuple{String,String},Any}()   # process inputs + final demand
     addto!(dict, key, term) = (dict[key] = haskey(dict, key) ? dict[key] + term : term)
 
     for proc in d.processes, r in regions_of(proc, d)
@@ -480,8 +480,8 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
     # get).  For a homogeneous product the two coincide and only `balance` is
     # built; for an Armington product they differ by the composition of the
     # CES bundle, and both are built.
-    balance        = Dict{Tuple{Symbol,Symbol},ConstraintRef}()
-    origin_balance = Dict{Tuple{Symbol,Symbol},ConstraintRef}()
+    balance        = Dict{Tuple{String,String},ConstraintRef}()
+    origin_balance = Dict{Tuple{String,String},ConstraintRef}()
     for r in d.regions, p in d.products
         src = get(produced, (r, p), 0.0)
         use = get(used, (r, p), 0.0)
@@ -536,24 +536,24 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{Symbol,Symbol,Symbol},Floa
             # per-unit rates are charged on each product's own quantity: the
             # composite is an index, and a tax per m³ is not a tax per index
             # point unless every member happens to cost the same
-            sum(tax_rates(d.taxes, :demand; product = p, region = s.region).absolute /
+            sum(tax_rates(d.taxes, "demand"; product = p, region = s.region).absolute /
                 w * D[(s.region, p)] for p in nest_products(s.product))
         end for (s, C) in composites))
     # A tax on production sits between the market price and what the producer
     # keeps, so it raises the marginal cost the market has to cover.
     supply_cost = @expression(m, sum(
         let s = supply_of[k],
-            t = tax_rates(d.taxes, :supply; product = s.product, region = s.region),
+            t = tax_rates(d.taxes, "supply"; product = s.product, region = s.region),
             b = (1 + t.relative) * s.p0 * (s.shift * s.q0)^(-1 / s.elasticity),
             e = 1 + 1 / s.elasticity
             (b / e) * S[k]^e + t.absolute * S[k]
         end for k in keys(S)))
     conv_cost = @expression(m, sum(
-        let t = tax_rates(d.taxes, :process; process = proc.name, region = r)
+        let t = tax_rates(d.taxes, "process"; process = proc.name, region = r)
             ((1 + t.relative) * proc.vacost + t.absolute) * z[(r, proc.name)]
         end for proc in d.processes for r in regions_of(proc, d)))
     route_cost(key) = d.transport_costs[key] + get(tariff, key, 0.0) +
-        tax_rates(d.taxes, :trade; product = key[1], from = key[2], to = key[3]).absolute
+        tax_rates(d.taxes, "trade"; product = key[1], from = key[2], to = key[3]).absolute
     trans_cost = @expression(m,
         sum(route_cost(key) * T[key] for key in keys(T); init = 0.0) +
         sum(route_cost(key) * X[key] for key in keys(X) if key[2] != key[3]; init = 0.0))
@@ -599,13 +599,14 @@ whenever an iteration increases the error rather than reducing it, which
 rescues an oscillating case and leaves a well-behaved one at full speed.
 """
 function solve_market(d::MarketData; max_tax_iterations::Int = 50,
-                      tax_tolerance::Real = 1e-8, on_failure::Symbol = :error,
+                      tax_tolerance::Real = 1e-8, on_failure::Name = "error",
                       kwargs...)
-    on_failure in (:error, :warn, :ignore) || throw(ArgumentError(
-        "on_failure is :error, :warn or :ignore, got $on_failure"))
+    on_failure = nm(on_failure)
+    on_failure in ("error", "warn", "ignore") || throw(ArgumentError(
+        "on_failure is \"error\", \"warn\" or \"ignore\", got $on_failure"))
     validate(d)
-    advalorem = [t for t in d.taxes if t.on === :trade && t.relative]
-    tariff = Dict{Tuple{Symbol,Symbol,Symbol},Float64}()
+    advalorem = [t for t in d.taxes if t.on == "trade" && t.relative]
+    tariff = Dict{Tuple{String,String,String},Float64}()
     res = solve_once(d, tariff; kwargs...)
     isempty(advalorem) && return report(res, on_failure)
 
@@ -615,10 +616,11 @@ function solve_market(d::MarketData; max_tax_iterations::Int = 50,
     for _ in 1:max_tax_iterations
         # the money a rate of `relative` comes to, at the prices just found
         origin_price(p, o) = begin
-            rows = res.prices[(res.prices.region .== o) .& (res.prices.product .== p), :]
+            rows = res.prices[(res.prices.region .== o) .&
+                              (res.prices.product .== p), :]
             isempty(rows) ? 0.0 : coalesce(only(rows.producer_price), 0.0)
         end
-        updated = Dict(key => tax_rates(d.taxes, :trade; product = key[1], from = key[2],
+        updated = Dict(key => tax_rates(d.taxes, "trade"; product = key[1], from = key[2],
                                         to = key[3]).relative * origin_price(key[1], key[2])
                        for key in routes)
         gap = maximum(abs(updated[k] - get(tariff, k, 0.0)) / max(abs(updated[k]), 1.0)
@@ -646,12 +648,12 @@ optimal is an error by default, since the tables that come with it look exactly
 like those of a solved model.  `on_failure` chooses between throwing, warning
 and saying nothing.
 """
-function report(res::Results, on_failure::Symbol)
+function report(res::Results, on_failure::AbstractString)
     res.status in (MOI.OPTIMAL, MOI.LOCALLY_SOLVED) && return res
     if res.status in (MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED)
         # the solver stopped at its looser, "acceptable" tolerance: the
         # solution is an equilibrium, just a less exact one
-        on_failure === :ignore || @warn "the solver returned $(res.status): the " *
+        on_failure == "ignore" || @warn "the solver returned $(res.status): the " *
             "solution satisfies its acceptable tolerance but not its target one, " *
             "so treat the last digits with suspicion"
         return res
@@ -659,7 +661,7 @@ function report(res::Results, on_failure::Symbol)
     message = "the solver returned $(res.status): the economy may be infeasible, " *
               "unbounded or too hard to solve, and the tables returned with this " *
               "result do not describe an equilibrium"
-    on_failure === :error && throw(ErrorException(message))
-    on_failure === :warn  && @warn message
+    on_failure == "error" && throw(ErrorException(message))
+    on_failure == "warn"  && @warn message
     return res
 end

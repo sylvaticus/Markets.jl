@@ -40,8 +40,8 @@ using Markets, DataFrames
 
 # ## Regions and products
 
-france  = [:SEF, :SWF, :GEF, :OF]
-regions = [france..., :EU, :NA, :AS, :RW]
+france  = ["SEF", "SWF", "GEF", "OF"]
+regions = [france..., "EU", "NA", "AS", "RW"]
 nothing # hide
 
 # The product list follows the FAOSTAT / UNECE chain, splitting roundwood by
@@ -54,8 +54,8 @@ nothing # hide
 # matters here — the same log can be burnt in a stove or sent to a mill, and
 # which it is depends on what the two uses are willing to pay.
 
-products = [:swr, :hwr, :smallwood, :chips, :pulp,
-            :sawn_sw, :sawn_hw, :panel, :plywood, :paper, :pellets]
+products = ["swr", "hwr", "smallwood", "chips", "pulp",
+            "sawn_sw", "sawn_hw", "panel", "plywood", "paper", "pellets"]
 nothing # hide
 
 # They are connected by the transformations set up further down:
@@ -98,32 +98,32 @@ nothing # hide
 
 supply = SupplySpec[
     ## softwood roundwood
-    SupplySpec(product = :swr, region = :SEF, p0 = 72, q0 =   3.2, elasticity = 0.40),
-    SupplySpec(product = :swr, region = :SWF, p0 = 65, q0 =   7.5, elasticity = 0.45),
-    SupplySpec(product = :swr, region = :GEF, p0 = 68, q0 =   2.6, elasticity = 0.40),
-    SupplySpec(product = :swr, region = :OF,  p0 = 70, q0 =   3.4, elasticity = 0.40),
-    SupplySpec(product = :swr, region = :EU,  p0 = 68, q0 = 270.0, elasticity = 0.60),
-    SupplySpec(product = :swr, region = :NA,  p0 = 62, q0 = 380.0, elasticity = 0.60),
-    SupplySpec(product = :swr, region = :AS,  p0 = 80, q0 = 150.0, elasticity = 0.55),
-    SupplySpec(product = :swr, region = :RW,  p0 = 58, q0 = 190.0, elasticity = 0.55),
+    SupplySpec(product = "swr", region = "SEF", p0 = 72, q0 =   3.2, elasticity = 0.40),
+    SupplySpec(product = "swr", region = "SWF", p0 = 65, q0 =   7.5, elasticity = 0.45),
+    SupplySpec(product = "swr", region = "GEF", p0 = 68, q0 =   2.6, elasticity = 0.40),
+    SupplySpec(product = "swr", region = "OF",  p0 = 70, q0 =   3.4, elasticity = 0.40),
+    SupplySpec(product = "swr", region = "EU",  p0 = 68, q0 = 270.0, elasticity = 0.60),
+    SupplySpec(product = "swr", region = "NA",  p0 = 62, q0 = 380.0, elasticity = 0.60),
+    SupplySpec(product = "swr", region = "AS",  p0 = 80, q0 = 150.0, elasticity = 0.55),
+    SupplySpec(product = "swr", region = "RW",  p0 = 58, q0 = 190.0, elasticity = 0.55),
     ## hardwood roundwood
-    SupplySpec(product = :hwr, region = :SEF, p0 = 78, q0 =   1.4, elasticity = 0.35),
-    SupplySpec(product = :hwr, region = :SWF, p0 = 75, q0 =   1.2, elasticity = 0.35),
-    SupplySpec(product = :hwr, region = :GEF, p0 = 80, q0 =   3.4, elasticity = 0.35),
-    SupplySpec(product = :hwr, region = :OF,  p0 = 78, q0 =   4.6, elasticity = 0.35),
-    SupplySpec(product = :hwr, region = :EU,  p0 = 76, q0 =  85.0, elasticity = 0.50),
-    SupplySpec(product = :hwr, region = :NA,  p0 = 72, q0 =  70.0, elasticity = 0.50),
-    SupplySpec(product = :hwr, region = :AS,  p0 = 74, q0 = 180.0, elasticity = 0.50),
-    SupplySpec(product = :hwr, region = :RW,  p0 = 66, q0 = 130.0, elasticity = 0.50),
+    SupplySpec(product = "hwr", region = "SEF", p0 = 78, q0 =   1.4, elasticity = 0.35),
+    SupplySpec(product = "hwr", region = "SWF", p0 = 75, q0 =   1.2, elasticity = 0.35),
+    SupplySpec(product = "hwr", region = "GEF", p0 = 80, q0 =   3.4, elasticity = 0.35),
+    SupplySpec(product = "hwr", region = "OF",  p0 = 78, q0 =   4.6, elasticity = 0.35),
+    SupplySpec(product = "hwr", region = "EU",  p0 = 76, q0 =  85.0, elasticity = 0.50),
+    SupplySpec(product = "hwr", region = "NA",  p0 = 72, q0 =  70.0, elasticity = 0.50),
+    SupplySpec(product = "hwr", region = "AS",  p0 = 74, q0 = 180.0, elasticity = 0.50),
+    SupplySpec(product = "hwr", region = "RW",  p0 = 66, q0 = 130.0, elasticity = 0.50),
     ## smallwood: thinnings and tops, worth a fraction of a sawlog
-    SupplySpec(product = :smallwood, region = :SEF, p0 = 42, q0 =   6.0, elasticity = 0.50),
-    SupplySpec(product = :smallwood, region = :SWF, p0 = 38, q0 =   3.5, elasticity = 0.55),
-    SupplySpec(product = :smallwood, region = :GEF, p0 = 40, q0 =   6.5, elasticity = 0.50),
-    SupplySpec(product = :smallwood, region = :OF,  p0 = 41, q0 =   9.0, elasticity = 0.50),
-    SupplySpec(product = :smallwood, region = :EU,  p0 = 39, q0 = 150.0, elasticity = 0.60),
-    SupplySpec(product = :smallwood, region = :NA,  p0 = 34, q0 =  70.0, elasticity = 0.60),
-    SupplySpec(product = :smallwood, region = :AS,  p0 = 45, q0 = 200.0, elasticity = 0.55),
-    SupplySpec(product = :smallwood, region = :RW,  p0 = 30, q0 = 250.0, elasticity = 0.55),
+    SupplySpec(product = "smallwood", region = "SEF", p0 = 42, q0 =   6.0, elasticity = 0.50),
+    SupplySpec(product = "smallwood", region = "SWF", p0 = 38, q0 =   3.5, elasticity = 0.55),
+    SupplySpec(product = "smallwood", region = "GEF", p0 = 40, q0 =   6.5, elasticity = 0.50),
+    SupplySpec(product = "smallwood", region = "OF",  p0 = 41, q0 =   9.0, elasticity = 0.50),
+    SupplySpec(product = "smallwood", region = "EU",  p0 = 39, q0 = 150.0, elasticity = 0.60),
+    SupplySpec(product = "smallwood", region = "NA",  p0 = 34, q0 =  70.0, elasticity = 0.60),
+    SupplySpec(product = "smallwood", region = "AS",  p0 = 45, q0 = 200.0, elasticity = 0.55),
+    SupplySpec(product = "smallwood", region = "RW",  p0 = 30, q0 = 250.0, elasticity = 0.55),
 ]
 nothing # hide
 
@@ -136,24 +136,24 @@ nothing # hide
 
 reference = Dict(
     ## product    => (price, quantities by region)
-    :sawn_sw   => (250.0,  Dict(:SEF => 1.90, :SWF => 0.90, :GEF => 0.80, :OF => 5.60,
-                                :EU => 75.0, :NA => 120.0, :AS => 80.0,  :RW => 45.0)),
-    :sawn_hw   => (300.0,  Dict(:SEF => 0.25, :SWF => 0.12, :GEF => 0.11, :OF => 0.72,
-                                :EU => 12.0, :NA =>  20.0, :AS => 60.0,  :RW => 15.0)),
-    :panel     => (350.0,  Dict(:SEF => 0.90, :SWF => 0.40, :GEF => 0.40, :OF => 2.80,
-                                :EU => 45.0, :NA =>  40.0, :AS => 90.0,  :RW => 25.0)),
+    "sawn_sw"   => (250.0,  Dict("SEF" => 1.90, "SWF" => 0.90, "GEF" => 0.80, "OF" => 5.60,
+                                "EU" => 75.0, "NA" => 120.0, "AS" => 80.0,  "RW" => 45.0)),
+    "sawn_hw"   => (300.0,  Dict("SEF" => 0.25, "SWF" => 0.12, "GEF" => 0.11, "OF" => 0.72,
+                                "EU" => 12.0, "NA" =>  20.0, "AS" => 60.0,  "RW" => 15.0)),
+    "panel"     => (350.0,  Dict("SEF" => 0.90, "SWF" => 0.40, "GEF" => 0.40, "OF" => 2.80,
+                                "EU" => 45.0, "NA" =>  40.0, "AS" => 90.0,  "RW" => 25.0)),
     ## plywood: veneers glued crosswise, dearer than a particleboard and used
     ## where a panel has to carry a load
-    :plywood   => (450.0,  Dict(:SEF => 0.12, :SWF => 0.06, :GEF => 0.05, :OF => 0.35,
-                                :EU =>  6.0, :NA =>  14.0, :AS => 60.0,  :RW =>  9.0)),
-    :paper     => (1000.0, Dict(:SEF => 1.80, :SWF => 0.80, :GEF => 0.75, :OF => 5.60,
-                                :EU => 70.0, :NA =>  80.0, :AS => 130.0, :RW => 40.0)),
+    "plywood"   => (450.0,  Dict("SEF" => 0.12, "SWF" => 0.06, "GEF" => 0.05, "OF" => 0.35,
+                                "EU" =>  6.0, "NA" =>  14.0, "AS" => 60.0,  "RW" =>  9.0)),
+    "paper"     => (1000.0, Dict("SEF" => 1.80, "SWF" => 0.80, "GEF" => 0.75, "OF" => 5.60,
+                                "EU" => 70.0, "NA" =>  80.0, "AS" => 130.0, "RW" => 40.0)),
     ## firewood: smallwood bought and burnt as it comes, the oldest use of all
-    :smallwood => (55.0,   Dict(:SEF => 3.20, :SWF => 1.50, :GEF => 2.60, :OF => 7.00,
-                                :EU => 90.0, :NA =>  35.0, :AS => 150.0, :RW => 190.0)),
+    "smallwood" => (55.0,   Dict("SEF" => 3.20, "SWF" => 1.50, "GEF" => 2.60, "OF" => 7.00,
+                                "EU" => 90.0, "NA" =>  35.0, "AS" => 150.0, "RW" => 190.0)),
     ## pellets: the same energy, dried, ground and compressed
-    :pellets   => (250.0,  Dict(:SEF => 0.50, :SWF => 0.25, :GEF => 0.30, :OF => 1.40,
-                                :EU => 22.0, :NA =>   9.0, :AS =>  12.0, :RW =>   4.0)),
+    "pellets"   => (250.0,  Dict("SEF" => 0.50, "SWF" => 0.25, "GEF" => 0.30, "OF" => 1.40,
+                                "EU" => 22.0, "NA" =>   9.0, "AS" =>  12.0, "RW" =>   4.0)),
 )
 nothing # hide
 
@@ -208,15 +208,15 @@ function construction_demand(r)
     q(p) = reference[p][2][r]
     price(p) = reference[p][1]
     inner_shares, inner_price, inner_q =
-        calibrate([(q(:sawn_sw), price(:sawn_sw)), (q(:panel), price(:panel)),
-                   (q(:plywood), price(:plywood))], σ_lumber)
+        calibrate([(q("sawn_sw"), price("sawn_sw")), (q("panel"), price("panel")),
+                   (q("plywood"), price("plywood"))], σ_lumber)
     outer_shares, outer_price, outer_q =
-        calibrate([(inner_q, inner_price), (q(:sawn_hw), price(:sawn_hw))], σ_construction)
+        calibrate([(inner_q, inner_price), (q("sawn_hw"), price("sawn_hw"))], σ_construction)
     return DemandSpec(region = r, p0 = outer_price, q0 = outer_q, elasticity = 0.45,
         product = DemandNest(sigma = σ_construction,
-            products = [:sawn_hw], shares = [outer_shares[2]],
+            products = ["sawn_hw"], shares = [outer_shares[2]],
             nests = [DemandNest(sigma = σ_lumber, share = outer_shares[1],
-                                products = [:sawn_sw, :panel, :plywood],
+                                products = ["sawn_sw", "panel", "plywood"],
                                 shares   = inner_shares)]))
 end
 
@@ -234,19 +234,19 @@ function fuel_demand(r, gas = gas_price)
     q(p) = reference[p][2][r]
     price(p) = reference[p][1]
     shares, index, quantity =
-        calibrate([(q(:smallwood), price(:smallwood)), (q(:pellets), price(:pellets))], σ_fuel)
+        calibrate([(q("smallwood"), price("smallwood")), (q("pellets"), price("pellets"))], σ_fuel)
     return DemandSpec(region = r, p0 = index, q0 = quantity, elasticity = 0.35,
         shift = exogenous_shift(gas = (level = gas, reference = gas_reference,
                                        elasticity = gas_cross_elasticity)),
-        product = DemandNest(sigma = σ_fuel, products = [:smallwood, :pellets],
+        product = DemandNest(sigma = σ_fuel, products = ["smallwood", "pellets"],
                              shares = shares))
 end
 
 build_demand(gas = gas_price) =
     [[construction_demand(r) for r in regions];
      [fuel_demand(r, gas) for r in regions];
-     [DemandSpec(product = :paper, region = r, p0 = reference[:paper][1],
-                 q0 = reference[:paper][2][r], elasticity = 0.30) for r in regions]]
+     [DemandSpec(product = "paper", region = r, p0 = reference["paper"][1],
+                 q0 = reference["paper"][2][r], elasticity = 0.30) for r in regions]]
 
 demand = build_demand()
 nothing # hide
@@ -282,63 +282,63 @@ nothing # hide
 # argument expresses. `SEF` and `GEF` therefore have no pulp of their own and
 # must buy it from somewhere else.
 
-pulp_regions = [:SWF, :OF, :EU, :NA, :AS, :RW]
+pulp_regions = ["SWF", "OF", "EU", "NA", "AS", "RW"]
 
 # Pellet mills, by contrast, exist everywhere — but only so many of them. A
 # [`Process`](@ref) with constant returns and no `capacity` would pile into
 # whichever region makes pellets most cheaply; the installed plant is what
 # stops it, region by region:
 
-pellet_capacity = Dict(:SEF => 0.35, :SWF => 0.50, :GEF => 0.35, :OF => 1.10,
-                       :EU  => 20.0, :NA  => 12.0, :AS  => 15.0, :RW => 10.0)
+pellet_capacity = Dict("SEF" => 0.35, "SWF" => 0.50, "GEF" => 0.35, "OF" => 1.10,
+                       "EU"  => 20.0, "NA"  => 12.0, "AS"  => 15.0, "RW" => 10.0)
 
 processes = [
-    Process(name    = :sawmill_sw,
-            inputs  = [leontief(product = :swr, coeff = 1.0)],
-            outputs = [:sawn_sw => 0.50, :chips => 0.35],
+    Process(name    = "sawmill_sw",
+            inputs  = [leontief(product = "swr", coeff = 1.0)],
+            outputs = ["sawn_sw" => 0.50, "chips" => 0.35],
             vacost  = 40),
-    Process(name    = :sawmill_hw,
-            inputs  = [leontief(product = :hwr, coeff = 1.0)],
-            outputs = [:sawn_hw => 0.45, :chips => 0.35],
+    Process(name    = "sawmill_hw",
+            inputs  = [leontief(product = "hwr", coeff = 1.0)],
+            outputs = ["sawn_hw" => 0.45, "chips" => 0.35],
             vacost  = 45),
     ## Plywood is peeled from veneer logs, so it takes roundwood and nothing
     ## else — and leaves a great deal of it behind as chips, which the panel,
     ## pulp and pellet mills then bid for.
-    Process(name    = :plymill,
+    Process(name    = "plymill",
             inputs  = [ces(composite = 2.0,
-                           products  = [:swr, :hwr],
+                           products  = ["swr", "hwr"],
                            shares    = [0.45, 0.55],
                            sigma     = 1.8)],
-            outputs = [:plywood => 1.0, :chips => 0.8],
+            outputs = ["plywood" => 1.0, "chips" => 0.8],
             vacost  = 180),
-    Process(name    = :panelmill,
+    Process(name    = "panelmill",
             inputs  = [ces(composite = 1.30,
-                           products  = [:chips, :smallwood, :swr, :hwr],
+                           products  = ["chips", "smallwood", "swr", "hwr"],
                            shares    = [0.40, 0.25, 0.23, 0.12],
                            sigma     = 2.5)],
-            outputs = [:panel => 1.0],
+            outputs = ["panel" => 1.0],
             vacost  = 120),
-    Process(name    = :pulpmill,
+    Process(name    = "pulpmill",
             regions = pulp_regions,
             inputs  = [ces(composite = 4.0,
-                           products  = [:swr, :hwr, :chips, :smallwood],
+                           products  = ["swr", "hwr", "chips", "smallwood"],
                            shares    = [0.35, 0.22, 0.23, 0.20],
                            sigma     = 1.8)],
-            outputs = [:pulp => 1.0],
+            outputs = ["pulp" => 1.0],
             vacost  = 300),
-    Process(name    = :papermill,
-            inputs  = [leontief(product = :pulp, coeff = 1.10)],
-            outputs = [:paper => 1.0],
+    Process(name    = "papermill",
+            inputs  = [leontief(product = "pulp", coeff = 1.10)],
+            outputs = ["paper" => 1.0],
             vacost  = 200),
     ## the pellet mill bids for the same wood as the panel and pulp mills, and
     ## for the same smallwood that households would otherwise burn as it comes
-    Process(name    = :pelletmill,
+    Process(name    = "pelletmill",
             capacity = pellet_capacity,
             inputs  = [ces(composite = 2.2,            # m³ of wood per tonne
-                           products  = [:chips, :smallwood, :swr, :hwr],
+                           products  = ["chips", "smallwood", "swr", "hwr"],
                            shares    = [0.40, 0.40, 0.12, 0.08],
                            sigma     = 3.0)],
-            outputs = [:pellets => 1.0],
+            outputs = ["pellets" => 1.0],
             vacost  = 90),
 ]
 nothing # hide
@@ -350,14 +350,14 @@ nothing # hide
 # anywhere else, which is what will keep most French wood inside France.
 
 dist = Dict(
-    (:SEF, :SWF) => 0.12, (:SEF, :GEF) => 0.10, (:SEF, :OF) => 0.08,
-    (:SWF, :GEF) => 0.14, (:SWF, :OF)  => 0.08, (:GEF, :OF) => 0.07,
-    (:SEF, :EU)  => 0.22, (:SWF, :EU)  => 0.26, (:GEF, :EU) => 0.18, (:OF, :EU) => 0.22,
-    (:SEF, :NA)  => 1.10, (:SWF, :NA)  => 1.00, (:GEF, :NA) => 1.12, (:OF, :NA) => 1.05,
-    (:SEF, :AS)  => 1.28, (:SWF, :AS)  => 1.35, (:GEF, :AS) => 1.30, (:OF, :AS) => 1.32,
-    (:SEF, :RW)  => 0.82, (:SWF, :RW)  => 0.85, (:GEF, :RW) => 0.88, (:OF, :RW) => 0.85,
-    (:EU, :NA)   => 1.00, (:EU, :AS)   => 1.20, (:EU, :RW)  => 0.80,
-    (:NA, :AS)   => 1.10, (:NA, :RW)   => 1.00, (:AS, :RW)  => 0.95,
+    ("SEF", "SWF") => 0.12, ("SEF", "GEF") => 0.10, ("SEF", "OF") => 0.08,
+    ("SWF", "GEF") => 0.14, ("SWF", "OF")  => 0.08, ("GEF", "OF") => 0.07,
+    ("SEF", "EU")  => 0.22, ("SWF", "EU")  => 0.26, ("GEF", "EU") => 0.18, ("OF", "EU") => 0.22,
+    ("SEF", "NA")  => 1.10, ("SWF", "NA")  => 1.00, ("GEF", "NA") => 1.12, ("OF", "NA") => 1.05,
+    ("SEF", "AS")  => 1.28, ("SWF", "AS")  => 1.35, ("GEF", "AS") => 1.30, ("OF", "AS") => 1.32,
+    ("SEF", "RW")  => 0.82, ("SWF", "RW")  => 0.85, ("GEF", "RW") => 0.88, ("OF", "RW") => 0.85,
+    ("EU", "NA")   => 1.00, ("EU", "AS")   => 1.20, ("EU", "RW")  => 0.80,
+    ("NA", "AS")   => 1.10, ("NA", "RW")   => 1.00, ("AS", "RW")  => 0.95,
 )
 distance(a, b) = a == b ? 0.0 : get(dist, (a, b), get(dist, (b, a), 0.0))
 nothing # hide
@@ -367,9 +367,9 @@ nothing # hide
 # low-value products therefore carry a high transport cost relative to their
 # price, which is what keeps roundwood trade regional and lets paper travel.
 
-freight = Dict(:swr => 12.0, :hwr => 12.0, :smallwood => 13.0, :chips => 14.0,
-               :pulp => 35.0, :sawn_sw => 30.0, :sawn_hw => 32.0, :panel => 35.0,
-               :plywood => 38.0, :paper => 55.0, :pellets => 28.0)
+freight = Dict("swr" => 12.0, "hwr" => 12.0, "smallwood" => 13.0, "chips" => 14.0,
+               "pulp" => 35.0, "sawn_sw" => 30.0, "sawn_hw" => 32.0, "panel" => 35.0,
+               "plywood" => 38.0, "paper" => 55.0, "pellets" => 28.0)
 
 transport_costs = Dict((p, a, b) => freight[p] * distance(a, b)
                        for p in products, a in regions, b in regions if a != b)
@@ -400,9 +400,9 @@ length(transport_costs)
 # French pool and the rest of the EU together at a high elasticity, then Europe
 # as a whole against the other blocs at a lower one.
 
-σ_blocs = Dict(:swr => 6.0, :hwr => 6.0, :smallwood => 7.0, :chips => 7.0,
-               :pulp => 5.0, :sawn_sw => 3.5, :sawn_hw => 3.0, :panel => 3.0,
-               :plywood => 2.5, :paper => 4.0, :pellets => 6.0)
+σ_blocs = Dict("swr" => 6.0, "hwr" => 6.0, "smallwood" => 7.0, "chips" => 7.0,
+               "pulp" => 5.0, "sawn_sw" => 3.5, "sawn_hw" => 3.0, "panel" => 3.0,
+               "plywood" => 2.5, "paper" => 4.0, "pellets" => 6.0)
 
 # Commodities graded to a standard (chips, roundwood, pulp) substitute readily
 # between blocs; manufactured products, where origin carries a reputation, do
@@ -413,7 +413,7 @@ length(transport_costs)
 nothing # hide
 
 europe(p) = OriginNest(sigma   = σ_europe[p],
-                       origins = [:EU],
+                       origins = ["EU"],
                        nests   = [OriginNest(sigma = Inf, origins = france)])
 nothing # hide
 
@@ -460,8 +460,8 @@ nothing # hide
 # 18 Mm³ it is slack in a normal year — the region ships about 12 — and the
 # storm scenario at the end is what makes it bite.
 
-trade_limits = [TradeLimit(name = :landes_evacuation, products = [:swr, :smallwood],
-                           from = :SWF, capacity = 18.0)]
+trade_limits = [TradeLimit(name = "landes_evacuation", products = ["swr", "smallwood"],
+                           from = "SWF", capacity = 18.0)]
 
 # And the rest of the world taxes its log exports, as several timber exporters
 # do, to keep the wood at home for its own mills. The rate is **ad valorem**, a
@@ -470,7 +470,7 @@ trade_limits = [TradeLimit(name = :landes_evacuation, products = [:swr, :smallwo
 # found by iteration instead, which [`solve_market`](@ref) does on its own; see
 # [Why ad valorem rates on trade are special](@ref).
 
-taxes = [Tax(name = :rw_log_duty, on = :trade, product = [:swr, :hwr], from = :RW,
+taxes = [Tax(name = "rw_log_duty", on = "trade", product = ["swr", "hwr"], from = "RW",
              rate = 0.25, relative = true)]
 
 # ## Solving
@@ -518,7 +518,7 @@ unstack(res.consumption, :region, :product, :quantity)
 # tonne of annual capacity would earn its owner — the signal that would, in a
 # model with investment, build the next mill:
 
-res.activity[res.activity.process .== :pelletmill, :]
+res.activity[res.activity.process .== "pelletmill", :]
 
 # The Landes evacuation limit is slack in a normal year: the region ships about
 # 12 Mm³ of roundwood against a ceiling of 18, so the ceiling costs nothing and
@@ -545,13 +545,13 @@ res.taxes
 quantity_of(table, r, p) = (rows = table[(table.region .== r) .& (table.product .== p),
                                             :quantity];
                             isempty(rows) ? 0.0 : only(rows))
-shipped(direction, r) = sum(res.trade[(res.trade.product .== :smallwood) .&
+shipped(direction, r) = sum(res.trade[(res.trade.product .== "smallwood") .&
                                       (res.trade[!, direction] .== r), :quantity]; init = 0.0)
 
 smallwood_use = DataFrame(
     (region      = r,
-     harvest     = quantity_of(res.production, r, :smallwood),
-     firewood    = quantity_of(res.consumption, r, :smallwood),
+     harvest     = quantity_of(res.production, r, "smallwood"),
+     firewood    = quantity_of(res.consumption, r, "smallwood"),
      net_exports = shipped(:from, r) - shipped(:to, r))
     for r in regions)
 smallwood_use.to_the_mills =
@@ -574,7 +574,7 @@ smallwood_use
 # rather than burnt as it came, so the two uses are close substitutes in energy
 # terms but reach the consumer as different products:
 
-res.activity[res.activity.process .== :pelletmill, :]
+res.activity[res.activity.process .== "pelletmill", :]
 
 # France produces little of its own pellets here even though it has the wood,
 # because French wood is dearer than EU or RW wood and the mills have no
@@ -595,7 +595,7 @@ first(sort(res.trade, :quantity, rev = true), 10)
 french_trade = combine(groupby(
     res.trade[in.(res.trade.from, Ref(france)) .⊻ in.(res.trade.to, Ref(france)), :],
     [:product]),
-    :quantity => sum => :crossing_the_border)
+    :quantity => sum => "crossing_the_border")
 
 # ## Is France really one market?
 #
@@ -662,8 +662,8 @@ reconfigure(d; kwargs...) =
     MarketData(; (f => get(kwargs, f, getfield(d, f)) for f in fieldnames(MarketData))...)
 nothing # hide
 
-salvage = [s.region == :SWF && s.product == :swr ?
-               SupplySpec(product = :swr, region = :SWF, p0 = s.p0, q0 = s.q0,
+salvage = [s.region == "SWF" && s.product == "swr" ?
+               SupplySpec(product = "swr", region = "SWF", p0 = s.p0, q0 = s.q0,
                           elasticity = s.elasticity, shift = 3.0) : s
            for s in supply]
 nothing # hide
@@ -679,9 +679,9 @@ price_of(r, p, result) = only(result.prices[(result.prices.region .== r) .&
 nothing # hide
 
 DataFrame((region = r,
-           before = price_of(r, :swr, res),
-           after  = price_of(r, :swr, storm),
-           change_pct = 100 * (price_of(r, :swr, storm) / price_of(r, :swr, res) - 1))
+           before = price_of(r, "swr", res),
+           after  = price_of(r, "swr", storm),
+           change_pct = 100 * (price_of(r, "swr", storm) / price_of(r, "swr", res) - 1))
           for r in regions)
 
 # Two things are going on at once, and they are worth separating.
@@ -719,11 +719,11 @@ storm.limits
 gas = solve_market(reconfigure(example_market, demand = build_demand(60.0)))
 
 DataFrame((region = r,
-           firewood = 100 * (quantity_of(gas.consumption, r, :smallwood) /
-                             quantity_of(res.consumption, r, :smallwood) - 1),
-           pellets  = 100 * (quantity_of(gas.consumption, r, :pellets) /
-                             quantity_of(res.consumption, r, :pellets) - 1),
-           roundwood_price = 100 * (price_of(r, :swr, gas) / price_of(r, :swr, res) - 1))
+           firewood = 100 * (quantity_of(gas.consumption, r, "smallwood") /
+                             quantity_of(res.consumption, r, "smallwood") - 1),
+           pellets  = 100 * (quantity_of(gas.consumption, r, "pellets") /
+                             quantity_of(res.consumption, r, "pellets") - 1),
+           roundwood_price = 100 * (price_of(r, "swr", gas) / price_of(r, "swr", res) - 1))
           for r in regions)
 
 # Households burn much more wood, and the pull reaches back up the chain to the

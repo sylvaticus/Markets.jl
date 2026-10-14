@@ -18,16 +18,16 @@ using Markets, DataFrames
 #
 # Two regions and two products. Quantities are tonnes, prices euros per tonne.
 
-regions  = [:Pasture, :City]
-products = [:milk, :cheese]
+regions  = ["Pasture", "City"]
+products = ["milk", "cheese"]
 nothing # hide
 
 # Milk comes from the herds, on a curve through one observed point: last year
 # the Pasture sold 2000 at €400 the tonne. The City keeps a few herds at its
 # edges, where land is dear.
 
-supply = [SupplySpec(product = :milk, region = :Pasture, p0 = 400, q0 = 2000, elasticity = 0.6),
-          SupplySpec(product = :milk, region = :City,    p0 = 450, q0 =  300, elasticity = 0.6)]
+supply = [SupplySpec(product = "milk", region = "Pasture", p0 = 400, q0 = 2000, elasticity = 0.6),
+          SupplySpec(product = "milk", region = "City",    p0 = 450, q0 =  300, elasticity = 0.6)]
 nothing # hide
 
 # Now the part that makes this more than an arithmetic exercise: **milk is both
@@ -35,10 +35,10 @@ nothing # hide
 # cheese. Each use has its own demand, and neither is told how much milk it may
 # have.
 
-demand = [DemandSpec(product = :milk,   region = :Pasture, p0 =  400, q0 = 200, elasticity = 0.3),
-          DemandSpec(product = :milk,   region = :City,    p0 =  450, q0 = 600, elasticity = 0.3),
-          DemandSpec(product = :cheese, region = :Pasture, p0 = 5300, q0 =  30, elasticity = 0.5),
-          DemandSpec(product = :cheese, region = :City,    p0 = 5350, q0 = 120, elasticity = 0.5)]
+demand = [DemandSpec(product = "milk",   region = "Pasture", p0 =  400, q0 = 200, elasticity = 0.3),
+          DemandSpec(product = "milk",   region = "City",    p0 =  450, q0 = 600, elasticity = 0.3),
+          DemandSpec(product = "cheese", region = "Pasture", p0 = 5300, q0 =  30, elasticity = 0.5),
+          DemandSpec(product = "cheese", region = "City",    p0 = 5350, q0 = 120, elasticity = 0.5)]
 nothing # hide
 
 # One transformation, and it may run in either region. Cheesemaking is a fixed
@@ -46,9 +46,9 @@ nothing # hide
 # and water — and €1300 covers everything the model does not name: the rennet,
 # the cellar, the cheesemaker.
 
-processes = [Process(name    = :dairy,
-                     inputs  = [leontief(product = :milk, coeff = 10.0)],
-                     outputs = [:cheese => 1.0],
+processes = [Process(name    = "dairy",
+                     inputs  = [leontief(product = "milk", coeff = 10.0)],
+                     outputs = ["cheese" => 1.0],
                      vacost  = 1300)]
 nothing # hide
 
@@ -58,8 +58,8 @@ nothing # hide
 # Note that the rate is the *same* for both: nothing in the data says that one
 # is cheaper to move than the other.
 
-transport_costs = Dict((:milk,   :Pasture, :City) => 45.0, (:milk,   :City, :Pasture) => 45.0,
-                       (:cheese, :Pasture, :City) => 45.0, (:cheese, :City, :Pasture) => 45.0)
+transport_costs = Dict(("milk",   "Pasture", "City") => 45.0, ("milk",   "City", "Pasture") => 45.0,
+                       ("cheese", "Pasture", "City") => 45.0, ("cheese", "City", "Pasture") => 45.0)
 nothing # hide
 
 # ## Solving
@@ -120,15 +120,15 @@ result.trade
 
 price(r, p) = only(result.prices[(result.prices.region .== r) .&
                                  (result.prices.product .== p), :price])
-(cheese = price(:Pasture, :cheese), milk_plus_making = 10 * price(:Pasture, :milk) + 1300)
+(cheese = price("Pasture", "cheese"), milk_plus_making = 10 * price("Pasture", "milk") + 1300)
 
 # **Carrying earns no profit either.** On a route that is used, the price gap
 # between its two ends is exactly the freight — any wider and somebody would
 # ship more until it closed. Both routes carry something here, so both gaps
 # are €45:
 
-(milk   = price(:City, :milk)   - price(:Pasture, :milk),
- cheese = price(:City, :cheese) - price(:Pasture, :cheese))
+(milk   = price("City", "milk")   - price("Pasture", "milk"),
+ cheese = price("City", "cheese") - price("Pasture", "cheese"))
 
 # ## Asking it something
 #
@@ -139,8 +139,8 @@ price(r, p) = only(result.prices[(result.prices.region .== r) .&
 # every price. That is a **shifter** on the demand curve; the observed point
 # the curve was fitted to stays exactly where it was.
 
-thirsty = [d.product == :milk && d.region == :City ?
-               DemandSpec(product = :milk, region = :City, p0 = d.p0, q0 = d.q0,
+thirsty = [d.product == "milk" && d.region == "City" ?
+               DemandSpec(product = "milk", region = "City", p0 = d.p0, q0 = d.q0,
                           elasticity = d.elasticity, shift = 1.2) : d
            for d in demand]
 thirst = solve_market(MarketData(; regions, products, demand = thirsty, supply,

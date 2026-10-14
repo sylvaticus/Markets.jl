@@ -35,6 +35,7 @@ export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
        leontief, ces, disposal, armington_shares, exogenous_shift,
        validate, solve_market, Results, for_region
 
+include("names.jl")
 include("types.jl")
 include("validate.jl")
 include("results.jl")     # defines Results, which model.jl dispatches on

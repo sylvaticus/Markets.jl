@@ -36,9 +36,9 @@ $(TYPEDFIELDS)
 ```julia
 ## sawn softwood and panels are close substitutes in construction; sawn
 ## hardwood is a more distant one for both
-DemandNest(sigma = 1.6, products = [:sawn_hw], shares = [0.25],
+DemandNest(sigma = 1.6, products = ["sawn_hw"], shares = [0.25],
            nests = [DemandNest(sigma = 5.0, share = 0.75,
-                               products = [:sawn_sw, :panel],
+                               products = ["sawn_sw", "panel"],
                                shares   = [0.65, 0.35])])
 ```
 """
@@ -51,7 +51,7 @@ Base.@kwdef struct DemandNest
     """
     sigma::Float64
     "Products belonging directly to the group"
-    products::Vector{Symbol} = Symbol[]
+    products::Vector{String} = String[]
     """
     Value shares of those products at equal prices, in the same order. They are
     normalised, together with the `share` of each sub-group, over the members
@@ -79,19 +79,19 @@ Base.@kwdef struct DemandNest
                 "the outside ($sigma): members of a group must substitute for each " *
                 "other at least as easily as for non-members"))
         end
-        new(sigma, products, shares, nests, share)
+        new(sigma, nms(products), shares, nests, share)
     end
 end
 
 "Every product appearing anywhere in the demand nest `n`."
-function nest_products(n::DemandNest, acc = Symbol[])
+function nest_products(n::DemandNest, acc = String[])
     append!(acc, n.products)
     for sub in n.nests
         nest_products(sub, acc)
     end
     return acc
 end
-nest_products(p::Symbol, acc = Symbol[]) = push!(acc, p)
+nest_products(p::String, acc = String[]) = push!(acc, p)
 
 """
 $(TYPEDEF)
@@ -106,7 +106,7 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-DemandSpec(product = :sawn_sw, region = :EU, p0 = 250, q0 = 90, elasticity = 1.3)
+DemandSpec(product = "sawn_sw", region = "EU", p0 = 250, q0 = 90, elasticity = 1.3)
 ```
 """
 Base.@kwdef struct DemandSpec
@@ -115,9 +115,9 @@ Base.@kwdef struct DemandSpec
     for each other, in which case the reference point and the elasticity below
     describe the **composite** of the group
     """
-    product::Union{Symbol,DemandNest}
+    product::Union{String,DemandNest}
     "Region where the product is consumed"
-    region::Symbol
+    region::String
     "Reference price, i.e. the price at which the quantity demanded is `q0`"
     p0::Float64
     "Reference quantity, i.e. the quantity demanded at price `p0`"
@@ -149,7 +149,8 @@ Base.@kwdef struct DemandSpec
             "got $elasticity"))
         shift > 0 || throw(ArgumentError(
             "the demand shifter of $product in $region must be positive, got $shift"))
-        new(product, region, p0, q0, elasticity, shift)
+        new(product isa DemandNest ? product : nm(product), nm(region),
+            p0, q0, elasticity, shift)
     end
 end
 
@@ -167,14 +168,14 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-SupplySpec(product = :swr, region = :NA, p0 = 65, q0 = 380, elasticity = 0.6)
+SupplySpec(product = "swr", region = "NA", p0 = 65, q0 = 380, elasticity = 0.6)
 ```
 """
 Base.@kwdef struct SupplySpec
     "Supplied product"
-    product::Symbol
+    product::String
     "Region where the product is supplied"
-    region::Symbol
+    region::String
     "Reference price, i.e. the price at which the quantity supplied is `q0`"
     p0::Float64
     "Reference quantity, i.e. the quantity supplied at price `p0`"
@@ -210,7 +211,7 @@ Base.@kwdef struct SupplySpec
             "the supply shifter of $product in $region must be positive, got $shift"))
         capacity > 0 || throw(ArgumentError(
             "the supply capacity of $product in $region must be positive, got $capacity"))
-        new(product, region, p0, q0, elasticity, shift, capacity)
+        new(nm(product), nm(region), p0, q0, elasticity, shift, capacity)
     end
 end
 
@@ -242,7 +243,7 @@ shift = exogenous_shift(
     growing_stock = (level = 118.0, reference = 100.0, elasticity = 0.6),
     road_density  = (level = 1.05,  reference = 1.0,   elasticity = 0.25))
 
-SupplySpec(product = :swr, region = :SEF, p0 = 72, q0 = 3.2,
+SupplySpec(product = "swr", region = "SEF", p0 = 72, q0 = 3.2,
            elasticity = 0.40, shift = shift)
 ```
 """
@@ -290,7 +291,7 @@ Base.@kwdef struct Nest
     "Units of the (composite) input needed per unit of process activity"
     composite::Float64
     "Products of the nest. A single product makes the nest a Leontief one"
-    products::Vector{Symbol}
+    products::Vector{String}
     """
     Value shares ``\\delta`` of each product, summing to 1 (equal shares by
     default). They set the input mix when all input prices are equal. Ignored
@@ -321,7 +322,7 @@ Base.@kwdef struct Nest
         length(products) == 1 || sigma > 1 || throw(ArgumentError(
             "a nest of several products needs an elasticity of substitution above 1 " *
             "(or Inf for perfect substitutes), got $sigma"))
-        new(composite, products, shares, sigma, phi)
+        new(composite, nms(products), shares, sigma, phi)
     end
 end
 
@@ -333,10 +334,10 @@ Build a fixed-coefficient (Leontief) input requirement: `coeff` units of
 
 # Example
 ```julia
-leontief(product = :pulp, coeff = 1.10)    # 1.1 t of pulp per t of paper
+leontief(product = "pulp", coeff = 1.10)    # 1.1 t of pulp per t of paper
 ```
 """
-leontief(; product::Symbol, coeff::Real) =
+leontief(; product::Name, coeff::Real) =
     Nest(composite = coeff, products = [product], shares = [1.0], sigma = 0.0, phi = 1.0)
 
 """
@@ -351,11 +352,11 @@ internally. `sigma` is the elasticity of substitution and must be `> 1`.
 
 # Example
 ```julia
-ces(composite = 1.30, products = [:chips, :swr, :hwr],
+ces(composite = 1.30, products = ["chips", "swr", "hwr"],
     shares = [0.55, 0.30, 0.15], sigma = 2.5)
 ```
 """
-function ces(; composite::Real, products::Vector{Symbol},
+function ces(; composite::Real, products::AbstractVector,
                shares::Vector{<:Real} = fill(1.0, length(products)),
                sigma::Real, phi::Real = 1.0)
     length(products) == length(shares) || throw(ArgumentError(
@@ -377,15 +378,15 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-Process(name    = :sawmill_sw,
-        inputs  = [leontief(product = :swr, coeff = 1.0)],
-        outputs = [:sawn_sw => 0.50, :chips => 0.35],
+Process(name    = "sawmill_sw",
+        inputs  = [leontief(product = "swr", coeff = 1.0)],
+        outputs = ["sawn_sw" => 0.50, "chips" => 0.35],
         vacost  = 40)
 ```
 """
 Base.@kwdef struct Process
     "Name of the process"
-    name::Symbol
+    name::String
     """
     Input requirements, as a vector of [`Nest`](@ref)s built with
     [`leontief`](@ref) or [`ces`](@ref). Each nest is needed in fixed
@@ -396,9 +397,9 @@ Base.@kwdef struct Process
     Outputs, as `product => yield` pairs per unit of activity. Several pairs
     make a joint-production process (e.g. sawnwood *and* chips)
     """
-    outputs::Vector{Pair{Symbol,Float64}}
-    "Regions where the process may operate, or `:all` for every region"
-    regions::Union{Symbol,Vector{Symbol}} = :all
+    outputs::Vector{Pair{String,Float64}}
+    "Regions where the process may operate, or `\"all\"` for every region"
+    regions::Union{String,Vector{String}} = "all"
     """
     Value-added cost per unit of activity: the cost of everything not modelled
     as an explicit input (labour, energy, capital, ...)
@@ -411,18 +412,19 @@ Base.@kwdef struct Process
     absent from it is unbounded. `Inf` (the default) leaves the process
     unconstrained, which lets it concentrate wherever production is cheapest
     """
-    capacity::Union{Float64,Dict{Symbol,Float64}} = Inf
+    capacity::Union{Float64,Dict{String,Float64}} = Inf
 
     function Process(name, inputs, outputs, regions, vacost, capacity)
         caps = capacity isa Dict ? values(capacity) : (capacity,)
         all(>(0), caps) || throw(ArgumentError(
             "the capacity of process $name must be positive, got $capacity"))
-        new(name, inputs, outputs, regions, vacost, capacity)
+        new(nm(name), inputs, namepairs(outputs), selector(regions), vacost,
+            namebound(capacity))
     end
 end
 
 "Upper bound on the activity of process `p` in region `r`, `Inf` if unbounded."
-capacity_of(p::Process, r::Symbol) =
+capacity_of(p::Process, r::String) =
     p.capacity isa Dict ? get(p.capacity, r, Inf) : p.capacity
 
 """
@@ -442,23 +444,23 @@ $(TYPEDFIELDS)
 # Example
 ```julia
 ## one product, one route
-TradeLimit(name = :pulp_terminal, products = :pulp, from = :RW, to = :EU,
+TradeLimit(name = "pulp_terminal", products = "pulp", from = "RW", to = "EU",
            capacity = 12.0)
 
 ## everything leaving the Landes, counted in tonnes through the weights
-TradeLimit(name = :atlantic_port, from = :SWF, capacity = 6.0,
-           weights = Dict(:swr => 0.8, :sawn_sw => 0.55, :pellets => 1.0))
+TradeLimit(name = "atlantic_port", from = "SWF", capacity = 6.0,
+           weights = Dict("swr" => 0.8, "sawn_sw" => 0.55, "pellets" => 1.0))
 ```
 """
 Base.@kwdef struct TradeLimit
     "Name of the limit, used to report it"
-    name::Symbol = :limit
-    "Products it covers, or `:all`"
-    products::Union{Symbol,Vector{Symbol}} = :all
-    "Origins it covers, or `:all`"
-    from::Union{Symbol,Vector{Symbol}} = :all
-    "Destinations it covers, or `:all`"
-    to::Union{Symbol,Vector{Symbol}} = :all
+    name::String = "limit"
+    "Products it covers, or `\"all\"`"
+    products::Union{String,Vector{String}} = "all"
+    "Origins it covers, or `\"all\"`"
+    from::Union{String,Vector{String}} = "all"
+    "Destinations it covers, or `\"all\"`"
+    to::Union{String,Vector{String}} = "all"
     "The ceiling itself, in the units the weighted sum is measured in"
     capacity::Float64
     """
@@ -467,21 +469,21 @@ Base.@kwdef struct TradeLimit
     absent from it count with a weight of 1, which is what a limit covering a
     single product, or products already in one unit, needs
     """
-    weights::Dict{Symbol,Float64} = Dict{Symbol,Float64}()
+    weights::Dict{String,Float64} = Dict{String,Float64}()
 
     function TradeLimit(name, products, from, to, capacity, weights)
         capacity > 0 || throw(ArgumentError(
             "the capacity of trade limit $name must be positive, got $capacity"))
         all(>(0), values(weights)) || throw(ArgumentError(
             "the weights of trade limit $name must be positive"))
-        new(name, products, from, to, capacity, weights)
+        new(nm(name), selector(products), selector(from), selector(to),
+            capacity, namekeys(weights))
     end
 end
 
 "Whether `limit` covers a flow of `p` from `o` to `r`."
-function covers(limit::TradeLimit, p::Symbol, o::Symbol, r::Symbol)
+function covers(limit::TradeLimit, p::String, o::String, r::String)
     o == r && return false
-    matches(field, x) = field === :all || (field isa Symbol ? field === x : x in field)
     return matches(limit.products, p) && matches(limit.from, o) && matches(limit.to, r)
 end
 
@@ -509,7 +511,7 @@ $(TYPEDFIELDS)
 # Example
 ```julia
 # in this market, EU and NA products are near-interchangeable
-OriginNest(sigma = 12, origins = [:EU, :NA])
+OriginNest(sigma = 12, origins = ["EU", "NA"])
 ```
 """
 Base.@kwdef struct OriginNest
@@ -522,7 +524,7 @@ Base.@kwdef struct OriginNest
     """
     sigma::Float64
     "Origins belonging to the group"
-    origins::Vector{Symbol} = Symbol[]
+    origins::Vector{String} = String[]
     "Sub-groups of the group, for a deeper tree"
     nests::Vector{OriginNest} = OriginNest[]
 
@@ -537,7 +539,7 @@ Base.@kwdef struct OriginNest
                 "inside than with the outside ($sigma): a group's members must " *
                 "substitute for each other at least as easily as for non-members"))
         end
-        new(sigma, origins, nests)
+        new(sigma, nms(origins), nests)
     end
 end
 
@@ -563,14 +565,14 @@ of leaving residues on the forest floor.
 # Example
 ```julia
 processes = [sawmill, panelmill,
-             disposal(product = :chips),                   # free disposal
-             disposal(product = :blackliquor, cost = 12)]  # paid disposal
+             disposal(product = "chips"),                   # free disposal
+             disposal(product = "blackliquor", cost = 12)]  # paid disposal
 ```
 """
-disposal(; product::Symbol, cost::Real = 0.0, regions = :all,
-           name::Symbol = Symbol("dispose_", product)) =
+disposal(; product::Name, cost::Real = 0.0, regions = "all",
+           name::Name = string("dispose_", product)) =
     Process(name = name, inputs = [leontief(product = product, coeff = 1.0)],
-            outputs = Pair{Symbol,Float64}[], regions = regions, vacost = cost)
+            outputs = Pair{String,Float64}[], regions = regions, vacost = cost)
 
 """
 $(TYPEDEF)
@@ -619,24 +621,24 @@ $(TYPEDFIELDS)
 # Example
 ```julia
 # moderate substitution, equal shares, same in every market
-Armington(product = :paper, sigma = 4)
+Armington(product = "paper", sigma = 4)
 
 # calibrated shares: 70% domestic, the rest split between the two other regions
-Armington(product = :paper, sigma = 4,
+Armington(product = "paper", sigma = 4,
           shares = merge(Dict((r, r) => 0.7 for r in regions),
                          Dict((o, r) => 0.15 for o in regions, r in regions if o != r)))
 
 # in the EU market, EU and NA sawnwood are near-interchangeable (shared grading
 # rules) while AS sawnwood is a distant substitute; elsewhere everything
 # substitutes freely
-Armington(product = :sawn_sw, destination = :EU, sigma = 2.5,
-          nests = [OriginNest(sigma = 12, origins = [:EU, :NA])])
-Armington(product = :sawn_sw, destination = [:NA, :AS], sigma = 8)
+Armington(product = "sawn_sw", destination = "EU", sigma = 2.5,
+          nests = [OriginNest(sigma = 12, origins = ["EU", "NA"])])
+Armington(product = "sawn_sw", destination = ["NA", "AS"], sigma = 8)
 ```
 """
 Base.@kwdef struct Armington
     "Product whose regional varieties are imperfect substitutes"
-    product::Symbol
+    product::String
     """
     Elasticity of substitution ``\\sigma`` between the varieties of the
     different origins. It must be `> 1`; `Inf` (the default for every product
@@ -651,15 +653,15 @@ Base.@kwdef struct Armington
     that destination's composite. When this is empty, every origin available to
     a destination gets an equal share
     """
-    shares::Dict{Tuple{Symbol,Symbol},Float64} = Dict{Tuple{Symbol,Symbol},Float64}()
+    shares::Dict{Tuple{String,String},Float64} = Dict{Tuple{String,String},Float64}()
     """
-    Importing regions this specification applies to, or `:all` (the default)
+    Importing regions this specification applies to, or `"all"` (the default)
     for every region without one of their own. A product may have one
-    specification per destination plus an `:all` fallback, which is how the
+    specification per destination plus an `"all"` fallback, which is how the
     structure, the elasticity and the shares can differ between importing
     markets
     """
-    destination::Union{Symbol,Vector{Symbol}} = :all
+    destination::Union{String,Vector{String}} = "all"
     """
     Groups of origins that substitute for each other more closely than for the
     rest, as a vector of [`OriginNest`](@ref)s. Every available origin not
@@ -680,16 +682,16 @@ Base.@kwdef struct Armington
                 "($(n.sigma)) than with the outside ($sigma): a group's members " *
                 "must substitute for each other at least as easily as for non-members"))
         end
-        grouped = Symbol[]
+        grouped = String[]
         collect_origins!(grouped, nests)
         allunique(grouped) || throw(ArgumentError(
             "an origin appears in more than one group of $product"))
-        new(product, sigma, shares, destination, nests)
+        new(nm(product), sigma, namekeys2(shares), selector(destination), nests)
     end
 end
 
 "Append every origin appearing anywhere in `nests` to `acc`."
-function collect_origins!(acc::Vector{Symbol}, nests::Vector{OriginNest})
+function collect_origins!(acc::Vector{String}, nests::Vector{OriginNest})
     for n in nests
         append!(acc, n.origins)
         collect_origins!(acc, n.nests)
@@ -731,17 +733,17 @@ calibration.
 # Example
 ```julia
 shares = armington_shares(
-    flows  = Dict((:EU, :EU) => 80.0, (:NA, :EU) => 15.0, (:AS, :EU) => 5.0),
-    prices = Dict((:EU, :EU) => 210.0, (:NA, :EU) => 235.0, (:AS, :EU) => 250.0),
+    flows  = Dict(("EU", "EU") => 80.0, ("NA", "EU") => 15.0, ("AS", "EU") => 5.0),
+    prices = Dict(("EU", "EU") => 210.0, ("NA", "EU") => 235.0, ("AS", "EU") => 250.0),
     sigma  = 4)
-Armington(product = :paper, sigma = 4, shares = shares)
+Armington(product = "paper", sigma = 4, shares = shares)
 ```
 """
-function armington_shares(; flows::AbstractDict{Tuple{Symbol,Symbol},<:Real},
-                            prices::AbstractDict{Tuple{Symbol,Symbol},<:Real},
+function armington_shares(; flows::AbstractDict, prices::AbstractDict,
                             sigma::Real)
     sigma > 1 || throw(ArgumentError("sigma must be > 1, got $sigma"))
-    δ = Dict{Tuple{Symbol,Symbol},Float64}()
+    flows, prices = namekeys2(flows), namekeys2(prices)
+    δ = Dict{Tuple{String,String},Float64}()
     for (key, x) in flows
         x > 0 || continue
         haskey(prices, key) || throw(ArgumentError(
@@ -771,16 +773,16 @@ what one side of a transaction pays and what the other receives.
 
 | `on` | the wedge sits between | selected by |
 |:---|:---|:---|
-| `:supply` | the market price and what primary producers receive | `product`, `region` |
-| `:demand` | what consumers pay and the market price | `product`, `region` |
-| `:process` | a transformation and its value-added cost | `process`, `region` |
-| `:trade` | the price at the origin and the cost of landing a good | `product`, `from`, `to` |
+| `"supply"` | the market price and what primary producers receive | `product`, `region` |
+| `"demand"` | what consumers pay and the market price | `product`, `region` |
+| `"process"` | a transformation and its value-added cost | `process`, `region` |
+| `"trade"` | the price at the origin and the cost of landing a good | `product`, `from`, `to` |
 
 `rate` is per unit of the base when `relative` is `false` — per m³ harvested, per
 unit of activity, per m³ shipped — and a fraction of it when `relative` is
-`true`: of the price received for `:supply`, of the price paid for `:demand`, of
-the value-added cost for `:process`, of the price at the origin for `:trade`.
-Selectors left at `:all` match everything, and several taxes may fall on the
+`true`: of the price received for `"supply"`, of the price paid for `"demand"`, of
+the value-added cost for `"process"`, of the price at the origin for `"trade"`.
+Selectors left at `"all"` match everything, and several taxes may fall on the
 same base, in which case the absolute rates add and so do the relative ones.
 
 !!! warning "A taxed equilibrium is not a welfare maximum"
@@ -803,44 +805,46 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-Tax(name = :harvest_levy,  on = :supply,  product = :swr, region = :SEF, rate = 4.0)
-Tax(name = :pellet_vat,    on = :demand,  product = :pellets, rate = 0.055, relative = true)
-Tax(name = :mill_subsidy,  on = :process, process = :pelletmill, region = :SWF, rate = -15.0)
-Tax(name = :paper_tariff,  on = :trade,   product = :paper, to = :EU, rate = 0.08,
+Tax(name = "harvest_levy",  on = "supply",  product = "swr", region = "SEF", rate = 4.0)
+Tax(name = "pellet_vat",    on = "demand",  product = "pellets", rate = 0.055, relative = true)
+Tax(name = "mill_subsidy",  on = "process", process = "pelletmill", region = "SWF", rate = -15.0)
+Tax(name = "paper_tariff",  on = "trade",   product = "paper", to = "EU", rate = 0.08,
     relative = true)
 ```
 """
 Base.@kwdef struct Tax
     "Name of the tax, used to report its revenue"
-    name::Symbol = :tax
-    "What the wedge falls on: `:supply`, `:demand`, `:process` or `:trade`"
-    on::Symbol
+    name::String = "tax"
+    "What the wedge falls on: `\"supply\"`, `\"demand\"`, `\"process\"` or `\"trade\"`"
+    on::String
     "Size of the wedge, negative for a subsidy"
     rate::Float64
     "Whether `rate` is a fraction of the base rather than an amount per unit"
     relative::Bool = false
-    "Products it falls on, or `:all`"
-    product::Union{Symbol,Vector{Symbol}} = :all
-    "Regions it falls on, or `:all` — the producing or consuming region"
-    region::Union{Symbol,Vector{Symbol}} = :all
-    "Processes it falls on, or `:all`"
-    process::Union{Symbol,Vector{Symbol}} = :all
+    "Products it falls on, or `\"all\"`"
+    product::Union{String,Vector{String}} = "all"
+    "Regions it falls on, or `\"all\"` — the producing or consuming region"
+    region::Union{String,Vector{String}} = "all"
+    "Processes it falls on, or `\"all\"`"
+    process::Union{String,Vector{String}} = "all"
     "Origins, for a tax on trade"
-    from::Union{Symbol,Vector{Symbol}} = :all
+    from::Union{String,Vector{String}} = "all"
     "Destinations, for a tax on trade"
-    to::Union{Symbol,Vector{Symbol}} = :all
+    to::Union{String,Vector{String}} = "all"
 
     function Tax(name, on, rate, relative, product, region, process, from, to)
-        on in (:supply, :demand, :process, :trade) || throw(ArgumentError(
-            "a tax falls on :supply, :demand, :process or :trade, got $on"))
+        base = nm(on)
+        base in ("supply", "demand", "process", "trade") || throw(ArgumentError(
+            "a tax falls on \"supply\", \"demand\", \"process\" or \"trade\", got $on"))
         !relative || rate > -1 || throw(ArgumentError(
             "a relative rate must be greater than -1, got $rate"))
-        new(name, on, rate, relative, product, region, process, from, to)
+        new(nm(name), base, rate, relative, selector(product), selector(region),
+            selector(process), selector(from), selector(to))
     end
 end
 
 "Whether a selector field matches a value."
-selects(field, x) = field === :all || (field isa Symbol ? field === x : x in field)
+selects(field, x) = matches(field, x)
 
 """
 $(TYPEDSIGNATURES)
@@ -849,12 +853,12 @@ The absolute and relative rates of the taxes of `taxes` that fall on a base,
 summed. `kind` is the `on` field to match and the keywords are the selectors to
 check, each against the field of the same name.
 """
-function tax_rates(taxes, kind::Symbol; product = nothing, region = nothing,
+function tax_rates(taxes, kind::AbstractString; product = nothing, region = nothing,
                    process = nothing, from = nothing, to = nothing)
     absolute = 0.0
     relative = 0.0
     for t in taxes
-        t.on === kind || continue
+        t.on == kind || continue
         product === nothing || selects(t.product, product) || continue
         region  === nothing || selects(t.region, region)   || continue
         process === nothing || selects(t.process, process) || continue
@@ -875,20 +879,20 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-MarketData(regions   = [:EU, :NA],
-           products  = [:swr, :sawn_sw],
+MarketData(regions   = ["EU", "NA"],
+           products  = ["swr", "sawn_sw"],
            demand    = demand,      # vector of DemandSpec
            supply    = supply,      # vector of SupplySpec
            processes = processes,   # vector of Process
-           transport_costs = Dict((:swr, :EU, :NA) => 12.0,
-                                  (:swr, :NA, :EU) => 12.0))
+           transport_costs = Dict(("swr", "EU", "NA") => 12.0,
+                                  ("swr", "NA", "EU") => 12.0))
 ```
 """
 Base.@kwdef struct MarketData
     "Regions of the model"
-    regions::Vector{Symbol}
+    regions::Vector{String}
     "Products of the model"
-    products::Vector{Symbol}
+    products::Vector{String}
     "Final demand curves, one [`DemandSpec`](@ref) per consumed product and region"
     demand::Vector{DemandSpec} = DemandSpec[]
     "Primary supply curves, one [`SupplySpec`](@ref) per supplied product and region"
@@ -918,8 +922,14 @@ Base.@kwdef struct MarketData
     with no route at all is not traded. Routes are directional, so a product
     that moves both ways needs an entry each way
     """
-    transport_costs::Dict{Tuple{Symbol,Symbol,Symbol},Float64} =
-        Dict{Tuple{Symbol,Symbol,Symbol},Float64}()
+    transport_costs::Dict{Tuple{String,String,String},Float64} =
+        Dict{Tuple{String,String,String},Float64}()
+
+    function MarketData(regions, products, demand, supply, processes, armington,
+                        trade_limits, taxes, transport_costs)
+        new(nms(regions), nms(products), demand, supply, processes, armington,
+            trade_limits, taxes, namekeys3(transport_costs))
+    end
 end
 
-regions_of(p::Process, d::MarketData) = p.regions === :all ? d.regions : p.regions
+regions_of(p::Process, d::MarketData) = p.regions == "all" ? d.regions : p.regions

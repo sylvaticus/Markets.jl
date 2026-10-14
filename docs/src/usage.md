@@ -19,11 +19,21 @@ defaults; the others must be given.
 
 ### Regions and products
 
-Regions and products are plain `Symbol`s:
+Regions and products are named with strings:
 
 ```julia
-regions  = [:EU, :NA, :AS]
-products = [:swr, :hwr, :chips, :pulp, :sawn_sw, :sawn_hw, :panel, :paper]
+regions  = ["EU", "NA", "AS"]
+products = ["swr", "hwr", "chips", "pulp", "sawn_sw", "sawn_hw", "panel", "paper"]
+```
+
+A name may be written as a `Symbol` instead — `:EU` is accepted wherever `"EU"`
+is — but it is converted on the way in, so what is stored, compared and
+reported back is always the string. The two spellings may be mixed within one
+economy, and a field read off a specification compares to the string that built
+it:
+
+```julia
+SupplySpec(product = :swr, region = :EU, p0 = 65, q0 = 380, elasticity = 0.6).region == "EU"
 ```
 
 Every product gets a material balance in every region, whether or not it is
@@ -38,7 +48,7 @@ product in one region, calibrated to pass through a reference point: at price
 allowed and is what most forest products call for**:
 
 ```julia
-DemandSpec(product = :sawn_sw, region = :EU, p0 = 250, q0 = 90, elasticity = 0.45)
+DemandSpec(product = "sawn_sw", region = "EU", p0 = 250, q0 = 90, elasticity = 0.45)
 ```
 
 With ``\eta \le 1`` the objective value is no longer an absolute measure of
@@ -50,16 +60,16 @@ products are intermediates in that region.
 
 #### Products that substitute for each other
 
-Give `product` a [`DemandNest`](@ref) instead of a single symbol and the curve
+Give `product` a [`DemandNest`](@ref) instead of a single name and the curve
 describes a **group of substitutes**: the `p0`, `q0` and `elasticity` then
 belong to the composite, while the nest says how its members trade off against
 each other.
 
 ```julia
-DemandSpec(region = :EU, p0 = 260, q0 = 110, elasticity = 0.5,
-           product = DemandNest(sigma = 1.6, products = [:sawn_hw], shares = [0.25],
+DemandSpec(region = "EU", p0 = 260, q0 = 110, elasticity = 0.5,
+           product = DemandNest(sigma = 1.6, products = ["sawn_hw"], shares = [0.25],
                        nests = [DemandNest(sigma = 5.0, share = 0.75,
-                                           products = [:sawn_sw, :panel],
+                                           products = ["sawn_sw", "panel"],
                                            shares   = [0.65, 0.35])]))
 ```
 
@@ -78,7 +88,7 @@ price of a substitute outside the model — goes in `shift`, which scales the
 whole curve and leaves `p0` and `q0` holding the calibration:
 
 ```julia
-DemandSpec(product = :pellets, region = :EU, p0 = 250, q0 = 22, elasticity = 0.6,
+DemandSpec(product = "pellets", region = "EU", p0 = 250, q0 = 22, elasticity = 0.6,
            shift = exogenous_shift(income = (level = 112.0, reference = 100.0,
                                              elasticity = 0.8)))
 ```
@@ -90,7 +100,7 @@ that enters the economy from outside the modelled processes — roundwood from
 the forest, ore from a mine, crops from land:
 
 ```julia
-SupplySpec(product = :swr, region = :NA, p0 = 65, q0 = 380, elasticity = 0.6)
+SupplySpec(product = "swr", region = "NA", p0 = 65, q0 = 380, elasticity = 0.6)
 ```
 
 Two further fields carry the conditions of production:
@@ -105,7 +115,7 @@ Two further fields carry the conditions of production:
   by the **scarcity rent** of the resource.
 
 ```julia
-SupplySpec(product = :swr, region = :SEF, p0 = 72, q0 = 3.2, elasticity = 0.40,
+SupplySpec(product = "swr", region = "SEF", p0 = 72, q0 = 3.2, elasticity = 0.40,
            shift    = exogenous_shift(growing_stock = (level = 118.0, reference = 100.0,
                                                        elasticity = 0.6)),
            capacity = 4.5)                      # the allowable cut
@@ -148,25 +158,25 @@ lumber and 0.35 m³ of chips, and a panel mill that uses 1.3 m³ of a
 substitutable mix of chips and logs:
 
 ```julia
-Process(name    = :sawmill_sw,
-        inputs  = [leontief(product = :swr, coeff = 1.0)],
-        outputs = [:sawn_sw => 0.50, :chips => 0.35],
+Process(name    = "sawmill_sw",
+        inputs  = [leontief(product = "swr", coeff = 1.0)],
+        outputs = ["sawn_sw" => 0.50, "chips" => 0.35],
         vacost  = 40)
 
-Process(name    = :panelmill,
+Process(name    = "panelmill",
         inputs  = [ces(composite = 1.30,
-                       products  = [:chips, :swr, :hwr],
+                       products  = ["chips", "swr", "hwr"],
                        shares    = [0.55, 0.30, 0.15],
                        sigma     = 2.5)],
-        outputs = [:panel => 1.0],
+        outputs = ["panel" => 1.0],
         vacost  = 120)
 ```
 
 A process with two nests, e.g.
 
 ```julia
-inputs = [ces(composite = 1.0, products = [:a, :b], shares = [0.5, 0.5], sigma = 2),
-          leontief(product = :c, coeff = 0.2)]
+inputs = [ces(composite = 1.0, products = ["a", "b"], shares = [0.5, 0.5], sigma = 2),
+          leontief(product = "c", coeff = 0.2)]
 ```
 
 needs one unit of the ``a``/``b`` bundle *and* 0.2 units of ``c`` per unit of
@@ -183,7 +193,7 @@ what lets a corridor cost more one way than the other, so a product that moves
 both ways needs an entry each way.
 
 ```julia
-transport_costs = Dict((:swr, :NA, :AS) => 13.2, (:swr, :AS, :NA) => 13.2, ...)
+transport_costs = Dict(("swr", "NA", "AS") => 13.2, ("swr", "AS", "NA") => 13.2, ...)
 ```
 
 A free route is written `=> 0.0`, not omitted.
@@ -195,10 +205,10 @@ border, and `weights` converts the quantities into whatever unit the ceiling is
 written in:
 
 ```julia
-trade_limits = [TradeLimit(name = :quota, products = :paper, from = :NA, to = :EU,
+trade_limits = [TradeLimit(name = "quota", products = "paper", from = "NA", to = "EU",
                            capacity = 8.0),
-                TradeLimit(name = :port, from = :SWF, capacity = 6.0,
-                           weights = Dict(:swr => 0.8, :pellets => 1.0))]
+                TradeLimit(name = "port", from = "SWF", capacity = 6.0,
+                           weights = Dict("swr" => 0.8, "pellets" => 1.0))]
 ```
 
 A binding ceiling shows up in `Results.limits` with its congestion rent, and
@@ -218,11 +228,11 @@ responds to supply and demand everywhere rather than only to the cheapest
 source.
 
 ```julia
-armington = [Armington(product = :paper, sigma = 4),             # equal shares
-             Armington(product = :panel, sigma = 6,
-                       shares = Dict((:EU, :EU) => 0.7, (:NA, :EU) => 0.2, (:AS, :EU) => 0.1,
-                                     (:NA, :NA) => 0.8, (:EU, :NA) => 0.1, (:AS, :NA) => 0.1,
-                                     (:AS, :AS) => 0.9, (:EU, :AS) => 0.05, (:NA, :AS) => 0.05))]
+armington = [Armington(product = "paper", sigma = 4),             # equal shares
+             Armington(product = "panel", sigma = 6,
+                       shares = Dict(("EU", "EU") => 0.7, ("NA", "EU") => 0.2, ("AS", "EU") => 0.1,
+                                     ("NA", "NA") => 0.8, ("EU", "NA") => 0.1, ("AS", "NA") => 0.1,
+                                     ("AS", "AS") => 0.9, ("EU", "AS") => 0.05, ("NA", "AS") => 0.05))]
 ```
 
 * `sigma` is the elasticity of substitution between origins. It must be `> 1`;
@@ -267,8 +277,8 @@ certification — and others are not, group them in an [`OriginNest`](@ref) with
 its own, higher elasticity:
 
 ```julia
-armington = [Armington(product = :sawn_sw, sigma = 2.5,
-                       nests = [OriginNest(sigma = 12, origins = [:EU, :NA])],
+armington = [Armington(product = "sawn_sw", sigma = 2.5,
+                       nests = [OriginNest(sigma = 12, origins = ["EU", "NA"])],
                        shares = shares)]
 ```
 
@@ -282,15 +292,15 @@ the reverse, which would be inconsistent.
 
 Standards and non-tariff measures are set by the importer, so they are
 asymmetric. Give a specification a `destination` to apply it to those markets
-only, and keep an `:all` entry as the fallback:
+only, and keep an `"all"` entry as the fallback:
 
 ```julia
 armington = [
     # the EU market keeps Asian sawnwood at arm's length, EU and NA are alike
-    Armington(product = :sawn_sw, destination = :EU, sigma = 2.5,
-              nests = [OriginNest(sigma = 12, origins = [:EU, :NA])], shares = shares),
+    Armington(product = "sawn_sw", destination = "EU", sigma = 2.5,
+              nests = [OriginNest(sigma = 12, origins = ["EU", "NA"])], shares = shares),
     # every other market substitutes freely between all three origins
-    Armington(product = :sawn_sw, sigma = 8, shares = shares)]
+    Armington(product = "sawn_sw", sigma = 8, shares = shares)]
 ```
 
 The elasticity, the groups and the shares may all differ by destination. What
@@ -324,16 +334,16 @@ route. `rate` is an amount per unit, or a fraction of the base when
 `relative = true`; a subsidy is a negative rate.
 
 ```julia
-taxes = [Tax(name = :harvest_levy, on = :supply,  product = :swr, region = :SEF, rate = 4.0),
-         Tax(name = :pellet_vat,   on = :demand,  product = :pellets, rate = 0.055,
+taxes = [Tax(name = "harvest_levy", on = "supply",  product = "swr", region = "SEF", rate = 4.0),
+         Tax(name = "pellet_vat",   on = "demand",  product = "pellets", rate = 0.055,
              relative = true),
-         Tax(name = :mill_aid,     on = :process, process = :pelletmill, region = :SWF,
+         Tax(name = "mill_aid",     on = "process", process = "pelletmill", region = "SWF",
              rate = -15.0),
-         Tax(name = :paper_tariff, on = :trade,   product = :paper, to = :EU, rate = 0.08,
+         Tax(name = "paper_tariff", on = "trade",   product = "paper", to = "EU", rate = 0.08,
              relative = true)]
 ```
 
-Selectors left at `:all` match everything, and several taxes may fall on one
+Selectors left at `"all"` match everything, and several taxes may fall on one
 base. `Results.taxes` reports what each raises — which matters, because a taxed
 objective counts the revenue as a cost rather than a transfer and so is no
 longer welfare. See [Taxes, subsidies and other wedges](@ref).
@@ -356,7 +366,7 @@ first, and a problem is an `ArgumentError` saying which entry is at fault.
 If the solver then returns anything but an optimal or locally optimal solution,
 `solve_market` **throws**. An infeasible or unbounded economy comes back with
 tables that look exactly like those of a solved one, so returning them quietly
-is the more dangerous default. Pass `on_failure = :warn` or `:ignore` to get
+is the more dangerous default. Pass `on_failure = "warn"` or `"ignore"` to get
 them anyway, and read `res.status` to see what happened.
 
 ## Reading the results
@@ -415,7 +425,7 @@ julia --project=. examples/forest/forest_market.jl
 
 ## How to amend an economy
 
-* **Add a product**: add its symbol to `products`; give it a `DemandSpec` and/or
+* **Add a product**: add its name to `products`; give it a `DemandSpec` and/or
   `SupplySpec` where it is consumed or harvested; wire it into processes; list it
   add `transport_costs` entries if it can be shipped.
 * **Add or change a process**: add a `Process`. Chains of any length are built by

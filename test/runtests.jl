@@ -4,19 +4,21 @@ using DataFrames
 using JuMP: termination_status, objective_value, all_variables, name
 import JuMP
 
-# helpers to read single values out of the result tables
-price(res, r, p) = only(res.prices[(res.prices.region .== r) .& (res.prices.product .== p), :price])
-pprice(res, r, p) = only(res.prices[(res.prices.region .== r) .& (res.prices.product .== p), :producer_price])
-getq(df, r, p)   = (rows = df[(df.region .== r) .& (df.product .== p), :quantity]; isempty(rows) ? 0.0 : only(rows))
-flow(res, p, from, to) = (rows = res.trade[(res.trade.product .== p) .& (res.trade.from .== from) .&
-                                           (res.trade.to .== to), :quantity]; isempty(rows) ? 0.0 : only(rows))
+# helpers to read single values out of the result tables.  The tables name
+# things with strings, so these take either form and convert.
+const S = string
+price(res, r, p) = only(res.prices[(res.prices.region .== S(r)) .& (res.prices.product .== S(p)), :price])
+pprice(res, r, p) = only(res.prices[(res.prices.region .== S(r)) .& (res.prices.product .== S(p)), :producer_price])
+getq(df, r, p)   = (rows = df[(df.region .== S(r)) .& (df.product .== S(p)), :quantity]; isempty(rows) ? 0.0 : only(rows))
+flow(res, p, from, to) = (rows = res.trade[(res.trade.product .== S(p)) .& (res.trade.from .== S(from)) .&
+                                           (res.trade.to .== S(to)), :quantity]; isempty(rows) ? 0.0 : only(rows))
 solved(res)      = res.status in (Markets.MOI.LOCALLY_SOLVED, Markets.MOI.OPTIMAL)
 
 @testset "Markets.jl" begin
 
 @testset "Constructors" begin
     n = leontief(product = :a, coeff = 2)
-    @test n.products == [:a] && n.composite == 2.0 && n.shares == [1.0]
+    @test n.products == ["a"] && n.composite == 2.0 && n.shares == [1.0]
     c = ces(composite = 1.5, products = [:a, :b], shares = [3, 1], sigma = 2)
     @test c.shares ≈ [0.75, 0.25]
     @test c.composite == 1.5 && c.sigma == 2.0 && c.phi == 1.0
@@ -36,7 +38,7 @@ solved(res)      = res.status in (Markets.MOI.LOCALLY_SOLVED, Markets.MOI.OPTIMA
     @test_throws UndefKeywordError Nest(composite = 1.0, products = [:a])
     p = Process(name = :mill, inputs = [leontief(product = :a, coeff = 1)],
                 outputs = [:b => 1, :c => 0.5], vacost = 10)
-    @test p.outputs == [:b => 1.0, :c => 0.5] && p.regions === :all && p.vacost == 10.0
+    @test p.outputs == ["b" => 1.0, "c" => 0.5] && p.regions == "all" && p.vacost == 10.0
     @test_throws UndefKeywordError Process(name = :mill, inputs = Nest[])
     d = MarketData(regions = [:A], products = [:x])
     @test isempty(d.demand) && isempty(d.supply) && isempty(d.processes) &&
@@ -58,7 +60,7 @@ end
     res = solve_market(d)
     @test solved(res)
     # A exports to B, and the price gap equals the transport cost
-    @test only(res.trade.from) == :A && only(res.trade.to) == :B
+    @test only(res.trade.from) == "A" && only(res.trade.to) == "B"
     @test price(res, :B, :x) - price(res, :A, :x) ≈ τ rtol = 1e-4
     # prices equal willingness to pay (inverse demand) and marginal supply cost
     for s in d.demand
@@ -69,12 +71,12 @@ end
     @test price(res, :A, :x) ≈ 50 * (S_A / 30)^(1 / 1.0) rtol = 1e-4
     # material balance in each region
     for r in (:A, :B)
-        nt = res.net_trade[res.net_trade.region .== r, :net]
+        nt = res.net_trade[res.net_trade.region .== S(r), :net]
         @test getq(res.production, r, :x) - getq(res.consumption, r, :x) ≈ only(nt) atol = 1e-5
     end
     # for_region slices consistently
     a = for_region(res, :A)
-    @test all(a.prices.region .== :A) && nrow(a.trade) == 1
+    @test all(a.prices.region .== "A") && nrow(a.trade) == 1
 end
 
 @testset "A product may be supplied, consumed and used as an input at once" begin
@@ -387,7 +389,7 @@ end
         transport_costs = Dict((p, o, r) => (p === :w ? 6.0 : 10.0)
                          for p in (:w, :g), o in (:A, :B), r in (:A, :B) if o != r),
         trade_limits = limits)
-    level(res, r) = only(res.activity[res.activity.region .== r, :level])
+    level(res, r) = only(res.activity[res.activity.region .== S(r), :level])
 
     @testset "a capacity holds a process back" begin
         free = solve_market(economy())
@@ -398,25 +400,25 @@ end
         @test solved(res)
         @test level(res, :A) ≈ cap rtol = 1e-5          # the bound binds in A ...
         @test level(res, :B) > level(free, :B)          # ... and work moves to B
-        @test only(res.activity[res.activity.region .== :A, :rent]) > 0   # a quasi-rent
+        @test only(res.activity[res.activity.region .== "A", :rent]) > 0   # a quasi-rent
         # a per-region dictionary bounds only the regions it names
         split = solve_market(economy(cap = Dict(:A => cap)))
         @test level(split, :A) ≈ cap rtol = 1e-5
-        @test isinf(only(split.activity[split.activity.region .== :B, :capacity]))
+        @test isinf(only(split.activity[split.activity.region .== "B", :capacity]))
         @test_throws ArgumentError Process(name = :p, inputs = Nest[], outputs = [:g => 1.0],
                                            capacity = 0.0)
     end
 
     @testset "a trade ceiling binds and earns a congestion rent" begin
         free  = solve_market(economy())
-        moved = only(free.trade[free.trade.product .== :g, :quantity])
+        moved = only(free.trade[free.trade.product .== S(:g), :quantity])
         quota = 0.55 * moved
         res = solve_market(economy(limits = [TradeLimit(name = :quota, products = :g,
                                              from = :A, to = :B, capacity = quota)]))
         @test solved(res)
         @test flow(res, :g, :A, :B) ≈ quota rtol = 1e-4
         row = only(eachrow(res.limits))
-        @test row.limit === :quota
+        @test row.limit == "quota"
         @test row.used ≈ quota rtol = 1e-4
         @test row.rent > 0
         # with the ceiling binding, the price gap is transport *plus* the rent
@@ -704,24 +706,24 @@ end
     @test abs(price(free, :A, :junk)) < 1e-6              # free disposal: price 0
     paid = solve_market(economy([disposal(product = :junk, cost = 12)]))
     @test price(paid, :A, :junk) ≈ -12 rtol = 1e-6
-    @test :dispose_junk in solve_market(economy([disposal(product = :junk)])).activity.process
+    @test "dispose_junk" in solve_market(economy([disposal(product = :junk)])).activity.process
     # and the good products are unaffected in sign
     @test price(free, :A, :g) > 0 && price(free, :A, :w) > 0
 end
 
 @testset "Armington share calibration" begin
-    flows  = Dict((:EU, :EU) => 80.0,  (:NA, :EU) => 15.0,  (:AS, :EU) => 5.0,
-                  (:NA, :NA) => 70.0,  (:EU, :NA) => 20.0,  (:AS, :NA) => 10.0)
-    prices = Dict((:EU, :EU) => 210.0, (:NA, :EU) => 235.0, (:AS, :EU) => 250.0,
-                  (:NA, :NA) => 200.0, (:EU, :NA) => 240.0, (:AS, :NA) => 245.0)
+    flows  = Dict(("EU", "EU") => 80.0,  ("NA", "EU") => 15.0,  ("AS", "EU") => 5.0,
+                  ("NA", "NA") => 70.0,  ("EU", "NA") => 20.0,  ("AS", "NA") => 10.0)
+    prices = Dict(("EU", "EU") => 210.0, ("NA", "EU") => 235.0, ("AS", "EU") => 250.0,
+                  ("NA", "NA") => 200.0, ("EU", "NA") => 240.0, ("AS", "NA") => 245.0)
     σ = 4
     δ = armington_shares(; flows, prices, sigma = σ)
     # shares sum to one per destination ...
-    for dest in (:EU, :NA)
+    for dest in ("EU", "NA")
         @test sum(v for (k, v) in δ if k[2] == dest) ≈ 1
     end
     # ... and reproduce the observed sourcing through the CES demand condition
-    for dest in (:EU, :NA)
+    for dest in ("EU", "NA")
         keys_d  = [k for k in keys(δ) if k[2] == dest]
         implied = Dict(k => δ[k] * prices[k]^(-σ) for k in keys_d)
         tot, ftot = sum(values(implied)), sum(flows[k] for k in keys_d)
@@ -730,7 +732,7 @@ end
         end
     end
     # they are not the observed shares themselves, which is the point
-    @test !isapprox(δ[(:EU, :EU)], 0.8; rtol = 1e-3)
+    @test !isapprox(δ[("EU", "EU")], 0.8; rtol = 1e-3)
     @test_throws ArgumentError armington_shares(; flows, prices, sigma = 0.5)
     @test_throws ArgumentError armington_shares(flows = Dict((:EU, :EU) => 1.0),
                                                 prices = Dict{Tuple{Symbol,Symbol},Float64}(),
@@ -1051,6 +1053,79 @@ end
     end
 end
 
+@testset "Names may be strings or symbols" begin
+    # the documented API is strings; symbols are accepted everywhere and
+    # converted on the way in, so the two spellings must build the same economy
+    build(n) = MarketData(
+        regions   = [n("A"), n("B")],
+        products  = [n("logs"), n("board")],
+        supply    = [SupplySpec(product = n("logs"), region = n("A"), p0 = 40, q0 = 35,
+                                elasticity = 0.6),
+                     SupplySpec(product = n("logs"), region = n("B"), p0 = 90, q0 = 35,
+                                elasticity = 0.6)],
+        demand    = [DemandSpec(product = n("board"), region = n("A"), p0 = 300, q0 = 10,
+                                elasticity = 1.2),
+                     DemandSpec(product = n("board"), region = n("B"), p0 = 300, q0 = 20,
+                                elasticity = 1.2)],
+        processes = [Process(name = n("mill"), vacost = 20, regions = [n("A"), n("B")],
+                             inputs = [leontief(product = n("logs"), coeff = 2)],
+                             outputs = [n("board") => 1.0],
+                             capacity = Dict(n("A") => 40.0))],
+        trade_limits = [TradeLimit(name = n("port"), products = n("board"), from = n("A"),
+                                   capacity = 50.0, weights = Dict(n("board") => 1.0))],
+        taxes     = [Tax(name = n("duty"), on = n("trade"), product = n("logs"),
+                         from = n("A"), rate = 1.5)],
+        transport_costs = Dict((n("logs"), n("A"), n("B")) => 5.0,
+                               (n("logs"), n("B"), n("A")) => 5.0,
+                               (n("board"), n("A"), n("B")) => 7.0,
+                               (n("board"), n("B"), n("A")) => 7.0))
+
+    strung, symbolic = build(identity), build(Symbol)
+    # the stored economy is the same either way, down to the field types
+    for f in fieldnames(MarketData)      # structs holding arrays compare by
+        @test repr(getfield(strung, f)) == repr(getfield(symbolic, f))   # identity
+    end
+    @test strung.regions isa Vector{String} && symbolic.regions isa Vector{String}
+    @test symbolic.processes[1].name === "mill" && symbolic.taxes[1].on == "trade"
+    @test symbolic.processes[1].capacity == Dict("A" => 40.0)
+    # a field read back compares to the string that built it, which is the whole
+    # reason names are not stored as symbols
+    @test symbolic.supply[1].region == "A" && symbolic.supply[1].product == "logs"
+
+    # the nested types take either spelling too
+    arm(n) = Armington(product = n("board"), sigma = 4,
+                       shares = Dict((n("A"), n("B")) => 0.7, (n("B"), n("B")) => 0.3),
+                       destination = n("B"),
+                       nests = [OriginNest(sigma = 8, origins = [n("A"), n("B")])])
+    @test repr(arm(identity)) == repr(arm(Symbol))
+    @test repr(ces(composite = 1.3, products = ["a", "b"], sigma = 2)) ==
+          repr(ces(composite = 1.3, products = [:a, :b], sigma = 2))
+    @test repr(DemandNest(sigma = 2, products = ["a", "b"])) ==
+          repr(DemandNest(sigma = 2, products = [:a, :b]))
+    @test disposal(product = :chips).name == "dispose_chips"
+    @test armington_shares(flows = Dict((:A, :B) => 1.0), prices = Dict((:A, :B) => 2.0),
+                           sigma = 3) == Dict(("A", "B") => 1.0)
+
+    # and the two spellings solve to the same numbers, reported with strings
+    a, b = solve_market(strung), solve_market(symbolic)
+    @test a.objective ≈ b.objective rtol = 1e-10
+    @test a.prices.region == b.prices.region
+    @test eltype(a.prices.region) == String && eltype(a.trade.from) == String
+    @test price(a, "B", "board") ≈ price(b, :B, :board) rtol = 1e-10
+    @test nrow(for_region(a, "A").prices) == nrow(for_region(a, :A).prices)
+    @test solve_market(strung; on_failure = :warn).objective ≈ a.objective rtol = 1e-10
+
+    # "all" and :all are the same sentinel
+    @test Tax(name = "t", on = "supply", rate = 1.0).product == "all"
+    @test Process(name = "p", inputs = [leontief(product = "x", coeff = 1)],
+                  outputs = ["y" => 1.0], vacost = 1, regions = :all).regions == "all"
+    # anything that is not a name is refused where a name is wanted
+    @test_throws ArgumentError SupplySpec(product = 7, region = "A", p0 = 1, q0 = 1,
+                                          elasticity = 1)
+    @test_throws ArgumentError Tax(name = "t", on = "nowhere", rate = 1.0)
+    @test_throws ArgumentError solve_market(strung; on_failure = "shrug")
+end
+
 @testset "Minimal example" begin
     # the README and the first documentation page quote these numbers; running
     # the script is what keeps them true
@@ -1078,15 +1153,15 @@ end
     @test getq(res.consumption, :City, :milk) ≈
           getq(res.production, :City, :milk) + flow(res, :milk, :Pasture, :City) rtol = 1e-6
     # the milk splits itself between the glass and the dairy
-    milk_made  = sum(skipmissing(res.production.quantity[res.production.product .== :milk]))
-    milk_drunk = sum(skipmissing(res.consumption.quantity[res.consumption.product .== :milk]))
+    milk_made  = sum(skipmissing(res.production.quantity[res.production.product .== "milk"]))
+    milk_drunk = sum(skipmissing(res.consumption.quantity[res.consumption.product .== "milk"]))
     @test milk_made ≈ milk_drunk + 10 * getq(res.production, :Pasture, :cheese) rtol = 1e-6
     @test 0.3 < milk_drunk / milk_made < 0.4
     # a thirstier City makes cheese dearer everywhere, although no taste for
     # cheese changed, and takes milk away from the dairy
     for r in (:Pasture, :City)
-        @test only(ex.thirst.prices[(ex.thirst.prices.region .== r) .&
-                                    (ex.thirst.prices.product .== :cheese), :price]) >
+        @test only(ex.thirst.prices[(ex.thirst.prices.region .== S(r)) .&
+                                    (ex.thirst.prices.product .== "cheese"), :price]) >
               price(res, r, :cheese)
     end
     @test getq(ex.thirst.production, :Pasture, :cheese) <
@@ -1127,7 +1202,7 @@ end
               d.transport_costs[(p, a, b)] + 1e-6
     end
     # between blocs that no longer holds: the varieties are different goods
-    @test any(abs(pprice(res, :NA, p) - pprice(res, :AS, p)) > d.transport_costs[(p, :NA, :AS)]
+    @test any(abs(pprice(res, "NA", p) - pprice(res, "AS", p)) > d.transport_costs[(p, "NA", "AS")]
               for p in d.products)
 
     # world trade balances: total exports = total imports for each product
@@ -1136,10 +1211,10 @@ end
     end
 
     # the storm scenario reaches France hardest, then the EU, then the far blocs
-    swr(r, result) = only(result.prices[(result.prices.region .== r) .&
-                                        (result.prices.product .== :swr), :price])
+    swr(r, result) = only(result.prices[(result.prices.region .== S(r)) .&
+                                        (result.prices.product .== "swr"), :price])
     drop(r) = 1 - swr(r, ex.storm) / swr(r, res)
-    @test minimum(drop.(france)) > drop(:EU) > maximum(drop.([:NA, :AS, :RW]))
+    @test minimum(drop.(france)) > drop("EU") > maximum(drop.(["NA", "AS", "RW"]))
     @test all(drop(r) > 0 for r in d.regions)        # cheaper everywhere
 end
 
