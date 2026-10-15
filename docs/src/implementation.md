@@ -413,9 +413,11 @@ be recovered from `res.model`.
   written in small units — in which case a violated balance passes as satisfied
   and an infeasible model is reported as solved. It is therefore set to
   ``10^{-2}`` of `qfloor`, and the acceptable tolerance to `qfloor` itself.
-  Another solver needs the same treatment.
+  Another solver needs the same treatment. Either can be overridden through
+  `solver_options`.
 * **Other solvers.** Any JuMP solver that supports nonlinear constraints and
-  duals can be passed with the `optimizer` keyword.
+  duals can be passed with the `solver` keyword, and its options with
+  `solver_options`.
 
 ## Tests
 

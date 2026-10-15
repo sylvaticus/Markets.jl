@@ -318,8 +318,8 @@ economy, acts on the solver's verdict and iterates this function when an ad
 valorem rate on trade has to be found by fixed point.
 """
 function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Float64};
-                    optimizer = Ipopt.Optimizer, silent::Bool = true,
-                    qfloor::Union{Nothing,Real} = nothing,
+                    solver = Ipopt.Optimizer, solver_options = (;),
+                    silent::Bool = true, qfloor::Union{Nothing,Real} = nothing,
                     tol::Real = 1e-3 * quantity_scale(d))
     # The floor exists so that a variable raised to a power below 1 is never
     # differentiated at zero. What counts as "near zero" depends on the
@@ -331,11 +331,18 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
     floor_at(reference) = qfloor === nothing ? max(1e-12, 1e-6 * reference) :
                                                float(qfloor)
     smallest_floor = floor_at(quantity_scale(d))
-    m = Model(optimizer)
+    m = Model(solver)
     silent && set_silent(m)
-    if optimizer === Ipopt.Optimizer
+    # Ipopt, plain or wrapped in `optimizer_with_attributes`. The settings
+    # below are defaults: whatever the caller passed in the wrapper is set
+    # already, and is left alone.
+    wrapped = solver isa MOI.OptimizerWithAttributes
+    if (wrapped ? solver.optimizer_constructor : solver) === Ipopt.Optimizer
+        chosen = wrapped ? Set(first(p) for p in solver.params) : Set()
+        default(name, value) = MOI.RawOptimizerAttribute(name) in chosen ||
+                               set_attribute(m, name, value)
         # Ipopt prints its licence banner even when silent unless "sb" is set
-        silent && set_attribute(m, "sb", "yes")
+        silent && default("sb", "yes")
         # Its feasibility tolerance is absolute, and its default (1e-4) can be
         # coarser than the quantities of an economy written in small units: an
         # infeasible model then comes back reported as solved. Tie it to the
@@ -345,8 +352,13 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
         # minds and an infeasible economy comes back reported as solved. Two
         # orders below the floor is enough to see that, without asking for a
         # precision the problem cannot deliver.
-        set_attribute(m, "constr_viol_tol", max(1e-12, 1e-2 * smallest_floor))
-        set_attribute(m, "acceptable_constr_viol_tol", max(1e-10, smallest_floor))
+        default("constr_viol_tol", max(1e-12, 1e-2 * smallest_floor))
+        default("acceptable_constr_viol_tol", max(1e-10, smallest_floor))
+    end
+    # set last, so that the caller's choice overrides any of the above
+    for (option, value) in (solver_options isa NamedTuple ? pairs(solver_options) :
+                            solver_options)
+        set_attribute(m, option isa Symbol ? String(option) : option, value)
     end
 
     supply_of = Dict((s.region, s.product) => s for s in d.supply)
@@ -560,10 +572,10 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
 
     @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost)
 
-    optimize!(m)
+    wall_time = @elapsed optimize!(m)
 
     return build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit,
-                         tariff, tol)
+                         tariff, tol, wall_time)
 end
 
 """
@@ -572,11 +584,18 @@ $(TYPEDSIGNATURES)
 Build and solve the equilibrium for the economy `d` and return a
 [`Results`](@ref).
 
-A warning is emitted if the solver does not report an optimal (or locally
-optimal) solution.
+If the solver does not report an optimal (or locally optimal) solution,
+`on_failure` decides what happens: `"error"` (the default) throws, `"warn"`
+warns and `"ignore"` says nothing. The status, the solver's own message, the
+time spent and the iterations taken are on the [`Results`](@ref).
 
-* `optimizer` is any JuMP solver able to handle nonlinear constraints and to
-  return duals, and `silent` suppresses its output.
+* `solver` is any JuMP solver able to handle nonlinear constraints and to
+  return duals (Ipopt by default), and `silent` suppresses its output.
+* `solver_options` are passed on to it, as a `NamedTuple`, a `Dict` or a vector
+  of pairs: `(max_iter = 500, tol = 1e-9)`, or
+  `Dict("max_iter" => 500, MOI.TimeLimitSec() => 60.0)`. A name is the
+  solver's own name for the option, and an MOI attribute is passed as it is.
+  They are set after Markets' own settings, and so override them.
 * `qfloor` is the lower bound given to the quantities that are raised to a
   power below 1, which an interior-point solver cannot differentiate at zero.
 * `tol` is the quantity below which a flow, an output or an activity is treated
@@ -633,11 +652,25 @@ function solve_market(d::MarketData; max_tax_iterations::Int = 50,
         previous_gap = gap
         tariff = Dict(k => step * updated[k] + (1 - step) * get(tariff, k, 0.0)
                       for k in routes)
-        res = solve_once(d, tariff; kwargs...)
+        res = tally(solve_once(d, tariff; kwargs...), res)
         gap <= tax_tolerance && return report(res, on_failure)
     end
     @warn "ad valorem trade taxes did not settle in $max_tax_iterations solves"
     return report(res, on_failure)
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+`res`, with the solver's time and iterations summed over it and the solves
+in `earlier`: when the ad valorem tariffs are found by iteration, the caller
+waited for all of them, not just the last.
+"""
+function tally(res::Results, earlier::Results)
+    fields = (; (f => getfield(res, f) for f in fieldnames(Results))...)
+    return Results(; merge(fields, (solve_time = earlier.solve_time + res.solve_time,
+                                    iterations = earlier.iterations + res.iterations,
+                                    solves = earlier.solves + res.solves))...)
 end
 
 """

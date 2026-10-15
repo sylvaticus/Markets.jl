@@ -7,6 +7,8 @@ breaking changes.
 ## [Unreleased]
 
 ### Changed
+- The solver is chosen with the `solver` keyword of `solve_market`, which
+  replaces `optimizer`.
 - **Names are strings.** Every region, product, process and tax is named with
   a `String` — `"EU"` rather than `:EU` — in the data types, in the result
   tables and throughout the documentation. A `Symbol` is still accepted
@@ -30,6 +32,14 @@ breaking changes.
   may move at no cost takes a route priced `0.0`.
 
 ### Added
+- `solve_market(d; solver_options = ...)` passes options to the solver, as a
+  `NamedTuple`, a `Dict` or a vector of pairs, keyed by the solver's own option
+  names or by MOI attributes. They are set last, so they override the
+  tolerances Markets sets for Ipopt. An Ipopt wrapped in
+  `optimizer_with_attributes` is still recognised as Ipopt.
+- `Results` reports how the solve went: `raw_status` (the solver's own
+  message), `solve_time` in seconds, `iterations` and the number of `solves`,
+  the last three summed over the repeated solves an ad valorem tariff needs.
 - A minimal worked example — two regions, two products, one dairy, and a milk
   that is both drunk and turned into cheese — as the first of an **Examples**
   section, in the README and as the opening documentation page. The forest

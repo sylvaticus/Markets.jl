@@ -24,6 +24,24 @@ Base.@kwdef struct Results
     like; [`solve_market`](@ref) throws on those unless told otherwise
     """
     status::MOI.TerminationStatusCode
+    "The solver's own account of how it stopped, such as Ipopt's `Solve_Succeeded`"
+    raw_status::String
+    """
+    Seconds spent solving, as the solver reports them, or as measured around
+    the solve for a solver that does not. Summed over all `solves`
+    """
+    solve_time::Float64
+    """
+    The iterations the solver took, summed over all `solves`: interior-point
+    iterations for Ipopt, simplex ones for a simplex solver. `missing` for a
+    solver that reports neither
+    """
+    iterations::Union{Int,Missing}
+    """
+    How many times the model was solved: 1, unless an ad valorem tax on trade
+    had to be found by iteration
+    """
+    solves::Int = 1
     """
     The value of the maximised objective: net social surplus, **less** any tax
     revenue, which the program counts as a cost rather than a transfer
@@ -86,8 +104,23 @@ to be seen.
 """
 denoise(x, atol = 1e-9) = abs(x) < atol ? zero(x) : x
 
+"""
+$(TYPEDSIGNATURES)
+
+What the solver reports of `attr`, or `fallback` where it reports nothing:
+not every solver supports every attribute, and asking one that does not
+throws.
+"""
+function solver_attribute(m::Model, attr, fallback)
+    try
+        return MOI.get(m, attr)
+    catch
+        return fallback
+    end
+end
+
 function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit,
-                       tariff, tol)
+                       tariff, tol, wall_time)
     val(x) = value(x)
     # bilateral flows: the trade variables of the homogeneous products and the
     # cross-border varieties of the Armington ones
@@ -243,7 +276,13 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
     end
 
     objective = has_values(m) ? objective_value(m) : NaN
+    iterations = something(solver_attribute(m, MOI.BarrierIterations(), nothing),
+                           solver_attribute(m, MOI.SimplexIterations(), nothing),
+                           missing)
     return Results(data = d, model = m, status = termination_status(m),
+                   raw_status = raw_status(m),
+                   solve_time = solver_attribute(m, MOI.SolveTimeSec(), wall_time),
+                   iterations = iterations,
                    objective = objective, welfare = objective + sum(taxes.revenue; init = 0.0),
                    supply = supply, production = production,
                    consumption = consumption, trade = trade, net_trade = net,

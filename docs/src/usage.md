@@ -353,8 +353,15 @@ longer welfare. See [Taxes, subsidies and other wedges](@ref).
 ```julia
 res = solve_market(market)                       # Ipopt, silent
 res = solve_market(market; silent = false)       # show the Ipopt log
-res = solve_market(market; optimizer = MyOpt)    # any JuMP nonlinear solver
+res = solve_market(market; solver = MyOpt)       # any JuMP nonlinear solver
+res = solve_market(market; solver_options = (max_iter = 500, tol = 1e-9))
 ```
+
+`solver_options` takes a `NamedTuple`, a `Dict` or a vector of pairs. A name
+is the solver's own name for the option, written as a symbol or a string, and
+an MOI attribute such as `MOI.TimeLimitSec()` is passed as it is. The options
+are set after the ones Markets chooses for Ipopt (see
+[Numerical details](@ref)), so they override them.
 
 Before building anything, `solve_market` calls [`validate`](@ref) on the
 economy. That check is not a formality: the model has one balance per declared
@@ -371,7 +378,10 @@ them anyway, and read `res.status` to see what happened.
 
 ## Reading the results
 
-A [`Results`](@ref) carries the solver's verdict in `status`, the value of the
+A [`Results`](@ref) carries the solver's verdict in `status` and its own
+message in `raw_status`, the `solve_time` in seconds and the `iterations` it
+took (summed over all `solves` when an ad valorem tariff is found by iteration,
+and `missing` for a solver that does not count them), the value of the
 maximised `objective`, the `welfare` that objective implies once tax revenue is
 counted as the transfer it is, and nine `DataFrame`s:
 

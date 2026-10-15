@@ -79,6 +79,44 @@ end
     @test all(a.prices.region .== "A") && nrow(a.trade) == 1
 end
 
+@testset "The solver: choosing it, tuning it, and what it reports" begin
+    d = MarketData(regions = [:A, :B], products = [:x],
+        demand = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
+                  for r in (:A, :B)],
+        supply = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 30, elasticity = 1.0),
+                  SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],
+        transport_costs = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0))
+    res = solve_market(d)
+    @test solved(res)
+    @test res.raw_status == "Solve_Succeeded"
+    @test res.solve_time > 0
+    @test res.iterations isa Int && res.iterations > 0
+    @test res.solves == 1
+    # options reach the solver, in any of the forms accepted, and override the
+    # package's own: one iteration is not enough to solve anything
+    for options in ((max_iter = 1,), Dict("max_iter" => 1), [:max_iter => 1])
+        cut = solve_market(d; solver_options = options, on_failure = :ignore)
+        @test cut.status == Markets.MOI.ITERATION_LIMIT
+        @test cut.iterations == 1
+    end
+    @test_throws ErrorException solve_market(d; solver_options = (max_iter = 1,))
+    # an MOI attribute is passed as it is, and a solver may be named
+    @test solved(solve_market(d; solver = Markets.Ipopt.Optimizer,
+                              solver_options = Dict(Markets.MOI.TimeLimitSec() => 60.0)))
+    # the package's own feasibility tolerance can be overridden by name
+    loose = solve_market(d; solver_options = (constr_viol_tol = 1e-3,))
+    @test JuMP.get_attribute(loose.model, "constr_viol_tol") == 1e-3
+    # an Ipopt wrapped the JuMP way is still Ipopt: it gets the package's
+    # tolerances, unless it sets its own
+    ipopt(options...) = JuMP.optimizer_with_attributes(Markets.Ipopt.Optimizer, options...)
+    tight = solve_market(d; solver = ipopt("tol" => 1e-9))
+    @test solved(tight)
+    @test JuMP.get_attribute(tight.model, "constr_viol_tol") ==
+          JuMP.get_attribute(res.model, "constr_viol_tol")
+    own = solve_market(d; solver = ipopt("constr_viol_tol" => 1e-3))
+    @test JuMP.get_attribute(own.model, "constr_viol_tol") == 1e-3
+end
+
 @testset "A product may be supplied, consumed and used as an input at once" begin
     # :logs come out of the forest, and are either burnt as they are or sawn
     d = MarketData(
@@ -672,6 +710,8 @@ end
         for rate in (0.2, 0.5, 1.0, 2.0, 4.0)        # up to a 400% tariff
             res = solve_market(economy(rate, 2.0))
             @test solved(res)
+            # found by repeated solves, whose cost is reported in full
+            @test res.solves > 1 && res.iterations >= res.solves
             @test flow(res, :x, :A, :B) > 1e-3            # the route is still used
             # at the fixed point the wedge is the rate times the origin price
             @test price(res, :B, :x) - price(res, :A, :x) ≈
