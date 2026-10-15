@@ -1,6 +1,7 @@
 # Markets.jl
 
-Solve a spatial partial-equilibrium model of an economic sector made of an
+A flexible framework for in-depth modelling of an economic sector when the feedbacks from a Computable General Equilibrium Model are not required.
+Solve a spatial partial-equilibrium model of an economic sector consisting of an
 arbitrary set of products, regions and transformation processes, with partial substitution in transformation, trade and demand.
 
 [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://sylvaticus.github.io/Markets.jl/dev/)
@@ -8,32 +9,17 @@ arbitrary set of products, regions and transformation processes, with partial su
 [![codecov.io](http://codecov.io/github/sylvaticus/Markets.jl/coverage.svg?branch=main)](http://codecov.io/github/sylvaticus/Markets.jl?branch=main)
 
 > [!WARNING]
-> ### NOT RELEASED — UNDER ACTIVE DEVELOPMENT AND VALIDATION
+> **Pre-release: under active development and validation**
 >
-> **This model is not finished, not calibrated and not validated. Do not use
-> its results for anything that matters yet.**
+> This project is at a _proof-of-concept_ stage and has not been released. A substantial
+> part of it was generated with the assistance of an AI model and is still being reviewed.
+> Both the modelling framework (its assumptions and equations) and its software
+> implementation are currently undergoing verification and validation.
 >
-> * **It is not released.** The current version, 0.1.0, is not registered, and
->   the API changes between commits without notice.
-> * **`Pkg.add("Markets")` installs a different model.** The registry still has
->   v0.0.1, the 2022 equation-system formulation that this version replaced
->   entirely. Install from this repository instead (see below).
-> * **Nothing here is calibrated.** Every elasticity, share, cost and reference
->   quantity in the minimal and forest examples is illustrative — plausible in order of
->   magnitude, fitted to nothing. No part of the model has been confronted with
->   observed data.
-> * **What *is* checked** is the internal logic: the test suite verifies the
->   equilibrium conditions themselves — prices equal to inverse demand and
->   marginal cost, zero profit on active processes, no-arbitrage across trade
->   routes, the CES demand and price-index conditions, and the limits in which
->   the Armington model collapses to the homogeneous one.
-> * **Read processing location with particular caution.** Processes have
->   constant returns, so a process has no supply response of its own: below a
->   threshold set by freight it does not move at all, and above it the whole
->   industry moves at once. Declaring the output an Armington product or giving
->   the process a capacity restores a smooth response, and the forest example
->   does both — but a model that does neither should not be read for where
->   industry locates.
+> - Results have not yet been validated and should not be used for publications, policy advice, or operational decisions.
+> - The API may change without notice and without  backward compatibility.
+>
+> Feedback and bug reports are welcome via [Issues](../../issues).
 
 You describe the economy with data — demand and supply curves, processes that
 transform products (with substitutable inputs and joint by-products), transport
@@ -111,3 +97,19 @@ on them is the solver's own output.
 The [documentation](https://sylvaticus.github.io/Markets.jl/dev/) has five
 parts: *Using the module*, two worked *Examples*, *Modelling choices*,
 *Code implementation* (with the API reference), and *References*.
+
+## Authorship
+
+- Orchestrator: Antonello Lobianco
+- AI implementation: Opus 5.5 (Anthropic)
+- Validation comitee: TO BE DEFINED 
+
+## Authorship
+
+| Role | Contributor |
+|------|-------------|
+| Conception, design, and supervision | Antonello Lobianco |
+| Implementation (AI-assisted) | Claude Opus 5.5 (Anthropic) |
+| Validation and co-design committee | To be formed. [Contact me](mailto:antonello.lobianco@agroparistech.fr) if you are interested.|
+
+Antonello Lobianco is responsible for the scientific content of this project and accountable for any errors, including those in AI-generated code.

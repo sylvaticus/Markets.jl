@@ -151,12 +151,16 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
     supply = DataFrame(region = String[], product = String[], quantity = Float64[],
                        capacity = Float64[], rent = Float64[])
     for spec in d.supply
-        q = val(S[(spec.region, spec.product)])
-        # the rent is the gap the ceiling opens between the price and what the
-        # curve says the last unit cost to produce
-        marginal = spec.p0 * (q / (spec.shift * spec.q0))^(1 / spec.elasticity)
+        v = S[(spec.region, spec.product)]
+        q = val(v)
+        # the rent is the gap the ceiling opens between the producer price and
+        # the taxed marginal cost on the curve, i.e. the multiplier of the
+        # ceiling itself. Taking it from the bound rather than recomputing it
+        # from the curve keeps out the tax wedge and, for an Armington product,
+        # the gap between what users pay and what producers get. (For a `<=`
+        # constraint JuMP's dual is non-positive whatever the sense.)
         rent = has_duals(m) && isfinite(spec.capacity) ?
-               denoise(dual(balance[(spec.region, spec.product)]) - marginal) : 0.0
+               denoise(-dual(UpperBoundRef(v))) : 0.0
         push!(supply, (spec.region, spec.product, q, spec.capacity, rent))
     end
     sort!(supply, [:region, :product])

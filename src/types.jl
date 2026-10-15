@@ -932,4 +932,6 @@ Base.@kwdef struct MarketData
     end
 end
 
-regions_of(p::Process, d::MarketData) = p.regions == "all" ? d.regions : p.regions
+# a single region is stored as a bare string, which must not be iterated as one
+regions_of(p::Process, d::MarketData) = p.regions == "all" ? d.regions :
+                                        p.regions isa String ? [p.regions] : p.regions

@@ -62,9 +62,26 @@ transport_costs = Dict(("milk",   "Pasture", "City") => 45.0, ("milk",   "City",
                        ("cheese", "Pasture", "City") => 45.0, ("cheese", "City", "Pasture") => 45.0)
 nothing # hide
 
-# ## Solving
+# ## Looking before solving
+#
+# The pieces go into one `MarketData`, and typing its name gives back a summary
+# of the economy that was actually written down: what each product does, how
+# the processes chain, where goods may go and at what cost. It is the cheapest
+# check there is that the data say what was meant.
 
 economy = MarketData(; regions, products, demand, supply, processes, transport_costs)
+
+# The mathematical program it becomes can be read too, before anything is
+# solved: [`jump_model`](@ref) returns the JuMP model that `solve_market` would
+# hand to the solver, with every variable and constraint named after the region
+# and product it belongs to. Here it is one material balance per region and
+# product, whose duals will be the prices, and an objective that is the net
+# social surplus.
+
+print(jump_model(economy))
+
+# ## Solving
+
 result  = solve_market(economy)
 nothing # hide
 

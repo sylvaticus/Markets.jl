@@ -6,6 +6,17 @@ breaking changes.
 
 ## [Unreleased]
 
+### Fixed
+- A process restricted to a single region given as a bare name,
+  `Process(regions = "B", ...)`, was read as the letters of that name and
+  rejected by `validate`. It is now that one region.
+- The scarcity `rent` in `Results.supply` was the price minus the *untaxed*
+  marginal cost, read off the price *users* pay. Under a tax on production it
+  reported the tax as rent, even with the ceiling slack; for an Armington
+  product it reported the gap between the user and the producer price. It is
+  now the multiplier of the ceiling: the producer price minus the taxed
+  marginal cost, zero unless the ceiling binds.
+
 ### Changed
 - The solver is chosen with the `solver` keyword of `solve_market`, which
   replaces `optimizer`.
@@ -32,6 +43,14 @@ breaking changes.
   may move at no cost takes a route priced `0.0`.
 
 ### Added
+- `jump_model(d)` returns the JuMP model `solve_market` would solve, built but
+  not solved, so `print(jump_model(d))` shows the program in full. It takes the
+  same solver keywords as `solve_market`. Every constraint is now named
+  (`balance[r,p]`, `trade_limit[name]`, …), as the variables already were.
+- A `MarketData` displays as a summary of the economy: what is supplied,
+  consumed, made, used and traded of each product, the processes as a chart
+  ordered by stage, the routes and their costs, the Armington specifications,
+  the trade limits and the taxes and subsidies.
 - `solve_market(d; solver_options = ...)` passes options to the solver, as a
   `NamedTuple`, a `Dict` or a vector of pairs, keyed by the solver's own option
   names or by MOI attributes. They are set last, so they override the

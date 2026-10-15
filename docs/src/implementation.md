@@ -202,7 +202,8 @@ elasticity, the groups and the shares differ between importing markets.
 
 A [`Process`](@ref)'s `capacity` is an upper bound on ``z_{r,k}``, and a
 [`SupplySpec`](@ref)'s on ``S_{r,p}``; both are bounds on variables, so the
-quasi-rent of a binding one is the variable's reduced cost. A
+quasi-rent of a binding one is the multiplier of the bound, which is the
+variable's reduced cost while the variable is off zero. A
 [`TradeLimit`](@ref) is a constraint instead, since it spans several flows:
 
 ```math
@@ -336,6 +337,19 @@ of it.
     reported as such. Adding a zero-cost process that consumes it is how to ask
     for free disposal instead; see
     [Joint products and residues](@ref).
+
+## Seeing the model
+
+`build_model` (internal) builds the JuMP model and returns it with the
+variables and constraints the results are read from; `solve_once` solves what
+it returns, and [`jump_model`](@ref) hands it to the user unsolved. Every
+variable and every constraint is named — the balances `balance[r,p]` and
+`origin_balance[r,p]`, the CES aggregators `input_nest[r,k]`,
+`demand_group[r]`, `origin_group[p,r]` and `armington[p,r]`, and
+`trade_limit[name]` — so `print(jump_model(d))` can be read against the
+formulation above. A per-unit demand tax of zero is left out of the objective
+rather than written as a term that is zero, which would only make the printed
+model harder to read.
 
 ## Results extraction
 

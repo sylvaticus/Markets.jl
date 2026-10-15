@@ -178,11 +178,15 @@ interesting quantity, and the one a pure shifter cannot produce. Doubling a
 shifter doubles supply at every price; a ceiling says that beyond a point no
 price will buy more.
 
-The rent is the price minus what the curve says the last unit cost:
+The rent is the price producers get minus what the curve says the last unit
+cost, taxes on production included:
 
 ```julia
-rent = price - s.p0 * (S / (s.shift * s.q0))^(1 / s.elasticity)
+rent = producer_price - ((1 + t_rel) * s.p0 * (S / (s.shift * s.q0))^(1 / s.elasticity) + t_abs)
 ```
+
+which is the multiplier of the ceiling, and is how `Results.supply` reports it:
+zero whenever the ceiling does not bind.
 
 A ceiling set above what would have been produced anyway changes nothing, so it
 is safe to carry one on every curve that has a known physical limit.

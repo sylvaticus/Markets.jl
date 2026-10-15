@@ -76,7 +76,7 @@ function validate(d::MarketData)
     allunique(names) || fail("these processes are declared more than once: " *
                              "$(join(duplicates(names), ", "))")
     for proc in d.processes
-        proc.regions == "all" || for r in proc.regions
+        proc.regions == "all" || for r in regions_of(proc, d)
             check_region(r, "process $(proc.name)")
         end
         for nest in proc.inputs, p in nest.products

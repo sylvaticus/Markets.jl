@@ -237,12 +237,12 @@ function armington_quantity(m, node, p::String, r::String, X, floor_at, in_power
     if isinf(node.sigma)
         # perfect substitutes: the group is one good, pooled by plain addition
         # (the limit of the CES below, where δ^(1/σ) → 1 and ρ → 1)
-        @constraint(m, sum(qs) >= composite)
+        @constraint(m, sum(qs) >= composite, base_name = "origin_group[$p,$r]")
     else
         ρ = (node.sigma - 1) / node.sigma
         aggr = @expression(m, sum(node.shares[i]^(1 / node.sigma) * qs[i]^ρ
                                   for i in eachindex(qs)))
-        @constraint(m, aggr^(1 / ρ) >= composite)
+        @constraint(m, aggr^(1 / ρ) >= composite, base_name = "origin_group[$p,$r]")
     end
     return composite
 end
@@ -276,12 +276,12 @@ function demand_quantity(m, node, r::String, D, floor_at, start, in_power::Bool 
     if isinf(node.sigma)
         # perfect substitutes: one good to the consumer, so the composite is
         # the plain sum, which is the limit of the CES below
-        @constraint(m, sum(qs) >= composite)
+        @constraint(m, sum(qs) >= composite, base_name = "demand_group[$r]")
     else
         ρ = (node.sigma - 1) / node.sigma
         aggr = @expression(m, sum(weights[i]^(1 / node.sigma) * qs[i]^ρ
                                   for i in eachindex(qs)))
-        @constraint(m, aggr^(1 / ρ) >= composite)
+        @constraint(m, aggr^(1 / ρ) >= composite, base_name = "demand_group[$r]")
     end
     return composite
 end
@@ -310,17 +310,16 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Build the JuMP model for `d` and solve it once, with the ad valorem trade
-tariffs held at the money equivalents given in `tariff`.
+Build the JuMP model for `d`, with the ad valorem trade tariffs held at the
+money equivalents given in `tariff`, and return it with the variables and
+constraints the result tables are read from.
 
-Internal: [`solve_market`](@ref) is the entry point, and is what validates the
-economy, acts on the solver's verdict and iterates this function when an ad
-valorem rate on trade has to be found by fixed point.
+Internal: [`jump_model`](@ref) is what a user calls to see the model, and
+[`solve_once`](@ref) what solves it.
 """
-function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Float64};
-                    solver = Ipopt.Optimizer, solver_options = (;),
-                    silent::Bool = true, qfloor::Union{Nothing,Real} = nothing,
-                    tol::Real = 1e-3 * quantity_scale(d))
+function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Float64};
+                     solver = Ipopt.Optimizer, solver_options = (;),
+                     silent::Bool = true, qfloor::Union{Nothing,Real} = nothing)
     # The floor exists so that a variable raised to a power below 1 is never
     # differentiated at zero. What counts as "near zero" depends on the
     # variable: a millionth of what the data says that variable should be is
@@ -444,7 +443,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
         isempty(covered) && @warn "trade limit $(limit.name) covers no flow of this economy"
         trade_limit[limit.name] = @constraint(m,
             sum(get(limit.weights, k[1], 1.0) * flow_vars[k] for k in covered;
-                init = 0.0) <= limit.capacity)
+                init = 0.0) <= limit.capacity, base_name = "trade_limit[$(limit.name)]")
     end
 
     # --- assemble per-(region,product) sources & uses -----------------------
@@ -475,12 +474,14 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
                 # uniform (and total physical input = composite·z), so the dual
                 # prices reproduce the genuine marginal cost of production.
                 if isinf(nest.sigma)
-                    @constraint(m, nest.phi * sum(qs) >= nest.composite * zk)
+                    @constraint(m, nest.phi * sum(qs) >= nest.composite * zk,
+                                base_name = "input_nest[$r,$(proc.name)]")
                 else
                     ρ = (nest.sigma - 1) / nest.sigma
                     aggr = @expression(m, sum(nest.shares[i]^(1 / nest.sigma) * qs[i]^ρ
                                               for i in eachindex(qs)))
-                    @constraint(m, nest.phi * aggr^(1 / ρ) >= nest.composite * zk)
+                    @constraint(m, nest.phi * aggr^(1 / ρ) >= nest.composite * zk,
+                                base_name = "input_nest[$r,$(proc.name)]")
                 end
             end
         end
@@ -508,21 +509,24 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
             if (p, r) in can
                 ships = @expression(m, sum(X[(p, r, dst)] for dst in d.regions
                                            if haskey(X, (p, r, dst)); init = 0.0))
-                origin_balance[(r, p)] = @constraint(m, src - ships == 0.0)
+                origin_balance[(r, p)] = @constraint(m, src - ships == 0.0,
+                                                        base_name = "origin_balance[$r,$p]")
             end
             # where the region uses the product, the composite covers those
             # uses and is the (possibly nested) CES aggregate of the varieties
             # bought: one composite variable and one constraint per group
             if haskey(A, (p, r))
-                balance[(r, p)] = @constraint(m, A[(p, r)] - use == 0.0)
+                balance[(r, p)] = @constraint(m, A[(p, r)] - use == 0.0,
+                                              base_name = "balance[$r,$p]")
                 @constraint(m, armington_quantity(m, tree_of[(p, r)], p, r, X, floor_at) >=
-                               A[(p, r)])
+                               A[(p, r)], base_name = "armington[$p,$r]")
             end
         else
             # homogeneous product: imports into r minus exports from r
             imp = @expression(m, sum(T[(p, o, r)] for o in d.regions if haskey(T, (p, o, r)); init = 0.0))
             exp = @expression(m, sum(T[(p, r, o)] for o in d.regions if haskey(T, (p, r, o)); init = 0.0))
-            balance[(r, p)] = @constraint(m, src + imp - use - exp == 0.0)
+            balance[(r, p)] = @constraint(m, src + imp - use - exp == 0.0,
+                                          base_name = "balance[$r,$p]")
         end
     end
 
@@ -543,13 +547,17 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
     cons_benefit = @expression(m, sum(
         let w = 1 + demand_relative_tax(d, s),
             a = s.p0 * (s.shift * s.q0)^(1 / s.elasticity) / w,
-            e = 1 - 1 / s.elasticity
-            (abs(e) < 1e-8 ? a * log(C) : (a / e) * C^e) -
+            e = 1 - 1 / s.elasticity,
             # per-unit rates are charged on each product's own quantity: the
             # composite is an index, and a tax per m³ is not a tax per index
             # point unless every member happens to cost the same
-            sum(tax_rates(d.taxes, "demand"; product = p, region = s.region).absolute /
-                w * D[(s.region, p)] for p in nest_products(s.product))
+            taxed = [(tax_rates(d.taxes, "demand"; product = p, region = s.region).absolute, p)
+                     for p in nest_products(s.product)],
+            benefit = abs(e) < 1e-8 ? a * log(C) : (a / e) * C^e
+            # untaxed curves are left without the term, which would only print
+            # as a string of zeros in `jump_model`
+            all(iszero(first(t)) for t in taxed) ? benefit :
+                benefit - sum(t / w * D[(s.region, p)] for (t, p) in taxed)
         end for (s, C) in composites))
     # A tax on production sits between the market price and what the producer
     # keeps, so it raises the marginal cost the market has to cover.
@@ -572,10 +580,49 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
 
     @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost)
 
-    wall_time = @elapsed optimize!(m)
+    return m, (D = D, S = S, z = z, T = T, X = X, balance = balance,
+               origin_balance = origin_balance, trade_limit = trade_limit)
+end
 
-    return build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit,
-                         tariff, tol, wall_time)
+"""
+$(TYPEDSIGNATURES)
+
+Build the JuMP model for `d` and solve it once, with the ad valorem trade
+tariffs held at the money equivalents given in `tariff`.
+
+Internal: [`solve_market`](@ref) is the entry point, and is what validates the
+economy, acts on the solver's verdict and iterates this function when an ad
+valorem rate on trade has to be found by fixed point.
+"""
+function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Float64};
+                    tol::Real = 1e-3 * quantity_scale(d), model_options...)
+    m, v = build_model(d, tariff; model_options...)
+    wall_time = @elapsed optimize!(m)
+    return build_results(d, m, v.D, v.S, v.z, v.T, v.X, v.balance, v.origin_balance,
+                         v.trade_limit, tariff, tol, wall_time)
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The JuMP model that [`solve_market`](@ref) would solve for the economy `d`,
+built but not solved: `print(jump_model(d))` shows its variables, objective
+and constraints in full, and `latex_formulation(jump_model(d))` the same in
+LaTeX.
+
+`d` is validated first, as `solve_market` does, and the keywords are those of
+`solve_market` that shape the model — `solver`, `solver_options`, `silent`
+and `qfloor` — so the model comes back with its solver attached and can be
+modified and solved with JuMP directly.
+
+An **ad valorem tax on trade** is not in the objective: it is a fraction of a
+price, which is a dual of the problem, and `solve_market` finds its money
+equivalent by solving repeatedly. The model here is the first of those solves,
+with those tariffs at zero. Every other tax is in it as it will be solved.
+"""
+function jump_model(d::MarketData; kwargs...)
+    validate(d)
+    return first(build_model(d, Dict{Tuple{String,String,String},Float64}(); kwargs...))
 end
 
 """

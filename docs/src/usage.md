@@ -348,6 +348,43 @@ base. `Results.taxes` reports what each raises — which matters, because a taxe
 objective counts the revenue as a cost rather than a transfer and so is no
 longer welfare. See [Taxes, subsidies and other wedges](@ref).
 
+## Looking at an economy
+
+Typing the name of a `MarketData` in the REPL prints a summary of it: what is
+supplied, consumed, made and used of each product, the processes in the order
+they chain into one another (stage 1 uses only primary products, stage 2 also
+the outputs of stage 1, and so on), the trade routes and their costs, the
+Armington specifications, the trade limits and the taxes and subsidies. For
+the forest example:
+
+```
+Transformations, by stage
+  1  sawmill_sw  swr ────────────────────────────────────────→ 0.5 sawn_sw + 0.35 chips   cost 40
+  1  plymill     2 CES(swr, hwr; σ 1.8) ─────────────────────→ plywood + 0.8 chips        cost 180
+  2  panelmill   1.3 CES(chips, smallwood, swr, hwr; σ 2.5) ─→ panel                      cost 120
+  2  pulpmill    4 CES(swr, hwr, chips, smallwood; σ 1.8) ───→ pulp
+                 cost 300 · in SWF, OF, EU, NA, AS, RW
+  3  papermill   1.1 pulp ───────────────────────────────────→ paper                      cost 200
+```
+
+The mathematical program the economy becomes is returned, built but not
+solved, by [`jump_model`](@ref):
+
+```julia
+m = jump_model(market)      # the JuMP model solve_market would solve
+print(m)                    # objective, balances, bounds, in full
+latex_formulation(m)        # the same, in LaTeX (needs `using JuMP`)
+```
+
+Its variables and constraints are named after what they stand for —
+`D[EU,paper]`, `S[SWF,swr]`, `z[EU,papermill]`, `balance[EU,paper]`,
+`trade_limit[landes_evacuation]` — and it takes the same `solver`,
+`solver_options`, `silent` and `qfloor` keywords as `solve_market`, so it can
+be modified and solved with JuMP directly. An ad valorem tax on trade is the
+one thing missing from it: `solve_market` finds its money equivalent by
+solving repeatedly, and the model returned is the first of those solves, with
+the tax at zero.
+
 ## Solving
 
 ```julia

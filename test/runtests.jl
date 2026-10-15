@@ -117,6 +117,78 @@ end
     @test JuMP.get_attribute(own.model, "constr_viol_tol") == 1e-3
 end
 
+@testset "Looking at an economy before solving it" begin
+    d = MarketData(regions = [:A, :B, :C], products = [:log, :board, :chips, :panel],
+        supply = [SupplySpec(product = :log, region = r, p0 = 50, q0 = 10, elasticity = 1.0)
+                  for r in (:A, :B)],
+        demand = [[DemandSpec(product = :board, region = r, p0 = 200, q0 = 3, elasticity = 1.2)
+                   for r in (:A, :B, :C)];
+                  [DemandSpec(product = :panel, region = r, p0 = 200, q0 = 3, elasticity = 1.2)
+                   for r in (:A, :B)]],
+        processes = [Process(name = :sawmill, inputs = [leontief(product = :log, coeff = 2)],
+                             outputs = [:board => 1.0, :chips => 0.6], vacost = 30),
+                     Process(name = :panelmill, regions = :B, capacity = Dict(:B => 4.0),
+                             inputs = [ces(composite = 1.2, products = [:chips, :log], sigma = 2)],
+                             outputs = [:panel => 1.0], vacost = 20),
+                     disposal(product = :chips)],
+        transport_costs = Dict((:board, :A, :C) => 5.0, (:board, :C, :A) => 5.0,
+                               (:board, :B, :C) => 7.0, (:panel, :B, :A) => 4.0),
+        trade_limits = [TradeLimit(name = :ferry, from = :B, capacity = 2.0)],
+        taxes = [Tax(name = :mill_aid, on = :process, process = :panelmill, rate = -3.0),
+                 Tax(name = :duty, on = :trade, product = :board, to = :C, rate = 0.1,
+                     relative = true)])
+
+    @testset "the JuMP model is the one solve_market solves" begin
+        m = jump_model(d)
+        @test m isa JuMP.Model
+        @test termination_status(m) == Markets.MOI.OPTIMIZE_NOT_CALLED
+        # balances and limits are named, so the printed model can be read
+        @test JuMP.constraint_by_name(m, "balance[A,board]") isa JuMP.ConstraintRef
+        @test JuMP.constraint_by_name(m, "trade_limit[ferry]") isa JuMP.ConstraintRef
+        @test occursin("balance[C,panel]", sprint(print, m))
+        # the ad valorem duty is found by iteration, so it is not in the model;
+        # without it the model is exactly the first of solve_market's solves
+        free = MarketData(; (f => getfield(d, f) for f in fieldnames(MarketData))...,
+                          taxes = d.taxes[1:1])
+        JuMP.optimize!(m)
+        @test objective_value(m) ≈ solve_market(free).objective rtol = 1e-6
+        @test JuMP.num_variables(m) == JuMP.num_variables(solve_market(d).model)
+        # the solver keywords are those of solve_market, and validation runs first
+        @test JuMP.get_attribute(jump_model(d; solver_options = (max_iter = 7,)),
+                                 "max_iter") == 7
+        @test_throws ArgumentError jump_model(MarketData(regions = [:A], products = [:x],
+            demand = [DemandSpec(product = :y, region = :A, p0 = 1, q0 = 1, elasticity = 1)]))
+    end
+
+    @testset "the summary says what the economy is" begin
+        @test sprint(show, d) == "MarketData(3 regions, 4 products, 3 processes)"
+        text = sprint(show, MIME"text/plain"(), d)
+        @test startswith(text, "MarketData: 3 regions, 4 products, 3 processes, 4 trade routes, 2 taxes")
+        # processes in the order they chain, with recipe, cost, bound and place
+        @test occursin(r"1  sawmill\s+2 log ─+→ board \+ 0.6 chips", text)
+        @test occursin(r"2  panelmill\s+1.2 CES\(chips, log; σ 2\) ─+→ panel\s+cost 20 · cap B 4 · in B", text)
+        @test occursin(r"2  dispose_chips\s+chips ─+→ \(disposed of\)", text)
+        # a route priced the same both ways is shown once
+        @test occursin("board  A⇄C 5, B→C 7", text)
+        @test occursin("panel  B→A 4", text)
+        @test occursin(r"ferry\s+≤ 2\s+all products\s+from B", text)
+        @test occursin(r"mill_aid\s+subsidy on process\s+3 per unit\s+panelmill", text)
+        @test occursin(r"duty\s+tax on trade\s+10% of the origin price\s+board to C", text)
+        # in a narrow terminal, a long route list becomes a count and a range
+        many = MarketData(regions = [:A, :B, :C], products = [:x],
+            transport_costs = Dict((:x, o, r) => 10.0 + (o < r) for o in ("A", "B", "C")
+                                   for r in ("A", "B", "C") if o != r))
+        wide = sprint(show, MIME"text/plain"(), many)
+        @test occursin("x  A→B 11, A→C 11, B→A 10, B→C 11, C→A 10, C→B 10", wide)
+        narrow = sprint(show, MIME"text/plain"(), many;
+                        context = (:limit => true, :displaysize => (24, 40)))
+        @test occursin("x  every route among 3 regions", narrow)
+        @test all(textwidth(l) <= 40 for l in split(narrow, "\n"))
+        # a process in one region is in that region, not in its letters
+        @test occursin(r"in B$"m, text)
+    end
+end
+
 @testset "A product may be supplied, consumed and used as an input at once" begin
     # :logs come out of the forest, and are either burnt as they are or sawn
     d = MarketData(
@@ -267,9 +339,12 @@ end
         # the price now exceeds the marginal cost on the curve: that gap is the
         # scarcity rent of the resource
         @test price(res, :A, :x) > on_curve(economy(supply_kw = (capacity = cap,)).supply[1], S)
+        @test only(res.supply.rent) ≈
+              price(res, :A, :x) - on_curve(economy(supply_kw = (capacity = cap,)).supply[1], S) rtol = 1e-5
         # a ceiling above what would be produced anyway changes nothing
         loose = solve_market(economy(supply_kw = (capacity = 10 * cap,)))
         @test getq(loose.production, :A, :x) ≈ getq(free.production, :A, :x) rtol = 1e-6
+        @test only(loose.supply.rent) == 0
     end
 
     @testset "shifters from drivers" begin
@@ -568,6 +643,30 @@ end
         rel = solve_market(economy([Tax(on = :supply, region = :A, rate = 0.2, relative = true)]))
         qr  = getq(rel.production, :A, :x)
         @test price(rel, :A, :x) ≈ 1.2 * s.p0 * (qr / s.q0)^(1 / s.elasticity) rtol = 1e-5
+    end
+
+    @testset "the scarcity rent is net of the tax" begin
+        q0  = getq(base.production, :A, :x)
+        mc(q) = 50 * (q / 30)^(1 / 0.8)
+        with_cap(taxes, cap) = (e = economy(taxes);
+            e.supply[1] = SupplySpec(product = :x, region = :A, p0 = 50, q0 = 30,
+                                     elasticity = 0.8, capacity = cap); e)
+        for (tax, taxed) in ((Tax(on = :supply, region = :A, rate = 6.0), q -> mc(q) + 6.0),
+                             (Tax(on = :supply, region = :A, rate = 0.2, relative = true),
+                              q -> 1.2 * mc(q)))
+            # a slack ceiling earns nothing, however the production is taxed
+            slack = solve_market(with_cap([tax], 3 * q0))
+            @test solved(slack)
+            @test getq(slack.supply, :A, :x) < 3 * q0
+            @test only(slack.supply[slack.supply.region .== "A", :rent]) == 0
+            # a binding one earns the gap between the price and the *taxed* cost
+            tight = solve_market(with_cap([tax], 0.5 * q0))
+            @test solved(tight)
+            q = getq(tight.supply, :A, :x)
+            @test q ≈ 0.5 * q0 rtol = 1e-6
+            @test only(tight.supply[tight.supply.region .== "A", :rent]) ≈
+                  price(tight, :A, :x) - taxed(q) rtol = 1e-5
+        end
     end
 
     @testset "a tax on consumption is a wedge above the price" begin
@@ -913,6 +1012,24 @@ end
         # no origin left with a positive share for destination A
         @test_throws ArgumentError solve_market(economy([Armington(product = :x, sigma = 2,
                                                    shares = Dict((:A, :B) => 1.0))]))
+    end
+
+    @testset "the scarcity rent is read off the producer price" begin
+        with_cap(cap) = (e = economy([Armington(product = :x, sigma = 3)]);
+            e.supply[1] = SupplySpec(product = :x, region = :A, p0 = 50, q0 = 30,
+                                     elasticity = 1.0, capacity = cap); e)
+        q0 = getq(solve_market(with_cap(Inf)).supply, :A, :x)
+        # slack: users pay more than producers get, and that gap is no rent
+        slack = solve_market(with_cap(3 * q0))
+        @test solved(slack)
+        @test price(slack, :A, :x) > pprice(slack, :A, :x) + 1
+        @test only(slack.supply[slack.supply.region .== "A", :rent]) == 0
+        # binding: the rent is the producer price less the cost on the curve
+        tight = solve_market(with_cap(0.5 * q0))
+        @test solved(tight)
+        q = getq(tight.supply, :A, :x)
+        @test only(tight.supply[tight.supply.region .== "A", :rent]) ≈
+              pprice(tight, :A, :x) - 50 * q / 30 rtol = 1e-5
     end
 end
 
