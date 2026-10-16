@@ -110,7 +110,7 @@ Two further fields carry the conditions of production:
   [`exogenous_shift`](@ref) turns driver levels and their elasticities into the
   multiplier.
 * `capacity` is a hard ceiling that no price can pass — an allowable cut, a
-  quota, an exhausted resource. Where a shifter scales the curve, this
+  quota, an exhausted resource. Whereas a shifter scales the curve, this
   truncates it, and the price then rises above the marginal cost on the curve
   by the **scarcity rent** of the resource.
 
@@ -250,7 +250,7 @@ armington = [Armington(product = "paper", sigma = 4),             # equal shares
                             sigma = 4)
   ```
 
-  Omitted, every origin available to a destination gets an equal share. An
+  If omitted, every origin available to a destination gets an equal share. An
   origin with no share (or a share of 0) is left out of that destination's
   composite, and so can never gain trade later.
 * `sigma = Inf`, and any product not listed, is the homogeneous case above.
@@ -449,7 +449,7 @@ and the underlying JuMP model are kept in `res.data` and `res.model`.
 ## Worked examples
 
 [Two regions and a dairy](@ref) is the smallest complete model — two products,
-one process, one route, and a milk that is both drunk and turned into cheese —
+one process, one route, and milk that is both drunk and turned into cheese —
 and the place to start.
 
 The [forest example](@ref "The forest sector: France in the world") page builds
@@ -473,7 +473,7 @@ julia --project=. examples/forest/forest_market.jl
 ## How to amend an economy
 
 * **Add a product**: add its name to `products`; give it a `DemandSpec` and/or
-  `SupplySpec` where it is consumed or harvested; wire it into processes; list it
+  `SupplySpec` where it is consumed or harvested; wire it into processes;
   add `transport_costs` entries if it can be shipped.
 * **Add or change a process**: add a `Process`. Chains of any length are built by
   making the output of one process an input of another (e.g.

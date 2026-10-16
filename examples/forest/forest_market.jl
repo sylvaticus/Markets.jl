@@ -2,13 +2,19 @@
 #
 # This example builds a complete spatial partial-equilibrium model of the
 # forest-products sector with [Markets.jl](https://github.com/sylvaticus/Markets.jl)
-# and solves it. It is meant to be read top to bottom: every number the model
-# needs is introduced where it is used, and the result tables are shown as they
-# come out of the solver.
+# and solves it.
 #
-# The economy has **eight regions**. France is split into four, so that the
-# model can say something about French regional markets, and the rest of the
-# world into four blocs:
+# !!! warning "For illustrative purposes only"
+#     The data in this example are plausible, but they have not been
+#     calibrated to any real-world case.
+#
+#     Also, for simplicity, the model structure and the data are defined
+#     together here. In a real application, you will want to keep the
+#     _structure_ of your model separate from the _data_, and read the data
+#     from a separate file.
+#
+# The economy has **eight regions**. France is split into four regions, within
+# which products are homogeneous, and the rest of the world into four blocs:
 #
 # | | |
 # |:---|:---|
@@ -74,7 +80,7 @@ nothing # hide
 #
 # Two things in that picture are worth more than a passing glance.
 #
-# `chips` are a sawmill by-product *and* an input to three other mills, so the
+# `chips` are a sawmill and plymill by-product *and* an input to three other mills, so the
 # competition for residues is part of the equilibrium rather than an assumption
 # about it.
 #
@@ -131,7 +137,7 @@ nothing # hide
 #
 # Only finished products are consumed. The reference quantities are roughly
 # proportional to population and income, so `OF` — which holds two thirds of
-# the French population — is much the largest French market, and the reference
+# the French population — is much the largest French market; the reference
 # prices are those of the base year.
 
 reference = Dict(
@@ -142,7 +148,7 @@ reference = Dict(
                                 "EU" => 12.0, "NA" =>  20.0, "AS" => 60.0,  "RW" => 15.0)),
     "panel"     => (350.0,  Dict("SEF" => 0.90, "SWF" => 0.40, "GEF" => 0.40, "OF" => 2.80,
                                 "EU" => 45.0, "NA" =>  40.0, "AS" => 90.0,  "RW" => 25.0)),
-    ## plywood: veneers glued crosswise, dearer than a particleboard and used
+    ## plywood: veneers glued crosswise, dearer than particleboard and used
     ## where a panel has to carry a load
     "plywood"   => (450.0,  Dict("SEF" => 0.12, "SWF" => 0.06, "GEF" => 0.05, "OF" => 0.35,
                                 "EU" =>  6.0, "NA" =>  14.0, "AS" => 60.0,  "RW" =>  9.0)),
@@ -165,7 +171,7 @@ nothing # hide
 #
 # ### Products that compete for the same job
 #
-# Those six products are not six separate markets. Softwood lumber and panels
+# Those seven products are not seven separate markets. Softwood lumber and panels
 # do the same job in a building and a builder swaps one for the other readily;
 # hardwood lumber is a more distant substitute for either. Pellets and firewood
 # are the same heat in different packaging. Paper competes with nothing else
@@ -384,7 +390,7 @@ length(transport_costs)
 # oak would be no closer to French pine than to Asian hardwood, which is just
 # as wrong.
 #
-# What the data says is a **hierarchy**:
+# What the data say is a **hierarchy**:
 #
 # * inside France the product of one region is the *same good* as that of
 #   another — a m³ of Landes pine and a m³ of Vosges pine of the same grade are
@@ -452,7 +458,7 @@ nothing # hide
 
 # ## What cannot move, and what is taxed
 #
-# Two last things stand between the economy as described and the equilibrium.
+# Two final things stand between the economy as described and the equilibrium.
 #
 # Wood leaving the Landes has to be carried on the roads and through the ports
 # that are there. A [`TradeLimit`](@ref) caps the **sum** of the flows it
@@ -576,13 +582,6 @@ smallwood_use
 
 res.activity[res.activity.process .== "pelletmill", :]
 
-# France produces little of its own pellets here even though it has the wood,
-# because French wood is dearer than EU or RW wood and the mills have no
-# capacity bound to hold them in place. That is the sharpness that constant
-# returns to scale always produces in processing location — see
-# [What the model does not constrain](@ref) — and it is the part of this
-# example to treat with the most caution.
-
 # ## Trade
 #
 # The ten largest flows:
@@ -605,7 +604,7 @@ french_trade = combine(groupby(
 # than assuming.
 #
 # First, **no cross-hauling**: two regions never ship the same product to each
-# other at once, because for an identical good that would be pure waste of
+# other at once, because for an identical good that would be a pure waste of
 # freight. Indeed, the only flows inside France are of pulp, and they run one
 # way:
 

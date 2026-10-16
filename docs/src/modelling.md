@@ -19,7 +19,7 @@ Under perfect competition, the competitive spatial equilibrium is the solution
 of a single optimisation that maximises **net social surplus**. The problem was
 posed by [Enke (1951)](@ref enke1951) — who solved it by building an electrical
 circuit — turned into an optimisation by [Samuelson (1952)](@ref samuelson1952),
-and given the programming formulation everything since has used by
+and given the programming formulation everything since has used, by
 [Takayama & Judge (1964)](@ref takayama1964). The same formulation, applied to
 the global forest sector, is what [[C3]](@ref C3) solves:
 
@@ -153,7 +153,7 @@ forest each period and must not touch the fitted curve.
 
 !!! note "Quantity shifters and cost shifters are the same thing here"
     A road that opens a stand does not create timber, it lowers the cost of
-    reaching it — a *cost* shifter, not a quantity one. With an iso-elastic
+    reaching it — a *cost* shifter, not a quantity one. With an isoelastic
     curve the distinction collapses: multiplying the quantity by ``m`` is
     exactly multiplying the marginal cost by ``m^{-1/\varepsilon}``, since
     ``b = p_0 (m q_0)^{-1/\varepsilon}``. With ``\varepsilon = 0.5``, offering
@@ -207,8 +207,8 @@ making the resource a product and harvesting a process:
 This is how a computable general equilibrium model treats factors of
 production, and it is the honest route when the question is about the factors
 themselves — the effect of a labour shortage, of a machinery subsidy, of a road
-programme. The price is the data: factor shares and factor prices by region,
-which a reduced-form shifter does not need.
+programme. The price to pay is the data: factor shares and factor prices by
+region, which a reduced-form shifter does not need.
 
 ### Choosing
 
@@ -812,7 +812,7 @@ produced last year, and at what price, what is the model for?
 
 The answer is that an observation is a **point**, and a point with an
 elasticity attached is a **curve**. The model never tells you the base year —
-you measured it. It tells you where the curve's intersection moves when
+you measured it. It tells you where the curves' intersection moves when
 something changes, and it does so for every product, region and process at
 once, with material balance, zero profit and no-arbitrage all holding
 simultaneously. That joint consistency is the thing no observation can give
@@ -821,7 +821,7 @@ you, because it is a property of the system rather than of any one market.
 ### A consistent benchmark is a fixed point
 
 There is a sharp way to see what calibration does. If the data you anchor on
-*is* an equilibrium, the model reproduces it exactly and adds nothing:
+*are* an equilibrium, the model reproduces them exactly and adds nothing:
 
 ```
 A  lumber   price 163.8222 → 163.8222    relative difference 2.6e-15
@@ -832,7 +832,7 @@ A  logs     price  56.9111 →  56.9111    relative difference 1.1e-12
 That is *benchmark replication*, and reproducing it is the standard test that
 the data and the structure agree with each other.
 
-Real data never is an equilibrium — it carries measurement error, aggregation
+Real data are never an equilibrium — they carry measurement error, aggregation
 over products and periods, margins the model does not represent, and markets
 that were not clearing. Anchor one price 5% away from its consistent value and
 the model refuses to return it:
@@ -844,7 +844,7 @@ A  logs     anchored at  56.911   model returns  58.31   gap 2.5%
 
 It splits the difference, because your numbers cannot all be true at once. That
 gap is not a nuisance: it is the model telling you so, and its size is a
-measure of how far your data is from being a coherent description of a market.
+measure of how far your data are from being a coherent description of a market.
 
 ### What is actually calibrated
 

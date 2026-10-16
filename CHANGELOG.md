@@ -72,7 +72,7 @@ breaking changes.
   added. Five references were added with it.
 - A **Calibration** section in the modelling documentation: what calibration
   buys you, that a consistent benchmark is a fixed point while inconsistent
-  data is not, which parameters are actually calibrated, and why a multi-period
+  data are not, which parameters are actually calibrated, and why a multi-period
   run must never re-anchor `p0`/`q0` on its own output.
 - A **References** documentation page carrying two lists: the theory behind
   each concept, cited as *Author (year)*, and open-source implementations of

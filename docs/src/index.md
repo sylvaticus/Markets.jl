@@ -1,35 +1,11 @@
 # Markets.jl
 
-!!! danger "NOT RELEASED — UNDER ACTIVE DEVELOPMENT AND VALIDATION"
-    **This model is not finished, not calibrated and not validated. Do not use
-    its results for anything that matters yet.**
+!!! warning "Pre-release: under active development and validation"
+    This project is at a _proof-of-concept_ stage and has not been released. A substantial part of it was generated with the assistance of an AI model and is still being reviewed.
+    Both the modelling framework (its assumptions and equations) and its software implementation are currently undergoing verification and validation.
 
-    * **It is not released.** The current version, 0.1.0, is not registered,
-      and the API changes between commits without notice.
-    * **`Pkg.add("Markets")` installs a different model.** The registry still
-      has v0.0.1, the 2022 equation-system formulation that this version
-      replaced entirely — see
-      [Previous formulation (v0.0.1)](@ref). Install from the repository
-      instead.
-    * **Nothing here is calibrated.** Every elasticity, share, cost and
-      reference quantity in the forest example is illustrative — plausible in
-      order of magnitude, fitted to nothing. No part of the model has been
-      confronted with observed data, and the shares of the example's Armington
-      nests come from a gravity rule rather than from a trade matrix.
-    * **What *is* checked** is the internal logic. The test suite verifies the
-      equilibrium conditions themselves: prices equal to inverse demand and to
-      marginal cost, zero profit on active processes, no-arbitrage across trade
-      routes, the CES demand and price-index conditions, and the limits in
-      which the Armington formulation collapses to the homogeneous one. That
-      makes the model internally coherent. It does not make it right about the
-      world.
-    * **Read some results more cautiously than others.** Processes have
-      constant returns, so processing location does not respond smoothly to
-      processing costs unless the output is an [`Armington`](@ref) product or
-      the process is given a capacity; see
-      [Why processes, and not supply and demand per transformation](@ref).
-      The forest example does both, but a model that does neither should have
-      its geography of milling read far more cautiously than its prices.
+    - Results have not yet been validated and should not be used for publications, policy advice, or operational decisions.
+    - The API may change without notice and without backward compatibility.
 
 Markets.jl solves a **spatial partial-equilibrium model** of an economic sector
 made of an arbitrary set of products, regions and transformation processes.

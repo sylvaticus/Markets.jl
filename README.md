@@ -17,7 +17,7 @@ arbitrary set of products, regions and transformation processes, with partial su
 > implementation are currently undergoing verification and validation.
 >
 > - Results have not yet been validated and should not be used for publications, policy advice, or operational decisions.
-> - The API may change without notice and without  backward compatibility.
+> - The API may change without notice and without backward compatibility.
 >
 > Feedback and bug reports are welcome via [Issues](../../issues).
 
@@ -102,7 +102,7 @@ parts: *Using the module*, two worked *Examples*, *Modelling choices*,
 
 - Orchestrator: Antonello Lobianco
 - AI implementation: Opus 5.5 (Anthropic)
-- Validation comitee: TO BE DEFINED 
+- Validation committee: TO BE DEFINED 
 
 ## Authorship
 

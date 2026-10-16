@@ -322,7 +322,7 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
                      silent::Bool = true, qfloor::Union{Nothing,Real} = nothing)
     # The floor exists so that a variable raised to a power below 1 is never
     # differentiated at zero. What counts as "near zero" depends on the
-    # variable: a millionth of what the data says that variable should be is
+    # variable: a millionth of what the data say that variable should be is
     # negligible for it, whatever the other quantities in the economy are. A
     # single absolute floor would instead be set by the smallest product in the
     # model and applied to the largest. Passing `qfloor` explicitly overrides

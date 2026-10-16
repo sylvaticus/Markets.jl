@@ -191,8 +191,8 @@ destination. The origins available to the destination are collected first, each
 with its share; every group is then reduced to the available origins it holds,
 groups that keep none are dropped and groups left with one member collapse into
 it. Each node's shares are the summed shares of the origins beneath each child,
-normalised among siblings — so the data stays a plain bilateral matrix and the
-nesting only says how it is read.
+normalised among siblings — so the data stay a plain bilateral matrix and the
+nesting only says how they are read.
 
 The specification applied to a (product, destination) pair is the one whose
 `destination` names it, or the `"all"` one otherwise, which is what lets the
@@ -213,7 +213,7 @@ variable's reduced cost while the variable is off zero. A
 with ``F`` standing for the trade variable of a homogeneous product or the
 cross-border variety of an Armington one, and ``w_p`` the weight that converts
 quantities into the unit the ceiling is written in. Its dual is the congestion
-rent, and on a route it throttles the price gap becomes transport plus that
+rent, and on a route it throttles, the price gap becomes transport plus that
 rent rather than transport alone.
 
 ### Substitutes in final demand
@@ -251,7 +251,7 @@ The first three are exact in one solve. The fourth is exact for ``t_a``; the ad
 valorem part is a fraction of ``\pi^s_{p,o}``, a dual, so `solve_market` runs
 `solve_once` repeatedly, each pass holding the tariff at the money equivalent
 implied by the previous pass's producer prices, until successive passes agree
-to `tax_tolerance`. At the fixed point the wedge equals the rate times the
+to within `tax_tolerance`. At the fixed point the wedge equals the rate times the
 origin price by construction, which is what a tariff means.
 
 That loop is successive substitution, and it converges only where the map
