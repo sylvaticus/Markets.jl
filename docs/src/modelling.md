@@ -195,7 +195,8 @@ is safe to carry one on every curve that has a known physical limit.
 
 The two devices above are reduced-form: the curve is estimated, and the drivers
 move it. The alternative is to derive supply from the technology instead, by
-making the resource a product and harvesting a process:
+making the resource a product and its extraction a process. In a forest
+model, for example:
 
 * the standing stock becomes a product with its own curve or endowment, bounded
   by `capacity`;
@@ -210,6 +211,11 @@ themselves — the effect of a labour shortage, of a machinery subsidy, of a roa
 programme. The price to pay is the data: factor shares and factor prices by
 region, which a reduced-form shifter does not need.
 
+The [forest example](@ref "The forest sector: France in the world") takes the
+reduced-form route instead: its roundwood comes from supply curves, and its
+storm scenario moves one of them through its `shift` rather than modelling the
+forest itself.
+
 ### Choosing
 
 | Driver | Device |
@@ -221,7 +227,7 @@ region, which a reduced-form shifter does not need.
 | Income, population | shifter on demand |
 | Storm salvage, recovered fibre | a separate inelastic curve with a ceiling |
 
-The sensible default for a sector model is the first column of devices, with
+The sensible default for a sector model is the second column of devices, with
 ceilings wherever a physical limit is known, and the structural route reserved
 for the questions that are really about factors.
 
