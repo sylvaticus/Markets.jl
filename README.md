@@ -100,18 +100,16 @@ The [documentation](https://sylvaticus.github.io/Markets.jl/dev/) has five
 parts: *Using the module*, two worked *Examples*, *Modelling choices*,
 *Code implementation* (with the API reference), and *References*.
 
-## Authorship
+## Authorship and implementation
 
-- Orchestrator: Antonello Lobianco
-- AI implementation: Opus 5.5 (Anthropic)
-- Validation committee: TO BE DEFINED 
 
-## Authorship
-
+**Authorship**
 | Role | Contributor |
 |------|-------------|
 | Conception, design, and supervision | Antonello Lobianco |
-| Implementation (AI-assisted) | Claude Opus 5.5 (Anthropic) |
-| Validation and co-design committee | To be formed. [Contact me](mailto:antonello.lobianco@agroparistech.fr) if you are interested.|
+| Validation and co-design committee | To be formed.|
+
+**Implementation (AI-assisted)**
+Claude Opus 5.5 (Anthropic)
 
 Antonello Lobianco is responsible for the scientific content of this project and accountable for any errors, including those in AI-generated code.
