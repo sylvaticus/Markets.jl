@@ -24,8 +24,8 @@ compensated cross-price elasticity of product `i` with respect to the price of
 `j` is ``\\sigma s_j``, with `s_j` the value share of `j`, so a large supplier
 transmits its price more strongly than a small one at the same `sigma`.
 
-Substitution against goods **outside** the model — gas and oil against wood
-fuel, say — needs none of this. An exogenous price is a constant, so its effect
+Substitution against goods **outside** the model — public transport against
+cars, say — needs none of this. An exogenous price is a constant, so its effect
 is a shift of the whole curve: use `shift` with [`exogenous_shift`](@ref) and
 the cross-price elasticity as the driver elasticity.
 
@@ -34,11 +34,11 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-## sawn softwood and panels are close substitutes in construction; sawn
-## hardwood is a more distant one for both
-DemandNest(sigma = 1.6, products = ["sawn_hw"], shares = [0.25],
+## petrol and diesel cars are close substitutes; an electric car is a more
+## distant one for both
+DemandNest(sigma = 1.6, products = ["electric_car"], shares = [0.25],
            nests = [DemandNest(sigma = 5.0, share = 0.75,
-                               products = ["sawn_sw", "panel"],
+                               products = ["petrol_car", "diesel_car"],
                                shares   = [0.65, 0.35])])
 ```
 """
@@ -106,7 +106,7 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-DemandSpec(product = "sawn_sw", region = "EU", p0 = 250, q0 = 90, elasticity = 1.3)
+DemandSpec(product = "gasoline", region = "EU", p0 = 900, q0 = 80, elasticity = 0.3)
 ```
 """
 Base.@kwdef struct DemandSpec
@@ -157,8 +157,8 @@ end
 """
 $(TYPEDEF)
 
-Constant-elasticity *primary* supply (e.g. roundwood from the forest, crude oil
-from wells, crops from land) for one product in one region, calibrated to pass
+Constant-elasticity *primary* supply (e.g. crude oil from wells, ore from a
+mine, fish from the sea, crops from land) for one product in one region, calibrated to pass
 through the reference point `(q0, p0)`.
 
 Inverse supply is `P = b · S^(1/ε)` with `b = p0 · q0^(-1/ε)`.
@@ -168,7 +168,7 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-SupplySpec(product = "swr", region = "NA", p0 = 65, q0 = 380, elasticity = 0.6)
+SupplySpec(product = "crude", region = "US", p0 = 550, q0 = 600, elasticity = 0.4)
 ```
 """
 Base.@kwdef struct SupplySpec
@@ -185,8 +185,8 @@ Base.@kwdef struct SupplySpec
     """
     Multiplicative shifter of the whole curve: the quantity supplied at any
     given price is `shift` times what the reference point implies. It is how
-    the exogenous conditions of production enter — the growing stock, the
-    road network, the labour and machinery available — leaving `q0` to hold
+    the exogenous conditions of production enter — the size of the resource,
+    the roads and ports, the labour and machinery available — leaving `q0` to hold
     the calibration. [`exogenous_shift`](@ref) builds one from drivers and
     their elasticities. The default, 1, is the calibrated curve itself
     """
@@ -237,17 +237,16 @@ once the curve itself has been estimated.
 
 # Example
 ```julia
-# a forest with 18% more standing volume than at calibration, and a slightly
-# denser road network
+# a cod stock 18% larger than at calibration, and a slightly larger fleet
 shift = exogenous_shift(
-    growing_stock = (level = 118.0, reference = 100.0, elasticity = 0.6),
-    road_density  = (level = 1.05,  reference = 1.0,   elasticity = 0.25))
+    stock = (level = 118.0, reference = 100.0, elasticity = 0.6),
+    fleet = (level = 1.05,  reference = 1.0,   elasticity = 0.25))
 
-SupplySpec(product = "swr", region = "SEF", p0 = 72, q0 = 3.2,
+SupplySpec(product = "cod", region = "EU", p0 = 3000, q0 = 300,
            elasticity = 0.40, shift = shift)
 ```
 """
-function exogenous_shift(; drivers...)
+function exogenous_shift(; drivers...) # verified 20261016 Antonello
     isempty(drivers) && throw(ArgumentError("give at least one driver"))
     shift = 1.0
     for (name, d) in pairs(drivers)
@@ -334,7 +333,7 @@ Build a fixed-coefficient (Leontief) input requirement: `coeff` units of
 
 # Example
 ```julia
-leontief(product = "pulp", coeff = 1.10)    # 1.1 t of pulp per t of paper
+leontief(product = "flour", coeff = 0.75)    # 0.75 t of flour per t of bread
 ```
 """
 leontief(; product::Name, coeff::Real) =
@@ -352,8 +351,9 @@ internally. `sigma` is the elasticity of substitution and must be `> 1`.
 
 # Example
 ```julia
-ces(composite = 1.30, products = ["chips", "swr", "hwr"],
-    shares = [0.55, 0.30, 0.15], sigma = 2.5)
+## 1.1 t of a mix of scrap and pig iron per tonne of steel
+ces(composite = 1.10, products = ["scrap", "pig_iron"],
+    shares = [0.4, 0.6], sigma = 2.0)
 ```
 """
 function ces(; composite::Real, products::AbstractVector,
@@ -378,9 +378,10 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-Process(name    = "sawmill_sw",
-        inputs  = [leontief(product = "swr", coeff = 1.0)],
-        outputs = ["sawn_sw" => 0.50, "chips" => 0.35],
+## a refinery splitting each tonne of crude into three fuels
+Process(name    = "refinery",
+        inputs  = [leontief(product = "crude", coeff = 1.0)],
+        outputs = ["gasoline" => 0.45, "diesel" => 0.35, "fuel_oil" => 0.15],
         vacost  = 40)
 ```
 """
@@ -395,7 +396,7 @@ Base.@kwdef struct Process
     inputs::Vector{Nest}
     """
     Outputs, as `product => yield` pairs per unit of activity. Several pairs
-    make a joint-production process (e.g. sawnwood *and* chips)
+    make a joint-production process (e.g. petrol *and* diesel from one refinery)
     """
     outputs::Vector{Pair{String,Float64}}
     "Regions where the process may operate, or `\"all\"` for every region"
@@ -406,7 +407,7 @@ Base.@kwdef struct Process
     """
     vacost::Float64 = 0.0
     """
-    Upper bound on the activity level — the installed capacity of the mills
+    Upper bound on the activity level — the installed capacity of the plants
     that exist. A single number applies to every region the process operates
     in; a `region => bound` dictionary sets them one by one, and a region
     absent from it is unbounded. `Inf` (the default) leaves the process
@@ -444,12 +445,12 @@ $(TYPEDFIELDS)
 # Example
 ```julia
 ## one product, one route
-TradeLimit(name = "pulp_terminal", products = "pulp", from = "RW", to = "EU",
+TradeLimit(name = "steel_quota", products = "steel", from = "CN", to = "EU",
            capacity = 12.0)
 
-## everything leaving the Landes, counted in tonnes through the weights
-TradeLimit(name = "atlantic_port", from = "SWF", capacity = 6.0,
-           weights = Dict("swr" => 0.8, "sawn_sw" => 0.55, "pellets" => 1.0))
+## everything shipped out of CN, counted in containers through the weights
+TradeLimit(name = "container_port", from = "CN", capacity = 6.0,
+           weights = Dict("cars" => 2.0, "steel" => 0.05, "wine" => 0.04))
 ```
 """
 Base.@kwdef struct TradeLimit
@@ -465,7 +466,7 @@ Base.@kwdef struct TradeLimit
     capacity::Float64
     """
     Per-product weights converting quantities into the unit the ceiling is
-    expressed in — tonnes per m³ for a port limit in tonnes, say. Products
+    expressed in — containers per tonne for a port limit in containers, say. Products
     absent from it count with a weight of 1, which is what a limit covering a
     single product, or products already in one unit, needs
     """
@@ -510,8 +511,8 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-# in this market, EU and NA products are near-interchangeable
-OriginNest(sigma = 12, origins = ["EU", "NA"])
+# in this market, EU and US products are near-interchangeable
+OriginNest(sigma = 12, origins = ["EU", "US"])
 ```
 """
 Base.@kwdef struct OriginNest
@@ -559,14 +560,14 @@ somewhere surprising.
 Adding a disposal route restores the usual assumption. With `cost = 0` the
 price of the product settles at zero rather than going negative, which is free
 disposal; with a positive `cost` it settles at minus that cost, which is
-disposal that has to be paid for — a landfill charge, an incinerator, the cost
-of leaving residues on the forest floor.
+disposal that has to be paid for — a landfill charge, an incinerator, a
+tailings dam.
 
 # Example
 ```julia
-processes = [sawmill, panelmill,
-             disposal(product = "chips"),                   # free disposal
-             disposal(product = "blackliquor", cost = 12)]  # paid disposal
+processes = [refinery, steel_mill,
+             disposal(product = "fuel_oil"),           # free disposal
+             disposal(product = "slag", cost = 12)]    # paid disposal
 ```
 """
 disposal(; product::Name, cost::Real = 0.0, regions = "all",
@@ -621,19 +622,19 @@ $(TYPEDFIELDS)
 # Example
 ```julia
 # moderate substitution, equal shares, same in every market
-Armington(product = "paper", sigma = 4)
+Armington(product = "wine", sigma = 4)
 
 # calibrated shares: 70% domestic, the rest split between the two other regions
-Armington(product = "paper", sigma = 4,
+Armington(product = "wine", sigma = 4,
           shares = merge(Dict((r, r) => 0.7 for r in regions),
                          Dict((o, r) => 0.15 for o in regions, r in regions if o != r)))
 
-# in the EU market, EU and NA sawnwood are near-interchangeable (shared grading
-# rules) while AS sawnwood is a distant substitute; elsewhere everything
+# in the EU market, EU and US cars are near-interchangeable (shared safety
+# standards) while CN cars are a distant substitute; elsewhere everything
 # substitutes freely
-Armington(product = "sawn_sw", destination = "EU", sigma = 2.5,
-          nests = [OriginNest(sigma = 12, origins = ["EU", "NA"])])
-Armington(product = "sawn_sw", destination = ["NA", "AS"], sigma = 8)
+Armington(product = "cars", destination = "EU", sigma = 2.5,
+          nests = [OriginNest(sigma = 12, origins = ["EU", "US"])])
+Armington(product = "cars", destination = ["US", "CN"], sigma = 8)
 ```
 """
 Base.@kwdef struct Armington
@@ -733,10 +734,10 @@ calibration.
 # Example
 ```julia
 shares = armington_shares(
-    flows  = Dict(("EU", "EU") => 80.0, ("NA", "EU") => 15.0, ("AS", "EU") => 5.0),
-    prices = Dict(("EU", "EU") => 210.0, ("NA", "EU") => 235.0, ("AS", "EU") => 250.0),
+    flows  = Dict(("EU", "EU") => 80.0, ("US", "EU") => 15.0, ("CN", "EU") => 5.0),
+    prices = Dict(("EU", "EU") => 210.0, ("US", "EU") => 235.0, ("CN", "EU") => 250.0),
     sigma  = 4)
-Armington(product = "paper", sigma = 4, shares = shares)
+Armington(product = "wine", sigma = 4, shares = shares)
 ```
 """
 function armington_shares(; flows::AbstractDict, prices::AbstractDict,
@@ -778,8 +779,8 @@ what one side of a transaction pays and what the other receives.
 | `"process"` | a transformation and its value-added cost | `process`, `region` |
 | `"trade"` | the price at the origin and the cost of landing a good | `product`, `from`, `to` |
 
-`rate` is per unit of the base when `relative` is `false` — per m³ harvested, per
-unit of activity, per m³ shipped — and a fraction of it when `relative` is
+`rate` is per unit of the base when `relative` is `false` — per tonne produced, per
+unit of activity, per tonne shipped — and a fraction of it when `relative` is
 `true`: of the price received for `"supply"`, of the price paid for `"demand"`, of
 the value-added cost for `"process"`, of the price at the origin for `"trade"`.
 Selectors left at `"all"` match everything, and several taxes may fall on the
@@ -805,10 +806,10 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-Tax(name = "harvest_levy",  on = "supply",  product = "swr", region = "SEF", rate = 4.0)
-Tax(name = "pellet_vat",    on = "demand",  product = "pellets", rate = 0.055, relative = true)
-Tax(name = "mill_subsidy",  on = "process", process = "pelletmill", region = "SWF", rate = -15.0)
-Tax(name = "paper_tariff",  on = "trade",   product = "paper", to = "EU", rate = 0.08,
+Tax(name = "oil_royalty",   on = "supply",  product = "crude", region = "US", rate = 4.0)
+Tax(name = "fuel_vat",      on = "demand",  product = "gasoline", rate = 0.2, relative = true)
+Tax(name = "green_steel",   on = "process", process = "steel_mill", region = "EU", rate = -15.0)
+Tax(name = "steel_tariff",  on = "trade",   product = "steel", to = "US", rate = 0.25,
     relative = true)
 ```
 """
@@ -879,13 +880,13 @@ $(TYPEDFIELDS)
 
 # Example
 ```julia
-MarketData(regions   = ["EU", "NA"],
-           products  = ["swr", "sawn_sw"],
+MarketData(regions   = ["EU", "US"],
+           products  = ["crude", "gasoline"],
            demand    = demand,      # vector of DemandSpec
            supply    = supply,      # vector of SupplySpec
            processes = processes,   # vector of Process
-           transport_costs = Dict(("swr", "EU", "NA") => 12.0,
-                                  ("swr", "NA", "EU") => 12.0))
+           transport_costs = Dict(("crude", "EU", "US") => 25.0,
+                                  ("crude", "US", "EU") => 25.0))
 ```
 """
 Base.@kwdef struct MarketData

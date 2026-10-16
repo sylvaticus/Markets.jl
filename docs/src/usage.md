@@ -22,8 +22,8 @@ defaults; the others must be given.
 Regions and products are named with strings:
 
 ```julia
-regions  = ["EU", "NA", "AS"]
-products = ["swr", "hwr", "chips", "pulp", "sawn_sw", "sawn_hw", "panel", "paper"]
+regions  = ["EU", "US", "CN"]
+products = ["crude", "gasoline", "diesel", "fuel_oil", "scrap", "pig_iron", "steel"]
 ```
 
 A name may be written as a `Symbol` instead — `:EU` is accepted wherever `"EU"`
@@ -33,7 +33,7 @@ economy, and a field read off a specification compares to the string that built
 it:
 
 ```julia
-SupplySpec(product = :swr, region = :EU, p0 = 65, q0 = 380, elasticity = 0.6).region == "EU"
+SupplySpec(product = :crude, region = :EU, p0 = 550, q0 = 60, elasticity = 0.4).region == "EU"
 ```
 
 Every product gets a material balance in every region, whether or not it is
@@ -45,10 +45,10 @@ A [`DemandSpec`](@ref) gives a constant-elasticity demand curve for one
 product in one region, calibrated to pass through a reference point: at price
 `p0` the quantity demanded is `q0`. `elasticity` is the own-price elasticity
 ``\eta``, which need only be positive — **inelastic demand, ``\eta < 1``, is
-allowed and is what most forest products call for**:
+allowed and is what most fuels, foods and basic materials call for**:
 
 ```julia
-DemandSpec(product = "sawn_sw", region = "EU", p0 = 250, q0 = 90, elasticity = 0.45)
+DemandSpec(product = "gasoline", region = "EU", p0 = 900, q0 = 80, elasticity = 0.3)
 ```
 
 With ``\eta \le 1`` the objective value is no longer an absolute measure of
@@ -66,20 +66,20 @@ belong to the composite, while the nest says how its members trade off against
 each other.
 
 ```julia
-DemandSpec(region = "EU", p0 = 260, q0 = 110, elasticity = 0.5,
-           product = DemandNest(sigma = 1.6, products = ["sawn_hw"], shares = [0.25],
+DemandSpec(region = "EU", p0 = 30000, q0 = 12, elasticity = 0.5,
+           product = DemandNest(sigma = 1.6, products = ["electric_car"], shares = [0.25],
                        nests = [DemandNest(sigma = 5.0, share = 0.75,
-                                           products = ["sawn_sw", "panel"],
+                                           products = ["petrol_car", "diesel_car"],
                                            shares   = [0.65, 0.35])]))
 ```
 
-Softwood lumber and panels substitute readily here, hardwood lumber less so
-with either. The structure is a tree for the same reason the Armington one is:
+Petrol and diesel cars substitute readily here, electric cars less so with
+either. The structure is a tree for the same reason the Armington one is:
 a free matrix of cross-price elasticities is not the gradient of any benefit
 function, and the model would stop being the market it claims to be. See
 [Substitution in final demand](@ref).
 
-Substitutes **outside** the model — gas and oil against wood fuel — need no
+Substitutes **outside** the model — public transport against cars — need no
 nest at all. An exogenous price is a constant, so put the cross-price
 elasticity into `shift` through [`exogenous_shift`](@ref).
 
@@ -88,7 +88,7 @@ price of a substitute outside the model — goes in `shift`, which scales the
 whole curve and leaves `p0` and `q0` holding the calibration:
 
 ```julia
-DemandSpec(product = "pellets", region = "EU", p0 = 250, q0 = 22, elasticity = 0.6,
+DemandSpec(product = "electricity", region = "EU", p0 = 90, q0 = 2700, elasticity = 0.3,
            shift = exogenous_shift(income = (level = 112.0, reference = 100.0,
                                              elasticity = 0.8)))
 ```
@@ -96,29 +96,29 @@ DemandSpec(product = "pellets", region = "EU", p0 = 250, q0 = 22, elasticity = 0
 ### Primary supply
 
 A [`SupplySpec`](@ref) gives a constant-elasticity supply curve for a product
-that enters the economy from outside the modelled processes — roundwood from
-the forest, ore from a mine, crops from land:
+that enters the economy from outside the modelled processes — crude oil from a
+field, ore from a mine, fish from the sea, crops from land:
 
 ```julia
-SupplySpec(product = "swr", region = "NA", p0 = 65, q0 = 380, elasticity = 0.6)
+SupplySpec(product = "crude", region = "US", p0 = 550, q0 = 600, elasticity = 0.4)
 ```
 
 Two further fields carry the conditions of production:
 
-* `shift` scales the curve, exactly as for demand. The growing stock, the road
-  network, the crews and machines available all belong here, and
+* `shift` scales the curve, exactly as for demand. The size of the resource, the
+  roads and ports, the workers and machines available all belong here, and
   [`exogenous_shift`](@ref) turns driver levels and their elasticities into the
   multiplier.
-* `capacity` is a hard ceiling that no price can pass — an allowable cut, a
-  quota, an exhausted resource. Whereas a shifter scales the curve, this
+* `capacity` is a hard ceiling that no price can pass — a fishing quota, a
+  mining licence, an exhausted resource. Whereas a shifter scales the curve, this
   truncates it, and the price then rises above the marginal cost on the curve
   by the **scarcity rent** of the resource.
 
 ```julia
-SupplySpec(product = "swr", region = "SEF", p0 = 72, q0 = 3.2, elasticity = 0.40,
-           shift    = exogenous_shift(growing_stock = (level = 118.0, reference = 100.0,
-                                                       elasticity = 0.6)),
-           capacity = 4.5)                      # the allowable cut
+SupplySpec(product = "cod", region = "EU", p0 = 3000, q0 = 300, elasticity = 0.40,
+           shift    = exogenous_shift(stock = (level = 118.0, reference = 100.0,
+                                               elasticity = 0.6)),
+           capacity = 350)                      # the fishing quota
 ```
 
 Which of the two to use for which driver, and when to model the factors
@@ -153,23 +153,23 @@ There are two kinds of nest:
   substitution: the higher it is, the more the mix moves away from the
   expensive input when relative prices change.
 
-For example, a sawmill that turns one m³ of softwood logs into 0.5 m³ of
-lumber and 0.35 m³ of chips, and a panel mill that uses 1.3 m³ of a
-substitutable mix of chips and logs:
+For example, a refinery that splits each tonne of crude into 0.45 t of
+petrol, 0.35 t of diesel and 0.15 t of fuel oil, and a steel mill that needs
+1.1 t of a substitutable mix of scrap and pig iron per tonne of steel:
 
 ```julia
-Process(name    = "sawmill_sw",
-        inputs  = [leontief(product = "swr", coeff = 1.0)],
-        outputs = ["sawn_sw" => 0.50, "chips" => 0.35],
+Process(name    = "refinery",
+        inputs  = [leontief(product = "crude", coeff = 1.0)],
+        outputs = ["gasoline" => 0.45, "diesel" => 0.35, "fuel_oil" => 0.15],
         vacost  = 40)
 
-Process(name    = "panelmill",
-        inputs  = [ces(composite = 1.30,
-                       products  = ["chips", "swr", "hwr"],
-                       shares    = [0.55, 0.30, 0.15],
-                       sigma     = 2.5)],
-        outputs = ["panel" => 1.0],
-        vacost  = 120)
+Process(name    = "steel_mill",
+        inputs  = [ces(composite = 1.10,
+                       products  = ["scrap", "pig_iron"],
+                       shares    = [0.4, 0.6],
+                       sigma     = 2.0)],
+        outputs = ["steel" => 1.0],
+        vacost  = 150)
 ```
 
 A process with two nests, e.g.
@@ -193,7 +193,7 @@ what lets a corridor cost more one way than the other, so a product that moves
 both ways needs an entry each way.
 
 ```julia
-transport_costs = Dict(("swr", "NA", "AS") => 13.2, ("swr", "AS", "NA") => 13.2, ...)
+transport_costs = Dict(("crude", "US", "EU") => 25.0, ("crude", "EU", "US") => 25.0, ...)
 ```
 
 A free route is written `=> 0.0`, not omitted.
@@ -205,10 +205,10 @@ border, and `weights` converts the quantities into whatever unit the ceiling is
 written in:
 
 ```julia
-trade_limits = [TradeLimit(name = "quota", products = "paper", from = "NA", to = "EU",
+trade_limits = [TradeLimit(name = "steel_quota", products = "steel", from = "CN", to = "EU",
                            capacity = 8.0),
-                TradeLimit(name = "port", from = "SWF", capacity = 6.0,
-                           weights = Dict("swr" => 0.8, "pellets" => 1.0))]
+                TradeLimit(name = "container_port", from = "CN", capacity = 6.0,
+                           weights = Dict("cars" => 2.0, "wine" => 0.04))]
 ```
 
 A binding ceiling shows up in `Results.limits` with its congestion rent, and
@@ -228,11 +228,11 @@ responds to supply and demand everywhere rather than only to the cheapest
 source.
 
 ```julia
-armington = [Armington(product = "paper", sigma = 4),             # equal shares
-             Armington(product = "panel", sigma = 6,
-                       shares = Dict(("EU", "EU") => 0.7, ("NA", "EU") => 0.2, ("AS", "EU") => 0.1,
-                                     ("NA", "NA") => 0.8, ("EU", "NA") => 0.1, ("AS", "NA") => 0.1,
-                                     ("AS", "AS") => 0.9, ("EU", "AS") => 0.05, ("NA", "AS") => 0.05))]
+armington = [Armington(product = "wine", sigma = 4),              # equal shares
+             Armington(product = "cars", sigma = 6,
+                       shares = Dict(("EU", "EU") => 0.7, ("US", "EU") => 0.2, ("CN", "EU") => 0.1,
+                                     ("US", "US") => 0.8, ("EU", "US") => 0.1, ("CN", "US") => 0.1,
+                                     ("CN", "CN") => 0.9, ("EU", "CN") => 0.05, ("US", "CN") => 0.05))]
 ```
 
 * `sigma` is the elasticity of substitution between origins. It must be `> 1`;
@@ -277,13 +277,13 @@ certification — and others are not, group them in an [`OriginNest`](@ref) with
 its own, higher elasticity:
 
 ```julia
-armington = [Armington(product = "sawn_sw", sigma = 2.5,
-                       nests = [OriginNest(sigma = 12, origins = ["EU", "NA"])],
+armington = [Armington(product = "cars", sigma = 2.5,
+                       nests = [OriginNest(sigma = 12, origins = ["EU", "US"])],
                        shares = shares)]
 ```
 
-Buyers then swap EU for NA sawnwood readily (σ = 12) and replace either with
-Asian sawnwood only slowly (σ = 2.5). Origins left out of every group are
+Buyers then swap EU for US cars readily (σ = 12) and replace either with
+Chinese cars only slowly (σ = 2.5). Origins left out of every group are
 direct members of the composite, groups may contain groups, and a group must be
 at least as substitutable inside as it is with the outside — the engine rejects
 the reverse, which would be inconsistent.
@@ -296,11 +296,11 @@ only, and keep an `"all"` entry as the fallback:
 
 ```julia
 armington = [
-    # the EU market keeps Asian sawnwood at arm's length, EU and NA are alike
-    Armington(product = "sawn_sw", destination = "EU", sigma = 2.5,
-              nests = [OriginNest(sigma = 12, origins = ["EU", "NA"])], shares = shares),
+    # the EU market keeps Chinese cars at arm's length, EU and US are alike
+    Armington(product = "cars", destination = "EU", sigma = 2.5,
+              nests = [OriginNest(sigma = 12, origins = ["EU", "US"])], shares = shares),
     # every other market substitutes freely between all three origins
-    Armington(product = "sawn_sw", sigma = 8, shares = shares)]
+    Armington(product = "cars", sigma = 8, shares = shares)]
 ```
 
 The elasticity, the groups and the shares may all differ by destination. What
@@ -334,12 +334,12 @@ route. `rate` is an amount per unit, or a fraction of the base when
 `relative = true`; a subsidy is a negative rate.
 
 ```julia
-taxes = [Tax(name = "harvest_levy", on = "supply",  product = "swr", region = "SEF", rate = 4.0),
-         Tax(name = "pellet_vat",   on = "demand",  product = "pellets", rate = 0.055,
+taxes = [Tax(name = "oil_royalty",  on = "supply",  product = "crude", region = "US", rate = 4.0),
+         Tax(name = "fuel_vat",     on = "demand",  product = "gasoline", rate = 0.2,
              relative = true),
-         Tax(name = "mill_aid",     on = "process", process = "pelletmill", region = "SWF",
+         Tax(name = "green_steel",  on = "process", process = "steel_mill", region = "EU",
              rate = -15.0),
-         Tax(name = "paper_tariff", on = "trade",   product = "paper", to = "EU", rate = 0.08,
+         Tax(name = "steel_tariff", on = "trade",   product = "steel", to = "US", rate = 0.25,
              relative = true)]
 ```
 
@@ -351,21 +351,19 @@ longer welfare. See [Taxes, subsidies and other wedges](@ref).
 ## Looking at an economy
 
 Typing the name of a `MarketData` in the REPL gives one line, such as
-`MarketData(8 regions, 11 products, 7 processes)`. Printing it, with
+`MarketData(3 regions, 7 products, 4 processes)`. Printing it, with
 `print(market)`, gives a summary: what is supplied, consumed, made and used of
 each product, the processes in the order they chain into one another (stage 1
 uses only primary products, stage 2 also the outputs of stage 1, and so on),
 the trade routes and their costs, the Armington specifications, the trade
-limits and the taxes and subsidies. For the forest example:
+limits and the taxes and subsidies. For a steel chain that ends in cars:
 
 ```
 Transformations, by stage
-  1  sawmill_sw  swr ────────────────────────────────────────→ 0.5 sawn_sw + 0.35 chips   cost 40
-  1  plymill     2 CES(swr, hwr; σ 1.8) ─────────────────────→ plywood + 0.8 chips        cost 180
-  2  panelmill   1.3 CES(chips, smallwood, swr, hwr; σ 2.5) ─→ panel                      cost 120
-  2  pulpmill    4 CES(swr, hwr, chips, smallwood; σ 1.8) ───→ pulp
-                 cost 300 · in SWF, OF, EU, NA, AS, RW
-  3  papermill   1.1 pulp ───────────────────────────────────→ paper                      cost 200
+  1  blast_furnace  1.6 iron_ore + 0.8 coal ───────→ pig_iron + 0.3 slag  cost 60
+  2  steel_mill     1.1 CES(scrap, pig_iron; σ 2) ─→ steel                cost 150
+  2  dispose_slag   slag ──────────────────────────→ (disposed of)        cost 5
+  3  car_plant      0.9 steel ─────────────────────→ cars                 cost 20000 · cap EU 14, US 13, CN 30
 ```
 
 The mathematical program the economy becomes is returned, built but not
@@ -378,8 +376,8 @@ latex_formulation(m)        # the same, in LaTeX (needs `using JuMP`)
 ```
 
 Its variables and constraints are named after what they stand for —
-`D[EU,paper]`, `S[SWF,swr]`, `z[EU,papermill]`, `balance[EU,paper]`,
-`trade_limit[landes_evacuation]` — and it takes the same `solver`,
+`D[EU,steel]`, `S[US,crude]`, `z[EU,steel_mill]`, `balance[EU,steel]`,
+`trade_limit[steel_quota]` — and it takes the same `solver`,
 `solver_options`, `silent` and `qfloor` keywords as `solve_market`, so it can
 be modified and solved with JuMP directly. An ad valorem tax on trade is the
 one thing missing from it: `solve_market` finds its money equivalent by
@@ -474,11 +472,11 @@ julia --project=. examples/forest/forest_market.jl
 ## How to amend an economy
 
 * **Add a product**: add its name to `products`; give it a `DemandSpec` and/or
-  `SupplySpec` where it is consumed or harvested; wire it into processes;
+  `SupplySpec` where it is consumed or produced; wire it into processes;
   add `transport_costs` entries if it can be shipped.
 * **Add or change a process**: add a `Process`. Chains of any length are built by
   making the output of one process an input of another (e.g.
-  roundwood → sawnwood → pallets). A product can be primary-supplied,
+  iron ore → steel → cars). A product can be primary-supplied,
   manufactured, consumed as final demand and used as an input all at once — its
   balance simply sums every source against every use.
 * **Add a region**: add it to `regions` and give it demand, supply and transport

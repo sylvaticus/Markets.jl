@@ -14,11 +14,14 @@ turn some products into others, transport costs between regions — and a single
 optimisation returns **production, consumption, trade and prices** for every
 region and product.
 
-The engine knows no specific product or sector. The forest-products sector
-(roundwood → sawnwood, panels, pulp, paper and pellets, with sawmill residues
-recycled and smallwood either burnt or milled) is
-the example shipped with the package, but the same data types describe any
-sector with primary supply, multi-stage transformation and trade.
+The engine knows no specific product or sector. The same data types describe
+any sector with primary supply, transformation and trade: an oil refinery
+splitting crude into petrol, diesel and fuel oil, a steel chain from iron ore
+to cars, a fishery under quota, a dairy turning milk into cheese. Two worked
+examples ship with the package: the dairy, as the smallest model that is still
+a market, and the forest-products sector (roundwood → sawnwood, panels, pulp,
+paper and pellets, with sawmill residues recycled and smallwood either burnt or
+milled) at full size.
 
 GitHub: [https://github.com/sylvaticus/Markets.jl](https://github.com/sylvaticus/Markets.jl)
 
@@ -40,8 +43,8 @@ GitHub: [https://github.com/sylvaticus/Markets.jl](https://github.com/sylvaticus
   substitutes: regions cross-haul and every region's price responds to supply
   and demand everywhere. An infinite elasticity, the default, is the
   homogeneous case above.
-* **Bounds where they belong.** Mill capacities, port and corridor ceilings and
-  allowable cuts truncate the model where a real limit exists, and a binding
+* **Bounds where they belong.** Plant capacities, port and pipeline ceilings,
+  quotas and licences truncate the model where a real limit exists, and a binding
   one reports its rent.
 * **Substitution in final demand.** Products that compete for the same use are
   grouped in a nest, so one product's price moves another's demand — and

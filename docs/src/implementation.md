@@ -405,8 +405,8 @@ be recovered from `res.model`.
   overrides the rule with a single absolute floor.
 * **`tol` scales with the data.** The threshold below which a quantity is not
   reported defaults to ``10^{-3}`` of the smallest reference quantity in the
-  economy, so that it means the same thing whether the model is written in m³
-  or in million m³, and never hides a flow that matters for the smallest
+  economy, so that it means the same thing whether the model is written in
+  tonnes or in million tonnes, and never hides a flow that matters for the smallest
   product.
 * **Starting point.** ``D`` and ``S`` start at ``m\,q_0``, their shifted
   reference quantities, capped by any capacity; ``z`` at 1 or its capacity,

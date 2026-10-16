@@ -33,8 +33,10 @@ imperfect substitutes by origin where you give them an **Armington** elasticity,
 which lets regions cross-haul and links every region's price to supply and
 demand everywhere.
 
-The engine is sector-agnostic. The forest-products sector is the example
-shipped in [`examples/forest/`](examples/forest/).
+The engine is sector-agnostic: the same data types describe an oil refinery, a
+steel chain from ore to cars, a fishery under quota or a dairy. The
+forest-products sector is the full-size example shipped in
+[`examples/forest/`](examples/forest/).
 
 ## Quick start
 

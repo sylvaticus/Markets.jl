@@ -8,7 +8,7 @@ $(TYPEDSIGNATURES)
 The scale of the economy: the smallest reference quantity in its demand and
 supply curves, or 1 if it has none.  The quantity floor and the reporting
 threshold are taken relative to it, so that they mean the same thing whether
-the model is written in m³ or in million m³.
+the model is written in tonnes or in million tonnes.
 """
 function quantity_scale(d::MarketData)
     # a curve over a group of substitutes describes their composite, so its

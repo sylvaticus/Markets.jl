@@ -3,7 +3,7 @@
 #
 #  Every name in the API — a region, a product, a process, a tax — is a string.
 #  Symbols are accepted wherever a name is wanted, and converted on the spot,
-#  so `"EU"` and `"EU"` may be mixed freely; what gets stored, compared and
+#  so `:EU` and `"EU"` may be mixed freely; what gets stored, compared and
 #  reported back is always the string.
 #
 #  Symbols would make the dictionary lookups in the model loop cheaper, by
@@ -16,7 +16,7 @@
 
 """
 What the API accepts wherever it wants a name: an `AbstractString` or a
-`Symbol`.  `"EU"` and `"EU"` mean the same thing everywhere, and both are
+`Symbol`.  `:EU` and `"EU"` mean the same thing everywhere, and both are
 stored, compared and reported as the string `"EU"`.
 """
 const Name = Union{Symbol,AbstractString}

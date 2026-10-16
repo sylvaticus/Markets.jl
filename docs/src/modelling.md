@@ -50,8 +50,8 @@ values ``\pi D`` and ``\pi S`` splits net social surplus into:
 * **consumer surplus**, ``\int_0^D P^D - \pi D``, the area between the demand
   curve and the price;
 * **primary producer surplus**, ``\pi S - \int_0^S P^S``, the area between the
-  price and the supply curve (the rent of the resource owners, e.g. forest
-  owners);
+  price and the supply curve (the rent of the resource owners, e.g. mine or
+  land owners);
 * **processors' profit**, value of outputs − value of inputs − value-added cost;
 * **traders' profit**, ``(\pi_{to} - \pi_{from} - \tau)\,T`` on each route.
 
@@ -73,7 +73,8 @@ P^S(S) = p_0 \left(\frac{S}{q_0}\right)^{1/\varepsilon}
 ```
 
 Both elasticities need only be **positive**. Demand may be inelastic, which
-matters because that is how demand for most forest products is estimated — see
+matters because that is how demand for most fuels, foods and basic materials is
+estimated — for forest products, for example, see
 [Buongiorno (2015)](@ref buongiorno2015) for the orders of magnitude:
 earlier versions of this package required ``\eta > 1``, on the grounds that for
 ``\eta \le 1`` the area under the demand curve from zero is infinite. That
@@ -111,9 +112,9 @@ why the cross-price structure has to be a tree rather than a free matrix.
 ## Everything other than the price
 
 A curve says how much is offered or wanted *at a given price*. Its position
-depends on everything else: how much timber is standing, how dense the forest
-road network is, how many crews and machines there are, how many people live in
-the region and what they earn. Those are exogenous to a partial-equilibrium
+depends on everything else: how much ore is in the ground or how many fish
+are in the sea, how good the roads and ports are, how many workers and machines
+there are, how many people live in the region and what they earn. Those are exogenous to a partial-equilibrium
 model and have to enter it somehow. There are three standard devices, and they
 are not interchangeable.
 
@@ -128,9 +129,10 @@ S(P) = \underbrace{\prod_j \left(\frac{Z_j}{Z_j^0}\right)^{\gamma_j}}_{\text{shi
 ```
 
 This is what [`SupplySpec`](@ref)'s and [`DemandSpec`](@ref)'s `shift` field
-holds, and what [`exogenous_shift`](@ref) builds. It is the device used by
-essentially every forest-sector partial-equilibrium model for the link between
-the forest and the harvest, and there are three good reasons for that.
+holds, and what [`exogenous_shift`](@ref) builds. It is the device most
+sector partial-equilibrium models use to link a resource to what is taken from
+it — the forest to the harvest, the fish stock to the catch — and there are
+three good reasons for that.
 
 It **comes free with the estimation**. The regression that gives the price
 elasticity — ``\log S`` on ``\log P`` — gives the ``\gamma_j`` in the same
@@ -140,8 +142,9 @@ It is **safe**: a positive factor times a positive curve stays positive, at any
 level of any driver. An additive shifter, ``S = q_0 (P/p_0)^\varepsilon + A``,
 can drive supply negative and destroys the constant-elasticity reading of
 ``\varepsilon``. Use addition only where something genuinely arrives in a
-fixed quantity regardless of price — salvage after a storm, recovered paper
-collected under a mandate, a quota of imports from outside the model. In this
+fixed quantity regardless of price — a stockpile released by a government,
+scrap collected under a recycling mandate, a quota of imports from outside the
+model. In this
 package that is a separate inelastic [`SupplySpec`](@ref) with a `capacity`,
 not a shifter.
 
@@ -149,23 +152,23 @@ It **separates calibration from scenario**. `p0` and `q0` keep holding the
 base-year point the curve was fitted to; the scenario lives in `shift`. Rewrite
 `q0` instead and the calibration is gone, which matters most in a
 recursive-dynamic run, where the time loop updates the shifter from the state of the
-forest each period and must not touch the fitted curve.
+resource each period and must not touch the fitted curve.
 
 !!! note "Quantity shifters and cost shifters are the same thing here"
-    A road that opens a stand does not create timber, it lowers the cost of
-    reaching it — a *cost* shifter, not a quantity one. With an isoelastic
+    A new road to a mine does not create ore, it lowers the cost of getting
+    it out — a *cost* shifter, not a quantity one. With an isoelastic
     curve the distinction collapses: multiplying the quantity by ``m`` is
     exactly multiplying the marginal cost by ``m^{-1/\varepsilon}``, since
     ``b = p_0 (m q_0)^{-1/\varepsilon}``. With ``\varepsilon = 0.5``, offering
-    10% more wood at every price is the same as harvesting 17% more cheaply at
+    10% more ore at every price is the same as mining it 17% more cheaply at
     every volume. What matters is only that the elasticity you apply is the one
     your ``\gamma`` was estimated against.
 
 ### 2. A ceiling — for a limit that binds
 
 A shifter scales a curve; it never stops it. When the constraint is a genuine
-limit — an allowable annual cut, a licensed quota, the capacity of the crews
-and machines that exist this year — the right device is a bound:
+limit — a fishing quota, a mining licence, the capacity of the rigs, boats
+and crews that exist this year — the right device is a bound:
 
 ```math
 S \le \bar S(Z)
@@ -195,20 +198,20 @@ is safe to carry one on every curve that has a known physical limit.
 
 The two devices above are reduced-form: the curve is estimated, and the drivers
 move it. The alternative is to derive supply from the technology instead, by
-making the resource a product and its extraction a process. In a forest
+making the resource a product and its extraction a process. In a fishery
 model, for example:
 
-* the standing stock becomes a product with its own curve or endowment, bounded
-  by `capacity`;
-* harvesting becomes a [`Process`](@ref) that consumes standing timber and
-  whatever else the model prices, and yields roundwood;
-* labour, machinery and access then enter as priced inputs or as bounds, and
+* the fish stock becomes a product with its own curve or endowment, bounded by
+  `capacity`;
+* fishing becomes a [`Process`](@ref) that consumes the stock, fuel and
+  whatever else the model prices, and yields landed fish;
+* labour, boats and access then enter as priced inputs or as bounds, and
   the *shape* of the resulting supply curve is derived rather than assumed.
 
 This is how a computable general equilibrium model treats factors of
 production, and it is the honest route when the question is about the factors
-themselves — the effect of a labour shortage, of a machinery subsidy, of a road
-programme. The price to pay is the data: factor shares and factor prices by
+themselves — the effect of a labour shortage, of a fuel subsidy, of a fleet
+buy-back. The price to pay is the data: factor shares and factor prices by
 region, which a reduced-form shifter does not need.
 
 The [forest example](@ref "The forest sector: France in the world") takes the
@@ -220,12 +223,12 @@ forest itself.
 
 | Driver | Device |
 |:---|:---|
-| Growing stock, forest area | shifter, ``\gamma`` typically well below 1 |
-| Allowable cut, quota | ceiling |
-| Road density, accessibility | shifter (a cost shifter in disguise) |
-| Harvesting crews and machines | ceiling, or structural if that is the question |
+| Resource stock: reserves, fish stock, farmland | shifter, ``\gamma`` typically well below 1 |
+| Quota, licence, legal cap | ceiling |
+| Roads, ports, accessibility | shifter (a cost shifter in disguise) |
+| Workers, rigs and machines | ceiling, or structural if that is the question |
 | Income, population | shifter on demand |
-| Storm salvage, recovered fibre | a separate inelastic curve with a ceiling |
+| Stockpile release, recycled material | a separate inelastic curve with a ceiling |
 
 The sensible default for a sector model is the second column of devices, with
 ceilings wherever a physical limit is known, and the structural route reserved
@@ -254,8 +257,8 @@ A nest with several products is a constant-elasticity-of-substitution bundle,
 the function of [Arrow, Chenery, Minhas & Solow (1961)](@ref acms1961). The aim is **smooth** substitution: if one input becomes more
 expensive, the process uses proportionally less of it, rather than switching
 entirely from one input to another as a linear model with alternative
-processes would do. For instance, a mill that uses 30% chips at equal prices
-may use 20% chips when chips become more expensive, and the share moves
+processes would do. For instance, a steel mill that uses 30% scrap at equal
+prices may use 20% scrap when scrap becomes more expensive, and the share moves
 continuously with relative prices.
 
 The cost-minimising mix satisfies
@@ -326,7 +329,7 @@ This package takes the process route, and the reasons are worth stating plainly
 because they are also its limitations.
 
 **What the choice buys.** Mass and yield consistency hold by construction: what
-goes into a mill comes out of it, as product or as residue, and no combination
+goes into a plant comes out of it, as product or as residue, and no combination
 of estimated elasticities can violate that. The parameters are engineering
 coefficients, which exist for most transformations, where econometric estimates
 on intermediate markets usually do not. A technology with no history at all can
@@ -365,8 +368,9 @@ output: ``10 \times 5 + 5 = 55`` here, and the step duly falls at
 ``1300 - 55``. Raise the input freight to 60 and the protection becomes 605: a
 46% cost advantage then buys nothing whatever. In a sector whose raw material
 is expensive to move and whose recipes take several units of input per unit of
-output — forestry, exactly — a model is normally deep inside the numb zone, so
-the practical symptom is inertia rather than volatility.
+output — ore smelting, sugar refining, forestry — a model is normally deep
+inside the numb zone, so the practical symptom is inertia rather than
+volatility.
 
 #### Why this is usually not the problem it appears to be
 
@@ -437,8 +441,8 @@ is built the way it is.
 
 ## Joint products and residues
 
-A process can have several outputs. Residues (e.g. sawmill chips) are ordinary
-products with their own material balance in each region, so they can be
+A process can have several outputs. Residues (e.g. the slag of a blast furnace,
+or the fuel oil of a refinery) are ordinary products with their own material balance in each region, so they can be
 consumed, traded or used as inputs to other processes, and their price is
 determined by the competition between their uses.
 
@@ -454,14 +458,14 @@ somewhere surprising. If free disposal is what you want instead, give the
 by-product somewhere to go — [`disposal`](@ref) writes the process for you:
 
 ```julia
-processes = [sawmill, panelmill,
-             disposal(product = "chips"),                   # free: price ≥ 0
-             disposal(product = "blackliquor", cost = 12)]   # paid: price ≥ −12
+processes = [refinery, steel_mill,
+             disposal(product = "fuel_oil"),          # free: price ≥ 0
+             disposal(product = "slag", cost = 12)]   # paid: price ≥ −12
 ```
 
 Its price then settles at zero rather than going negative, and a positive
-`cost` represents a real disposal charge — a landfill fee, an incinerator, the
-cost of leaving residues on the forest floor. Deciding which by-products have a
+`cost` represents a real disposal charge — a landfill fee, an incinerator, a
+tailings dam. Deciding which by-products have a
 way out is a modelling choice the model cannot make for you, which is why there
 is no default. Writing the balances as
 inequalities, as a mixed-complementarity formulation would, is the other route
@@ -470,9 +474,9 @@ to the same thing; it is not what this package does.
 ## Substitution in final demand
 
 Final demands are independent of each other by default: each product's curve
-responds to its own price alone. That is often too strong — pellets and
-firewood are the same heat, sawn softwood and panels do the same job in a
-building — and the question is how to let one product's price move another's
+responds to its own price alone. That is often too strong — butter and
+margarine go on the same bread, petrol and diesel cars do the same job on the
+road — and the question is how to let one product's price move another's
 demand.
 
 The tempting answer, a matrix of cross-price elasticities, is **not available**,
@@ -491,16 +495,16 @@ high ``\sigma``; the group as a whole substitutes against the rest at the lower
 [`DemandSpec`](@ref) curve, which describes the composite. So
 
 ```julia
-DemandSpec(region = "EU", p0 = 260, q0 = 110, elasticity = 0.5,
-           product = DemandNest(sigma = 1.6, products = ["sawn_hw"], shares = [0.25],
+DemandSpec(region = "EU", p0 = 30000, q0 = 12, elasticity = 0.5,
+           product = DemandNest(sigma = 1.6, products = ["electric_car"], shares = [0.25],
                        nests = [DemandNest(sigma = 5.0, share = 0.75,
-                                           products = ["sawn_sw", "panel"],
+                                           products = ["petrol_car", "diesel_car"],
                                            shares   = [0.65, 0.35])]))
 ```
 
-says that softwood lumber and panels are close substitutes, that hardwood
-lumber is a more distant substitute for either, and that the construction
-bundle as a whole has an own-price elasticity of 0.5.
+says that petrol and diesel cars are close substitutes, that an electric car is
+a more distant substitute for either, and that cars as a whole have an
+own-price elasticity of 0.5.
 
 The cross-price effects this implies are the CES ones: within a group, the
 compensated cross-price elasticity of product ``i`` with respect to the price of
@@ -511,22 +515,22 @@ do between origins.
 
 ### Substitutes outside the model
 
-Wood fuel competes with gas and oil, whose prices this model does not
+Cars compete with public transport, whose fares this model does not
 determine. That needs none of the machinery above: an exogenous price is a
 constant, so its effect on demand is a **shift of the whole curve**. Put the
 cross-price elasticity in [`exogenous_shift`](@ref) as the driver elasticity:
 
 ```julia
-DemandSpec(product = pellets_and_firewood, region = "EU", p0 = ..., q0 = ...,
+DemandSpec(product = cars, region = "EU", p0 = ..., q0 = ...,
            elasticity = 0.4,
-           shift = exogenous_shift(gas = (level = 48.0, reference = 30.0,
-                                          elasticity = 0.35)))
+           shift = exogenous_shift(fares = (level = 3.2, reference = 2.0,
+                                            elasticity = 0.35)))
 ```
 
-Gas 60% dearer than at calibration, with a cross-price elasticity of 0.35,
-raises demand for the wood-fuel bundle by ``1.6^{0.35} \approx 1.18``. The
+Fares 60% dearer than at calibration, with a cross-price elasticity of 0.35,
+raise demand for the car bundle by ``1.6^{0.35} \approx 1.18``. The
 endogenous substitution inside the bundle and the exogenous substitution
-against gas are different mechanisms, and it is worth keeping them visibly
+against public transport are different mechanisms, and it is worth keeping them visibly
 apart.
 
 ## Taxes, subsidies and other wedges
@@ -581,9 +585,9 @@ shipped. This is the spatial price equilibrium:
   between them;
 * on a route that is used, the price gap **equals** the transport cost.
 
-Transport costs are per unit of quantity because shipping a m³ of logs costs
-roughly the same whether the logs are cheap or expensive. Bulky, low-value
-products therefore have high transport costs relative to their value, which
+Transport costs are per unit of quantity because shipping a tonne of ore costs
+roughly the same whether the ore is rich or poor. Bulky, low-value products —
+gravel, cement, ore — therefore have high transport costs relative to their value, which
 limits their trade.
 
 Since products are identical whatever their origin, two regions never ship the
@@ -600,7 +604,7 @@ a region's own product keeps a share of its home market even when it is not
 the cheapest. The standard answer, [Armington (1969)](@ref armington1969), is
 to treat the varieties
 of a product coming from different origins as **imperfect substitutes**:
-"paper from Europe" and "paper from Asia" are related but distinct goods.
+"wine from France" and "wine from Chile" are related but distinct goods.
 
 Listing a product in the [`Armington`](@ref) specifications of the economy
 turns this on for it. Each destination `r` then buys quantities ``X_o`` of the
@@ -715,12 +719,12 @@ above. In this package that is an [`OriginNest`](@ref) inside an
 [`Armington`](@ref):
 
 ```julia
-Armington(product = "sawn_sw", destination = "EU", sigma = 2.5,
-          nests = [OriginNest(sigma = 12, origins = ["EU", "NA"])])
+Armington(product = "cars", destination = "EU", sigma = 2.5,
+          nests = [OriginNest(sigma = 12, origins = ["EU", "US"])])
 ```
 
-Buyers in the EU swap EU for NA sawnwood readily (``\sigma = 12``) and replace
-either with Asian sawnwood only slowly (``\sigma = 2.5``).
+Buyers in the EU swap EU for US cars readily (``\sigma = 12``) and replace
+either with Chinese cars only slowly (``\sigma = 2.5``).
 
 This generalises: the groups may hold groups, and the structure is a tree whose
 leaves are origins. The substitution between any two origins is then the
@@ -750,8 +754,8 @@ Two consequences worth knowing:
 ### Different markets, different structures
 
 Technical standards and non-tariff measures are set by the **importer**, so
-they are asymmetric: the EU may treat Asian sawnwood as a distant substitute
-while Asian buyers treat European sawnwood as a close one. A specification
+they are asymmetric: the EU may treat Chinese cars as a distant substitute
+while Chinese buyers treat European cars as a close one. A specification
 therefore applies to the destinations given in its `destination` field, with an
 `"all"` entry as the fallback, and the elasticity, the groups and the shares may
 all differ between importing markets.
@@ -774,9 +778,9 @@ formulation, with one balance and one price per region and product.
 
 So the two regimes are the ends of one scale, and ``\sigma`` is where a product
 sits on it: low ``\sigma`` for goods whose origin matters to buyers (branded
-or quality-differentiated products, appearance-grade timber), high ``\sigma``
-for commodities that are graded and interchangeable (pulp, chips, roundwood of
-a given species).
+or quality-differentiated products: cars, wine, machinery), high ``\sigma``
+for commodities that are graded and interchangeable (crude oil of a given
+grade, wheat, copper).
 
 ### What it costs
 
@@ -803,7 +807,7 @@ an [`Armington`](@ref) specification on the output restores a smooth response.
 Otherwise the remedy is to say what capacity exists. [`Process`](@ref)'s
 `capacity` bounds the activity level, region by region if need be, and a
 binding bound earns a quasi-rent reported in `Results.activity` — what another
-unit of mill would be worth there. Without such a bound, and without Armington
+unit of plant capacity would be worth there. Without such a bound, and without Armington
 on its output, read the geography of *processing* far more cautiously than that
 of prices or of final demand.
 
@@ -830,9 +834,9 @@ There is a sharp way to see what calibration does. If the data you anchor on
 *are* an equilibrium, the model reproduces them exactly and adds nothing:
 
 ```
-A  lumber   price 163.8222 → 163.8222    relative difference 2.6e-15
-B  lumber   price 171.8222 → 171.8222    relative difference 1.5e-12
-A  logs     price  56.9111 →  56.9111    relative difference 1.1e-12
+A  steel  price 182.3283 → 182.3283    relative difference 2.5e-13
+B  steel  price 190.3283 → 190.3283    relative difference 1.3e-13
+A  ore    price  63.9552 →  63.9552    relative difference 5.1e-13
 ```
 
 That is *benchmark replication*, and reproducing it is the standard test that
@@ -844,8 +848,8 @@ that were not clearing. Anchor one price 5% away from its consistent value and
 the model refuses to return it:
 
 ```
-A  lumber   anchored at 172.013   model returns 166.62   gap 3.1%
-A  logs     anchored at  56.911   model returns  58.31   gap 2.5%
+A  steel  anchored at 191.445   model returns  183.64   gap 4.1%
+A  ore    anchored at  63.955   model returns   64.77   gap 1.3%
 ```
 
 It splits the difference, because your numbers cannot all be true at once. That
@@ -896,8 +900,8 @@ and from exogenous drivers. The discipline in one sentence:
 > Use model output to update **physical state**, never **behavioural
 > parameters**.
 
-Updating a forest stock by `stock + growth − harvest` is an accounting
-identity, and the harvest may perfectly well come from the model. Updating `q0`
+Updating a fish stock by `stock + growth − catch` is an accounting
+identity, and the catch may perfectly well come from the model. Updating `q0`
 to last period's quantity is a silent re-estimation of behaviour from your own
 output, and is a different thing entirely.
 
@@ -911,7 +915,7 @@ This package solves **one equilibrium, at one point in time**, and that is the
 whole of its remit. There is no time index anywhere in it and there will not
 be: a model that needs several periods runs `solve_market` once per period and
 carries the state between them itself. Keeping the boundary there is what lets
-the same engine sit under a forest model with annual steps, a capacity-planning
+the same engine sit under a fishery model with annual steps, a capacity-planning
 study with five-year ones, and a one-shot policy comparison with no time at
 all.
 
@@ -961,7 +965,7 @@ for the reason given under [Dynamics are somebody else's job](@ref).
   domestic-versus-imported margin; and a CET nest on the export side, so that
   redirecting output between destinations is costly for producers too, which is
   the mirror image of the import-side nest built here.
-* **Inputs with an exogenous price** inside a nest (e.g. a resin with a world
+* **Inputs with an exogenous price** inside a nest (e.g. a chemical bought at a world
   price). A `SupplySpec` with a very high elasticity is an approximation
   available today.
 * **Ad valorem taxes without iteration**, which would need the model restated
