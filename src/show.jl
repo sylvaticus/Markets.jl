@@ -135,7 +135,9 @@ function tax_row(t::Tax)
     return [t.name, string(kind, " on ", t.on), rate, isempty(scope) ? "everywhere" : scope]
 end
 
-Base.show(io::IO, d::MarketData) = print(io, "MarketData(",
+# The economy in one line, which is what the REPL shows when it is typed, and
+# what stands for it inside a vector, a dictionary or another structure.
+Base.show(io::IO, ::MIME"text/plain", d::MarketData) = print(io, "MarketData(",
     plural(length(d.regions), "region"), ", ", plural(length(d.products), "product"), ", ",
     plural(length(d.processes), "process", "processes"), ")")
 
@@ -144,12 +146,15 @@ $(TYPEDSIGNATURES)
 
 A summary of the economy `d`: its products and what happens to each, the
 processes in the order they chain, the routes and what they cost, and the
-taxes, subsidies and limits. Shown when a `MarketData` is displayed in the
-REPL; lines wider than the terminal are cut, and a route list too long for one
-line is summarised.
+taxes, subsidies and limits. Shown by `print(d)` and `println(d)`, while typing
+`d` in the REPL gives only its one-line count; printed to a terminal, lines
+wider than it are cut, and a route list too long for one line is summarised.
 """
-function Base.show(io::IO, ::MIME"text/plain", d::MarketData)
-    limit = get(io, :limit, false)
+function Base.show(io::IO, d::MarketData)
+    # inside a container, the one line stands for the whole
+    (get(io, :compact, false) || haskey(io, :typeinfo)) &&
+        return show(io, MIME"text/plain"(), d)
+    limit = get(io, :limit, false) || io isa Base.TTY
     width = limit ? displaysize(io)[2] : typemax(Int)
     line(s) = println(io, clip(s, width))
     regions_in(rs) = rs == "all" || Set(rs) == Set(d.regions) ? "every region" : listing(rs)

@@ -64,12 +64,15 @@ nothing # hide
 
 # ## Looking before solving
 #
-# The pieces go into one `MarketData`, and typing its name gives back a summary
-# of the economy that was actually written down: what each product does, how
-# the processes chain, where goods may go and at what cost. It is the cheapest
-# check there is that the data say what was meant.
+# The pieces go into one `MarketData`. Typing its name gives back only how much
+# it holds; printing it gives a summary of the economy that was actually
+# written down: what each product does, how the processes chain, where goods
+# may go and at what cost. It is the cheapest check there is that the data say
+# what was meant.
 
 economy = MarketData(; regions, products, demand, supply, processes, transport_costs)
+#-
+print(economy)
 
 # The mathematical program it becomes can be read too, before anything is
 # solved: [`jump_model`](@ref) returns the JuMP model that `solve_market` would

@@ -161,8 +161,12 @@ end
     end
 
     @testset "the summary says what the economy is" begin
-        @test sprint(show, d) == "MarketData(3 regions, 4 products, 3 processes)"
-        text = sprint(show, MIME"text/plain"(), d)
+        # typed in the REPL it is one line, and so it is inside a container ...
+        @test sprint(show, MIME"text/plain"(), d) == "MarketData(3 regions, 4 products, 3 processes)"
+        @test sprint(show, [d]) == "MarketData[MarketData(3 regions, 4 products, 3 processes)]"
+        # ... while printed it is the whole summary
+        text = sprint(print, d)
+        @test text == sprint(show, d)
         @test startswith(text, "MarketData: 3 regions, 4 products, 3 processes, 4 trade routes, 2 taxes")
         # processes in the order they chain, with recipe, cost, bound and place
         @test occursin(r"1  sawmill\s+2 log ─+→ board \+ 0.6 chips", text)
@@ -178,9 +182,9 @@ end
         many = MarketData(regions = [:A, :B, :C], products = [:x],
             transport_costs = Dict((:x, o, r) => 10.0 + (o < r) for o in ("A", "B", "C")
                                    for r in ("A", "B", "C") if o != r))
-        wide = sprint(show, MIME"text/plain"(), many)
+        wide = sprint(print, many)
         @test occursin("x  A→B 11, A→C 11, B→A 10, B→C 11, C→A 10, C→B 10", wide)
-        narrow = sprint(show, MIME"text/plain"(), many;
+        narrow = sprint(print, many;
                         context = (:limit => true, :displaysize => (24, 40)))
         @test occursin("x  every route among 3 regions", narrow)
         @test all(textwidth(l) <= 40 for l in split(narrow, "\n"))

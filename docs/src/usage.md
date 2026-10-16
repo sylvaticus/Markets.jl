@@ -350,12 +350,13 @@ longer welfare. See [Taxes, subsidies and other wedges](@ref).
 
 ## Looking at an economy
 
-Typing the name of a `MarketData` in the REPL prints a summary of it: what is
-supplied, consumed, made and used of each product, the processes in the order
-they chain into one another (stage 1 uses only primary products, stage 2 also
-the outputs of stage 1, and so on), the trade routes and their costs, the
-Armington specifications, the trade limits and the taxes and subsidies. For
-the forest example:
+Typing the name of a `MarketData` in the REPL gives one line, such as
+`MarketData(8 regions, 11 products, 7 processes)`. Printing it, with
+`print(market)`, gives a summary: what is supplied, consumed, made and used of
+each product, the processes in the order they chain into one another (stage 1
+uses only primary products, stage 2 also the outputs of stage 1, and so on),
+the trade routes and their costs, the Armington specifications, the trade
+limits and the taxes and subsidies. For the forest example:
 
 ```
 Transformations, by stage
