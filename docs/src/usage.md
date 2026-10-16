@@ -372,8 +372,21 @@ solved, by [`jump_model`](@ref):
 ```julia
 m = jump_model(market)      # the JuMP model solve_market would solve
 print(m)                    # objective, balances, bounds, in full
-latex_formulation(m)        # the same, in LaTeX (needs `using JuMP`)
+latex_formulation(m)        # the same, in LaTeX
 ```
+
+`latex_formulation` is JuMP's, re-exported so that it needs no `using JuMP`.
+In a notebook or on a documentation page it is typeset; in a terminal it
+prints the LaTeX source.
+
+!!! warning "Check the signs against `print`"
+    JuMP 1.32 drops the minus sign of a negative coefficient written in
+    scientific notation when it typesets a model
+    ([JuMP.jl#4268](https://github.com/jump-dev/JuMP.jl/issues/4268)). The
+    benefit term of a demand with ``\eta < 1`` has a negative coefficient,
+    usually a large one, so in most models some objective terms are shown with
+    the wrong sign. `print(m)` is not affected; read the signs from it until
+    the bug is fixed.
 
 Its variables and constraints are named after what they stand for —
 `D[EU,steel]`, `S[US,crude]`, `z[EU,steel_mill]`, `balance[EU,steel]`,

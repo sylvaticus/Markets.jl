@@ -610,6 +610,13 @@ built but not solved: `print(jump_model(d))` shows its variables, objective
 and constraints in full, and `latex_formulation(jump_model(d))` the same in
 LaTeX.
 
+!!! warning "Signs in the LaTeX"
+    JuMP 1.32 drops the minus sign of a negative coefficient written in
+    scientific notation when it typesets a model
+    ([JuMP.jl#4268](https://github.com/jump-dev/JuMP.jl/issues/4268)), and
+    the benefit terms of an inelastic demand are such coefficients. Read the
+    signs from `print` until that is fixed.
+
 `d` is validated first, as `solve_market` does, and the keywords are those of
 `solve_market` that shape the model — `solver`, `solver_options`, `silent`
 and `qfloor` — so the model comes back with its solver attached and can be

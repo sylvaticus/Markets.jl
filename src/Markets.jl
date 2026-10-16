@@ -35,6 +35,10 @@ export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
        leontief, ces, disposal, armington_shares, exogenous_shift,
        validate, solve_market, jump_model, Results, for_region
 
+# re-exported from JuMP, so that a model from `jump_model` can be typeset
+# without `using JuMP`
+export latex_formulation
+
 include("names.jl")
 include("types.jl")
 include("validate.jl")

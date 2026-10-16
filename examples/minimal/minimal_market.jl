@@ -77,11 +77,98 @@ print(economy)
 # The mathematical program it becomes can be read too, before anything is
 # solved: [`jump_model`](@ref) returns the JuMP model that `solve_market` would
 # hand to the solver, with every variable and constraint named after the region
-# and product it belongs to. Here it is one material balance per region and
-# product, whose duals will be the prices, and an objective that is the net
-# social surplus.
+# and product it belongs to, and `latex_formulation` typesets it.
 
-print(jump_model(economy))
+latex_formulation(jump_model(economy))
+
+# !!! warning "Check the signs against `print`"
+#     JuMP 1.32 drops the minus sign of a negative coefficient written in
+#     scientific notation when it typesets a model
+#     ([JuMP.jl#4268](https://github.com/jump-dev/JuMP.jl/issues/4268)). The
+#     two milk terms at the start of the objective above are such
+#     coefficients: both are negative, as `print(jump_model(economy))` shows.
+#     Until the bug is fixed, read the signs from `print`.
+#
+# ### Reading the program
+#
+# There are four kinds of variable, and each is named after where it lives:
+#
+# * `D[region,product]` is **final demand**, the quantity consumed:
+#   `D[City,milk]` is the milk the City drinks.
+# * `S[region,product]` is **primary supply**: `S[Pasture,milk]` is the milk
+#   the Pasture's herds give.
+# * `z[region,process]` is the **activity level** of a process in a region:
+#   `z[Pasture,dairy]` is how much the Pasture's dairy works, and
+#   `z[City,dairy]` how much the City's does. The first index is the location
+#   and the second names the process; neither is an input or an output. What
+#   the dairy takes and gives is in its recipe: each unit of activity takes 10
+#   tonnes of milk and yields 1 tonne of cheese, so here one unit of activity
+#   is one tonne of cheese.
+# * `T[product,from,to]` is the quantity **shipped** on a route:
+#   `T[milk,Pasture,City]` is the milk carried from the Pasture to the City.
+#   There is one for each route declared in `transport_costs`, so four here.
+#
+# The constraints are of two kinds. The first is a **material balance**,
+# `balance[region,product]`, for every product in every region: what is
+# supplied, made and imported equals what is consumed, used up and exported.
+# With ``y_{k,p}`` the yield of product ``p`` per unit of activity of process
+# ``k``, and ``u_{k,p}`` the quantity of it the process uses,
+#
+# ```math
+# S_{r,p} + \sum_k y_{k,p}\, z_{r,k} + \sum_o T_{p,o,r}
+#   \;=\; D_{r,p} + \sum_k u_{k,p}\, z_{r,k} + \sum_d T_{p,r,d}
+# ```
+#
+# which is where the coefficients of `z` come from: −10 in the milk balance of
+# its region, +1 in the cheese balance. The dual value of each balance is the
+# price of that product in that region. The second kind are **bounds**: every
+# quantity is non-negative, and each `D` is kept a millionth of its reference
+# quantity away from zero, because the demand term below cannot be
+# differentiated at zero. That floor never binds at a solution.
+#
+# ### The objective
+#
+# What is maximised is the **net social surplus**: what consumers would pay
+# for what they get, less what it costs to produce, make and carry. Written
+# with its parameters rather than its numbers, it is
+#
+# ```math
+# \max_{D,\,S,\,z,\,T}\;
+#   \sum_{r,p} \frac{a_{r,p}}{1 - 1/\eta_{r,p}}\, D_{r,p}^{\,1 - 1/\eta_{r,p}}
+#   \;-\; \sum_{r,p} \frac{b_{r,p}}{1 + 1/\varepsilon_{r,p}}\, S_{r,p}^{\,1 + 1/\varepsilon_{r,p}}
+#   \;-\; \sum_{r,k} c_k\, z_{r,k}
+#   \;-\; \sum_{p,o,d} \tau_{p,o,d}\, T_{p,o,d}
+# ```
+#
+# Each of the four sums is one block of the objective printed above.
+#
+# * **Gross consumer benefit.** Each demand curve, with reference point
+#   ``(q_0, p_0)``, elasticity ``\eta`` and shifter ``m``, has the inverse
+#   ``P^D(D) = a\, D^{-1/\eta}`` with ``a = p_0 (m q_0)^{1/\eta}``, and the
+#   term is its antiderivative. Its slope at any ``D`` is the price consumers
+#   would pay for one more unit. For milk in the Pasture, ``p_0 = 400``,
+#   ``q_0 = 200`` and ``\eta = 0.3`` give the exponent
+#   ``1 - 1/0.3 = -2.33`` and the coefficient ``-8.02 \times 10^9``. Both are
+#   negative whenever ``\eta < 1``, and the term still rises with ``D``. For
+#   cheese, ``\eta = 0.5`` makes the exponent exactly −1.
+# * **Cost of primary supply.** Each supply curve has the inverse
+#   ``P^S(S) = b\, S^{1/\varepsilon}`` with ``b = p_0 (m q_0)^{-1/\varepsilon}``,
+#   and the term is the area under it: what the herds cost to keep, unit by
+#   unit. With ``\varepsilon = 0.6`` the exponent is ``1 + 1/0.6 = 2.67``.
+# * **Cost of making**, ``c_k`` per unit of activity: the `vacost` of €1300
+#   for each tonne the dairy makes, in either region.
+# * **Cost of carrying**, ``\tau`` per unit shipped: the €45 of each route.
+#
+# Why maximising this gives the market is in the conditions for its optimum.
+# With ``\pi_{r,p}`` the dual of each balance, they say that consumers buy until
+# the price they would pay for one more unit, ``P^D(D)``, falls to
+# ``\pi_{r,p}``. Herds produce until their marginal cost ``P^S(S)`` rises to
+# it. A dairy runs only where
+# ``\pi_{r,\text{cheese}} = 10\, \pi_{r,\text{milk}} + 1300``. A route is used
+# only where the price gap across it is exactly ``\tau``. Those
+# are the conditions of a competitive market, and the last two are checked by
+# hand further down. The general program, with taxes, bounds and imperfect
+# substitutes, is on the [Code implementation](@ref) page.
 
 # ## Solving
 
