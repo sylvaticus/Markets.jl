@@ -108,23 +108,92 @@ latex_formulation(jump_model(economy))
 #   `T[milk,Pasture,City]` is the milk carried from the Pasture to the City.
 #   There is one for each route declared in `transport_costs`, so four here.
 #
+# ### Constraints
+#
 # The constraints are of two kinds. The first is a **material balance**,
 # `balance[region,product]`, for every product in every region: what is
 # supplied, made and imported equals what is consumed, used up and exported.
-# With ``y_{k,p}`` the yield of product ``p`` per unit of activity of process
-# ``k``, and ``u_{k,p}`` the quantity of it the process uses,
 #
 # ```math
 # S_{r,p} + \sum_k y_{k,p}\, z_{r,k} + \sum_o T_{p,o,r}
 #   \;=\; D_{r,p} + \sum_k u_{k,p}\, z_{r,k} + \sum_d T_{p,r,d}
 # ```
 #
-# which is where the coefficients of `z` come from: −10 in the milk balance of
-# its region, +1 in the cheese balance. The dual value of each balance is the
-# price of that product in that region. The second kind are **bounds**: every
-# quantity is non-negative, and each `D` is kept a millionth of its reference
-# quantity away from zero, because the demand term below cannot be
-# differentiated at zero. That floor never binds at a solution.
+# ``k`` runs over the processes, and this economy has only one, `dairy`. For
+# each process ``k`` and product ``p``:
+#
+# * ``y_{k,p}`` is how much of ``p`` one unit of activity of ``k``
+#   **produces**: its yield, from `outputs`;
+# * ``u_{k,p}`` is how much of ``p`` one unit of activity of ``k`` **uses
+#   up**: its input requirement, from `inputs`.
+#
+# For the dairy they are
+#
+# | product | ``y_{\text{dairy},p}`` (out) | ``u_{\text{dairy},p}`` (in) |
+# |:--------|----:|----:|
+# | milk    | 0   | 10  |
+# | cheese  | 1   | 0   |
+#
+# so in region ``r``, ``\sum_k y_{k,p}\, z_{r,k}`` is everything the processes
+# there make of ``p``, and ``\sum_k u_{k,p}\, z_{r,k}`` everything they use up
+# of it. With one process each sum has a single term that is not zero, and the
+# two balances of a region read
+#
+# ```
+# milk:    S + 0·z + imports = D + 10·z + exports
+# cheese:  0 + 1·z + imports = D +  0·z + exports
+# ```
+#
+# which is where the coefficients of `z` in the printed model come from: −10 in
+# the milk balance of its region, +1 in the cheese balance.
+#
+# What is transformed is in neither `S` nor `D`. `S` is **primary supply**
+# only, what enters from outside the modelled processes: the milk of the
+# herds. `D` is **final demand** only, what leaves the economy to be consumed:
+# the milk people drink and the cheese they eat. The milk the dairy takes is
+# the ``u\, z`` term, and the cheese it makes the ``y\, z`` one.
+#
+# That the balance is this simple comes from the dairy's recipe being fixed —
+# a [`leontief`](@ref) input, ten tonnes of milk whatever the prices. Each
+# ``u_{k,p}`` is then a constant, and what a process uses is that constant
+# times its activity. A process whose inputs substitute for each other chooses
+# its mix as prices move, and the quantity it uses of each becomes a variable
+# of its own; the [forest example](@ref "The forest sector: France in the world")
+# has those.
+#
+# The dual value of each balance is the price of that product in that region.
+#
+# The second kind of constraint is the **bounds**. `S`, `z` and `T` are only
+# required to be non-negative. Each `D` is instead kept a little above zero, by
+# a floor of a millionth of its own reference quantity — its `q0`, times its
+# shift, which is 1 here:
+#
+# | variable            | `q0` | floor  |
+# |:--------------------|-----:|-------:|
+# | `D[Pasture,milk]`   | 200  | 0.0002 |
+# | `D[City,milk]`      | 600  | 0.0006 |
+# | `D[Pasture,cheese]` |  30  | 0.00003 |
+# | `D[City,cheese]`    | 120  | 0.00012 |
+#
+# The printed model shows them as `0.00019999999999999998` and the like, which
+# is only floating point: a millionth of 200 has no exact binary form.
+#
+# The floor is there because, with ``\eta < 1``, the demand term of the
+# objective below raises `D` to a negative power — ``D^{-2.33}`` for milk,
+# ``D^{-1}`` for cheese — which is infinite at zero, and so is its slope. The
+# solver evaluates both at every step it takes, so `D` must never get there,
+# not even on the way to the answer. At a solution the floor never binds: as
+# consumption shrinks towards zero its price grows without limit, and nobody
+# buys so little. `S` needs no floor, because it is raised to a power above 1
+# (``S^{2.67}``), smooth at zero; nor do `z` and `T`, which enter only
+# linearly.
+#
+# The floor is per variable because what counts as close to zero depends on
+# the quantity: a millionth of its own reference is negligible for each,
+# whether a product trades in tens of tonnes or in millions. A single absolute
+# floor would have to suit the smallest product, and would then be far smaller
+# than needed for the largest. The `qfloor` keyword of `jump_model` and
+# `solve_market` replaces them with one value for every variable.
 #
 # ### The objective
 #
@@ -144,20 +213,49 @@ latex_formulation(jump_model(economy))
 #
 # * **Gross consumer benefit.** Each demand curve, with reference point
 #   ``(q_0, p_0)``, elasticity ``\eta`` and shifter ``m``, has the inverse
-#   ``P^D(D) = a\, D^{-1/\eta}`` with ``a = p_0 (m q_0)^{1/\eta}``, and the
-#   term is its antiderivative. Its slope at any ``D`` is the price consumers
-#   would pay for one more unit. For milk in the Pasture, ``p_0 = 400``,
-#   ``q_0 = 200`` and ``\eta = 0.3`` give the exponent
-#   ``1 - 1/0.3 = -2.33`` and the coefficient ``-8.02 \times 10^9``. Both are
-#   negative whenever ``\eta < 1``, and the term still rises with ``D``. For
-#   cheese, ``\eta = 0.5`` makes the exponent exactly −1.
-# * **Cost of primary supply.** Each supply curve has the inverse
-#   ``P^S(S) = b\, S^{1/\varepsilon}`` with ``b = p_0 (m q_0)^{-1/\varepsilon}``,
-#   and the term is the area under it: what the herds cost to keep, unit by
-#   unit. With ``\varepsilon = 0.6`` the exponent is ``1 + 1/0.6 = 2.67``.
+#   ``P^D(D) = a\, D^{-1/\eta}``, and the term is its antiderivative. Its
+#   slope at any ``D`` is the price consumers would pay for one more unit.
+# * **Cost of primary supply.** Each supply curve, with elasticity
+#   ``\varepsilon``, has the inverse ``P^S(S) = b\, S^{1/\varepsilon}``, and
+#   the term is the area under it: what the herds cost to keep, unit by unit.
 # * **Cost of making**, ``c_k`` per unit of activity: the `vacost` of €1300
 #   for each tonne the dairy makes, in either region.
 # * **Cost of carrying**, ``\tau`` per unit shipped: the €45 of each route.
+#
+# The scales ``a`` and ``b`` are what put each curve through its reference
+# point. The curve must give the price ``p_0`` at the quantity ``m q_0``, the
+# reference quantity as shifted, so
+#
+# ```math
+# a \left(m q_0\right)^{-1/\eta} = p_0
+#   \;\;\Rightarrow\;\; a = p_0 \left(m q_0\right)^{1/\eta},
+# \qquad
+# b \left(m q_0\right)^{1/\varepsilon} = p_0
+#   \;\;\Rightarrow\;\; b = p_0 \left(m q_0\right)^{-1/\varepsilon}
+# ```
+#
+# and the coefficient the printed objective shows in front of each power is
+# that scale divided by the exponent. For milk in the Pasture, ``p_0 = 400``,
+# ``q_0 = 200``, ``m = 1`` and ``\eta = 0.3`` give
+# ``a = 400 \times 200^{1/0.3} = 1.871 \times 10^{10}`` and the exponent
+# ``1 - 1/0.3 = -2.33``, so the coefficient is
+# ``1.871 \times 10^{10} / (-2.33) = -8.02 \times 10^9``. Every curve of the
+# economy, worked out the same way:
+#
+# | term                | ``p_0`` | ``q_0`` | elasticity | scale                       | exponent | coefficient              |
+# |:--------------------|------:|-----:|-----:|----------------------------:|-------:|-------------------------:|
+# | `D[Pasture,milk]`   |  400  |  200 | 0.3  | ``a = 1.871 \times 10^{10}`` | −2.33  | ``-8.02 \times 10^{9}``  |
+# | `D[City,milk]`      |  450  |  600 | 0.3  | ``a = 8.198 \times 10^{11}`` | −2.33  | ``-3.51 \times 10^{11}`` |
+# | `D[Pasture,cheese]` | 5300  |   30 | 0.5  | ``a = 4.77 \times 10^{6}``   | −1     | ``-4.77 \times 10^{6}``  |
+# | `D[City,cheese]`    | 5350  |  120 | 0.5  | ``a = 7.704 \times 10^{7}``  | −1     | ``-7.704 \times 10^{7}`` |
+# | `S[Pasture,milk]`   |  400  | 2000 | 0.6  | ``b = 0.00126``              | 2.67   | ``0.000472``             |
+# | `S[City,milk]`      |  450  |  300 | 0.6  | ``b = 0.0335``               | 2.67   | ``0.0126``               |
+#
+# The demand exponent and coefficient are both negative whenever ``\eta < 1``,
+# and the term still rises with ``D``; for cheese, ``\eta = 0.5`` makes the
+# exponent exactly −1. The sizes of the scales say nothing in themselves: ``a``
+# is a price times a quantity raised to ``1/\eta``, and is large because
+# ``1/\eta`` is.
 #
 # Why maximising this gives the market is in the conditions for its optimum.
 # With ``\pi_{r,p}`` the dual of each balance, they say that consumers buy until
