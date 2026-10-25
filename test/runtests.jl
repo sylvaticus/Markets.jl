@@ -895,6 +895,94 @@ end
                                                 sigma = 3)
 end
 
+@testset "CES calibration" begin
+    q, p = [7.0, 1.4, 3.0], [55.0, 250.0, 120.0]
+    spending = sum(q .* p)
+
+    @testset "σ = $σ inverts the CES demand condition" for σ in (0.3, 3.0)
+        c = ces_calibration(quantities = q, prices = p, sigma = σ)
+        @test sum(c.shares) ≈ 1
+        @test c.shares ≈ (q .* p .^ σ) ./ sum(q .* p .^ σ)
+        @test c.price ≈ sum(c.shares .* p .^ (1 - σ))^(1 / (1 - σ))
+        @test c.price * c.quantity ≈ spending
+        # at the base-year prices, the composite buys back the base-year quantities
+        @test c.quantity .* c.shares .* (c.price ./ p) .^ σ ≈ q
+    end
+
+    @testset "the limits at 0, 1 and Inf" begin
+        c0 = ces_calibration(quantities = q, prices = p, sigma = 0)
+        @test c0.shares ≈ q ./ sum(q)                      # fixed proportions
+        @test c0.price ≈ sum(c0.shares .* p) && c0.quantity ≈ sum(q)
+        c1 = ces_calibration(quantities = q, prices = p, sigma = 1)
+        @test c1.shares ≈ (q .* p) ./ spending              # Cobb–Douglas: value shares
+        @test c1.price ≈ prod(p .^ c1.shares) && c1.price * c1.quantity ≈ spending
+        for σ in (1 - 1e-6, 1 + 1e-6)                       # and it is the limit there
+            near = ces_calibration(quantities = q, prices = p, sigma = σ)
+            @test near.shares ≈ c1.shares rtol = 1e-5
+            @test near.price ≈ c1.price rtol = 1e-5
+        end
+        # perfect substitutes: bought together only at one price
+        same = ces_calibration(quantities = q, prices = fill(80.0, 3), sigma = Inf)
+        @test same.price == 80.0 && same.quantity ≈ sum(q) && same.shares ≈ q ./ sum(q)
+        @test ces_calibration(quantities = [2.0, 0.0], prices = [80.0, 95.0],
+                              sigma = Inf).price == 80.0  # a dearer member nobody buys
+        @test_throws ArgumentError ces_calibration(quantities = q, prices = p, sigma = Inf)
+    end
+
+    @testset "what it refuses" begin
+        @test_throws ArgumentError ces_calibration(quantities = q, prices = p, sigma = -1)
+        @test_throws ArgumentError ces_calibration(quantities = q, prices = p, sigma = NaN)
+        @test_throws ArgumentError ces_calibration(quantities = q, prices = p[1:2], sigma = 2)
+        @test_throws ArgumentError ces_calibration(quantities = [1.0, -1.0], prices = [1.0, 1.0], sigma = 2)
+        @test_throws ArgumentError ces_calibration(quantities = [0.0, 0.0], prices = [1.0, 1.0], sigma = 2)
+        @test_throws ArgumentError ces_calibration(quantities = [1.0, 1.0], prices = [1.0, 0.0], sigma = 2)
+        # a member nobody buys gets no share
+        @test ces_calibration(quantities = [1.0, 0.0], prices = [1.0, 2.0], sigma = 2).shares == [1.0, 0.0]
+    end
+
+    # supply curves through the base-year points, demand from the calibration:
+    # the equilibrium must be the base year itself
+    supply_at(names, q, p) = [SupplySpec(product = n, region = :A, p0 = p[i], q0 = q[i],
+                                         elasticity = 1.0) for (i, n) in enumerate(names)]
+    function reproduces(res, names, q, p)
+        @test solved(res)
+        for (i, n) in enumerate(names)
+            @test getq(res.consumption, :A, n) ≈ q[i] rtol = 1e-5
+            @test price(res, :A, n) ≈ p[i] rtol = 1e-5
+        end
+    end
+
+    @testset "a demand nest at σ = $σ reproduces the base year" for σ in (0.0, 0.5, 1.0, 3.0)
+        names = [:a, :b, :c]
+        c = ces_calibration(quantities = q, prices = p, sigma = σ)
+        res = solve_market(MarketData(regions = [:A], products = names,
+            demand = [DemandSpec(region = :A, p0 = c.price, q0 = c.quantity, elasticity = 0.6,
+                                 product = DemandNest(sigma = σ, products = names,
+                                                      shares = c.shares))],
+            supply = supply_at(names, q, p)))
+        reproduces(res, names, q, p)
+    end
+
+    @testset "a nested bundle is calibrated from the inside out (σ $σin inside, $σout outside)" for
+            (σin, σout) in ((5.0, 1.6), (1.0, 0.0))
+        names = [:a, :b, :c]
+        inner = ces_calibration(quantities = q[2:3], prices = p[2:3], sigma = σin)
+        outer = ces_calibration(quantities = [q[1], inner.quantity],
+                                prices = [p[1], inner.price], sigma = σout)
+        res = solve_market(MarketData(regions = [:A], products = names,
+            demand = [DemandSpec(region = :A, p0 = outer.price, q0 = outer.quantity,
+                                 elasticity = 0.6,
+                                 product = DemandNest(sigma = σout, products = [:a],
+                                                      shares = [outer.shares[1]],
+                                                      nests = [DemandNest(sigma = σin,
+                                                          share = outer.shares[2],
+                                                          products = [:b, :c],
+                                                          shares = inner.shares)]))],
+            supply = supply_at(names, q, p)))
+        reproduces(res, names, q, p)
+    end
+end
+
 @testset "Armington trade" begin
     τ = 5.0
     # A is the cheap producer, B the expensive one

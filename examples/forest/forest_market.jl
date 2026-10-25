@@ -184,48 +184,69 @@ nothing # hide
 # any benefit function, and the model would stop being the market it claims to
 # represent.
 #
-# The shares and the bundle's own reference point are *calibrated*, not
-# guessed. Inverting the CES demand condition at the base-year quantities and
-# prices gives the shares that reproduce them, the CES price index of the
-# bundle and the composite quantity that index buys:
-
-function calibrate(members, sigma)             # members: (quantity, price) pairs
-    weights = [q * p^sigma for (q, p) in members]
-    shares  = weights ./ sum(weights)
-    index   = sum(shares[i] * last(members[i])^(1 - sigma)
-                  for i in eachindex(members))^(1 / (1 - sigma))
-    return shares, index, sum(q * p for (q, p) in members) / index
-end
-
-# Note what the bundle's quantity is: expenditure divided by the price index,
-# an **index number**, not a volume. Adding m³ of firewood to tonnes of pellets
-# would mean nothing physically; adding their values at a common price index
-# means something, and that is what a CES composite is.
+# ### Calibrating a bundle
 #
-# Construction, then, is a nest inside a nest — softwood lumber, particleboard
-# and plywood together at `σ = 5`, hardwood lumber against that group at
-# `σ = 1.6`. The three in the inner group are what a builder actually chooses
-# between for a floor or a wall; appearance-grade hardwood is a different kind
-# of purchase:
+# A demand curve over a bundle needs three numbers that no statistic reports:
+# the **shares** of its members, and the **price** and **quantity** of the
+# bundle itself, which are the `p0` and `q0` of its curve. What the `reference`
+# table gives instead is a price and a quantity for each product.
+# [`ces_calibration`](@ref) turns the second into the first, choosing the three
+# so that at the base-year prices the model buys exactly the base-year
+# quantities. For the wood fuel of `OF`, 7 Mm³ of firewood at 55 and 1.4 of
+# pellets at 250:
+
+ces_calibration(quantities = [7.0, 1.4], prices = [55.0, 250.0], sigma = 3)
+
+# * The **shares** are what each product's share would be if both cost the
+#   same. Pellets get 95% of the bundle although they are a sixth of the
+#   quantity bought: they are bought little *because* they are four and a half
+#   times dearer, and would be bought far more at an equal price.
+# * The **price** is the CES price index of the bundle — the cost of one unit of
+#   it at the base-year prices.
+# * The **quantity** is the base-year spending, 735, divided by that price. It
+#   is an index number, not a volume: m³ of firewood and tonnes of pellets
+#   would mean nothing added up, while their values at a common price do. That
+#   is what a CES composite is.
+#
+# Feed those back into the CES demand condition at the base-year prices and
+# out come exactly 7 and 1.4.
+#
+# ### Wood in buildings
+#
+# Construction is a nest inside a nest — softwood lumber, particleboard and
+# plywood together at `σ = 5`, hardwood lumber against that group at `σ = 1.6`.
+# The three in the inner group are what a builder actually chooses between for
+# a floor or a wall; appearance-grade hardwood is a different kind of purchase.
+#
+# A nested bundle is calibrated from the inside out. The inner group is
+# calibrated on its three products; its price and quantity then make it **one
+# member** of the outer bundle, next to hardwood lumber; and the outer price
+# and quantity are the reference point of the curve:
 
 σ_lumber, σ_construction, σ_fuel = 5.0, 1.6, 3.0
+lumber = ["sawn_sw", "panel", "plywood"]
 
 function construction_demand(r)
-    q(p) = reference[p][2][r]
-    price(p) = reference[p][1]
-    inner_shares, inner_price, inner_q =
-        calibrate([(q("sawn_sw"), price("sawn_sw")), (q("panel"), price("panel")),
-                   (q("plywood"), price("plywood"))], σ_lumber)
-    outer_shares, outer_price, outer_q =
-        calibrate([(inner_q, inner_price), (q("sawn_hw"), price("sawn_hw"))], σ_construction)
-    return DemandSpec(region = r, p0 = outer_price, q0 = outer_q, elasticity = 0.45,
+    q(p) = reference[p][2][r]                    # base-year quantity in region r
+    price(p) = reference[p][1]                   # base-year price
+    inner = ces_calibration(quantities = q.(lumber), prices = price.(lumber),
+                            sigma = σ_lumber)
+    outer = ces_calibration(quantities = [q("sawn_hw"), inner.quantity],
+                            prices     = [price("sawn_hw"), inner.price],
+                            sigma = σ_construction)
+    return DemandSpec(region = r, p0 = outer.price, q0 = outer.quantity, elasticity = 0.45,
         product = DemandNest(sigma = σ_construction,
-            products = ["sawn_hw"], shares = [outer_shares[2]],
-            nests = [DemandNest(sigma = σ_lumber, share = outer_shares[1],
-                                products = ["sawn_sw", "panel", "plywood"],
-                                shares   = inner_shares)]))
+            products = ["sawn_hw"], shares = [outer.shares[1]],
+            nests = [DemandNest(sigma = σ_lumber, share = outer.shares[2],
+                                products = lumber, shares = inner.shares)]))
 end
 
+# The `elasticity` of 0.45 is the own-price elasticity of the whole bundle:
+# how much less wood goes into buildings when all of it gets dearer. How the
+# bundle splits when only one product gets dearer is the job of the two `σ`.
+#
+# ### Wood for heat
+#
 # Wood fuel is a single nest, and the one place where a price from outside the
 # model matters: firewood and pellets both compete with gas and oil, whose
 # prices this sector does not determine. An exogenous price needs no nest at
@@ -235,18 +256,23 @@ end
 # end moves it.
 
 gas_price, gas_reference, gas_cross_elasticity = 30.0, 30.0, 0.35
+fuels = ["smallwood", "pellets"]
 
 function fuel_demand(r, gas = gas_price)
-    q(p) = reference[p][2][r]
-    price(p) = reference[p][1]
-    shares, index, quantity =
-        calibrate([(q("smallwood"), price("smallwood")), (q("pellets"), price("pellets"))], σ_fuel)
-    return DemandSpec(region = r, p0 = index, q0 = quantity, elasticity = 0.35,
+    fuel = ces_calibration(quantities = [reference[p][2][r] for p in fuels],
+                           prices     = [reference[p][1] for p in fuels], sigma = σ_fuel)
+    return DemandSpec(region = r, p0 = fuel.price, q0 = fuel.quantity, elasticity = 0.35,
         shift = exogenous_shift(gas = (level = gas, reference = gas_reference,
                                        elasticity = gas_cross_elasticity)),
-        product = DemandNest(sigma = σ_fuel, products = ["smallwood", "pellets"],
-                             shares = shares))
+        product = DemandNest(sigma = σ_fuel, products = fuels, shares = fuel.shares))
 end
+
+# ### All of final demand
+#
+# Paper competes with nothing here, so it keeps a plain curve through its own
+# reference point. The whole demand side is then one curve per bundle and
+# region. It is built by a function of the gas price rather than written out
+# once, so that the gas scenario at the end can rebuild it at another price:
 
 build_demand(gas = gas_price) =
     [[construction_demand(r) for r in regions];

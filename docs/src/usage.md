@@ -74,7 +74,26 @@ DemandSpec(region = "EU", p0 = 30000, q0 = 12, elasticity = 0.5,
 ```
 
 Petrol and diesel cars substitute readily here, electric cars less so with
-either. The structure is a tree for the same reason the Armington one is:
+either.
+
+The data seldom come in that form: they give a price and a quantity for each
+product, not a share for each and a reference point for the bundle.
+[`ces_calibration`](@ref) converts the one into the other, so that at the
+base-year prices the model buys exactly the base-year quantities:
+
+```julia
+fuel = ces_calibration(quantities = [7.0, 1.4], prices = [55.0, 250.0], sigma = 3)
+DemandSpec(region = "FR", p0 = fuel.price, q0 = fuel.quantity, elasticity = 0.35,
+           product = DemandNest(sigma = 3, products = ["firewood", "pellets"],
+                                shares = fuel.shares))
+```
+
+`fuel.shares` are the shares at equal prices, `fuel.price` is the CES price
+index of the bundle and `fuel.quantity` the base-year spending divided by it.
+A nested bundle is calibrated from the inside out: the price and quantity of an
+inner group make it one member of the level above. The
+[forest example](@ref "Calibrating a bundle") does this for wood in
+construction. The structure is a tree for the same reason the Armington one is:
 a free matrix of cross-price elasticities is not the gradient of any benefit
 function, and the model would stop being the market it claims to be. See
 [Substitution in final demand](@ref).
@@ -149,7 +168,8 @@ There are two kinds of nest:
   activity.
 * [`ces`](@ref): `composite` units of a CES bundle of several `products`.
   `shares` are the value shares of each input when all input prices are equal
-  (equal shares if omitted), and `sigma` (≥ 0) is the elasticity of
+  (equal shares if omitted; [`ces_calibration`](@ref) derives them from
+  observed input quantities and prices), and `sigma` (≥ 0) is the elasticity of
   substitution: the higher it is, the more the mix moves away from the
   expensive input when relative prices change. `sigma = 0` needs the inputs in
   fixed proportions, `sigma = 1` is Cobb–Douglas, and `sigma = Inf` makes them
@@ -246,7 +266,8 @@ armington = [Armington(product = "wine", sigma = 4),              # equal shares
   observed if all delivered prices were equal, so they carry the home bias.
   They are **not** the observed shares: calibrate them from a base-year trade
   matrix with [`armington_shares`](@ref), which inverts the CES demand
-  condition for you.
+  condition for you — it is [`ces_calibration`](@ref) applied to each
+  destination.
 
   ```julia
   shares = armington_shares(flows = base_year_quantities,   # (origin, dest) => quantity

@@ -902,6 +902,10 @@ equilibrium:
   matrix at base-year delivered prices — not from the raw observed shares, for
   the reason given under
   [Imperfect substitution between origins (Armington)](@ref);
+* [`ces_calibration`](@ref) for the shares of any other CES group — the
+  substitutes in a [`DemandNest`](@ref), the inputs of a [`ces`](@ref) nest —
+  and for the `p0` and `q0` of a demand curve over a bundle, which are its CES
+  price index and the base-year spending divided by that index;
 * `shift` on the curves, to absorb what remains.
 
 The example in [The forest sector: France in the world](@ref) does none of

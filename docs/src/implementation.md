@@ -475,7 +475,10 @@ equilibrium:
   process brings it back to zero;
 * share calibration: [`armington_shares`](@ref) normalises per destination and
   reproduces the base-year sourcing through the CES demand condition, while
-  differing from the observed shares themselves;
+  differing from the observed shares themselves; [`ces_calibration`](@ref)
+  inverts the CES demand condition, takes its limits at ``\sigma = 0``, ``1``
+  and ``\infty``, and a demand nest built from it, flat or nested, has the
+  base year itself as its equilibrium;
 * Armington trade: ``\sigma = \infty`` reproduces the homogeneous solution
   exactly, the error against it falls monotonically as ``\sigma`` grows, a
   finite ``\sigma`` produces cross-hauling and producer-price gaps wider than

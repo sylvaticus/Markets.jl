@@ -43,6 +43,14 @@ breaking changes.
   may move at no cost takes a route priced `0.0`.
 
 ### Added
+- `ces_calibration(; quantities, prices, sigma)` calibrates any CES group —
+  substitutes in a `DemandNest`, inputs of a `ces` nest, origins — from the
+  base-year quantities and prices of its members. It returns the shares at
+  equal prices, the CES price index and the composite quantity, which are the
+  `shares`, `p0` and `q0` a demand curve over a bundle needs, and it takes the
+  limiting forms at `sigma = 0`, `1` and `Inf`. `armington_shares` is now
+  `ces_calibration` applied to each destination, and the forest example uses
+  it in place of its own `calibrate`.
 - **Elasticities of substitution of 1 and below.** Every CES — `ces` input
   nests, `Armington`, `OriginNest` and `DemandNest` — accepts any `sigma ≥ 0`
   instead of only `sigma > 1`, and so does `armington_shares` (finite values).

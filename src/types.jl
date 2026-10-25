@@ -716,6 +716,91 @@ end
 """
 $(TYPEDSIGNATURES)
 
+Calibrate a CES group from the base-year quantities and prices of its members,
+so that at those prices the model buys exactly those quantities. The group may
+be any CES of the package: substitutes in final demand ([`DemandNest`](@ref)),
+inputs of a process ([`ces`](@ref)) or the origins of a product
+([`Armington`](@ref), for which [`armington_shares`](@ref) does this for a
+whole trade matrix at once).
+
+`quantities` and `prices` give the base-year quantity and price of each member,
+in the same order, and `sigma` is the elasticity of substitution the group is
+calibrated for. The result is a named tuple of three things the model needs and
+nobody observes:
+
+* `shares`: the value shares ``\\delta`` of the members, i.e. the shares they
+  would have **if all their prices were equal**. Inverting the CES demand
+  condition ``q_i = A\\,\\delta_i (P/p_i)^\\sigma`` gives
+  ``\\delta_i \\propto q_i\\, p_i^{\\sigma}``, normalised to sum to 1. They are
+  not the observed shares: a member bought little *because* it is dear gets a
+  large share, since it would be bought much more at an equal price.
+* `price`: the CES price index ``P`` of the group, the price of one unit of its
+  composite at the base-year prices.
+* `quantity`: the quantity ``A`` of the composite, the base-year expenditure
+  ``\\sum_i p_i q_i`` divided by `price`. It is an index number, not a physical
+  quantity: m³ of firewood and tonnes of pellets do not add up, while their
+  values at a common price do.
+
+`price` and `quantity` are the reference point of whatever the group feeds:
+the `p0` and `q0` of the [`DemandSpec`](@ref) over a [`DemandNest`](@ref), or,
+for a group nested inside another, the price and quantity of the group as one
+member of the level above.
+
+Where the CES takes its limiting form, so does the calibration:
+
+| `sigma` | `shares` | `price` | `quantity` |
+|:--------|:---------|:--------|:-----------|
+| `0`   | quantity shares ``q_i / \\sum q`` | ``\\sum_i \\delta_i p_i`` | ``\\sum_i q_i`` |
+| `1`   | value shares ``p_i q_i / \\sum p q`` | ``\\prod_i p_i^{\\delta_i}`` | expenditure / `price` |
+| `Inf` | quantity shares, which do not enter the model | the common price | ``\\sum_i q_i`` |
+
+Perfect substitutes are bought only at the lowest price, so with `sigma = Inf`
+every member with a positive quantity must have that price. A member with a
+zero quantity gets a zero share, which [`DemandNest`](@ref) and [`ces`](@ref)
+do not accept: leave it out of the group.
+
+# Example
+```julia
+## the base year in one region: 7 units of firewood at 55, 1.4 of pellets at 250
+fuel = ces_calibration(quantities = [7.0, 1.4], prices = [55.0, 250.0], sigma = 3)
+## (shares = [0.0505, 0.9495], price = 177.05, quantity = 4.151)
+DemandSpec(region = "OF", p0 = fuel.price, q0 = fuel.quantity, elasticity = 0.35,
+           product = DemandNest(sigma = 3, products = ["firewood", "pellets"],
+                                shares = fuel.shares))
+```
+"""
+function ces_calibration(; quantities::AbstractVector{<:Real},
+                           prices::AbstractVector{<:Real}, sigma::Real)
+    q, p = collect(float.(quantities)), collect(float.(prices))
+    length(q) == length(p) || throw(ArgumentError(
+        "ces_calibration needs one price per quantity, got $(length(q)) quantities " *
+        "and $(length(p)) prices"))
+    all(>=(0), q) || throw(ArgumentError("quantities must not be negative, got $q"))
+    any(>(0), q) || throw(ArgumentError("no positive quantity to calibrate on"))
+    all(>(0), p) || throw(ArgumentError("prices must be positive, got $p"))
+    sigma >= 0 || throw(ArgumentError("sigma must be ≥ 0, got $sigma"))
+    if isinf(sigma)
+        # perfect substitutes: the composite is the plain sum, bought at the
+        # lowest price, and the shares never enter the model
+        price = minimum(p)
+        all(isapprox(p[i], price; rtol = 1e-8) for i in eachindex(q) if q[i] > 0) ||
+            throw(ArgumentError(
+                "with sigma = Inf the members are perfect substitutes, bought only at " *
+                "the lowest price, but members bought in the base year have the " *
+                "prices $(p[q .> 0])"))
+        return (shares = q ./ sum(q), price = price, quantity = sum(q))
+    end
+    weights = q .* p .^ sigma
+    shares  = weights ./ sum(weights)
+    # the CES price index, and its Cobb–Douglas limit where 1/(1-σ) is undefined
+    price = isone(sigma) ? prod(p .^ shares) :
+                           sum(shares .* p .^ (1 - sigma))^(1 / (1 - sigma))
+    return (shares = shares, price = price, quantity = sum(q .* p) / price)
+end
+
+"""
+$(TYPEDSIGNATURES)
+
 Calibrate the [`Armington`](@ref) shares of one product from a base-year trade
 matrix, so that the model reproduces the observed sourcing at the observed
 prices.
@@ -734,7 +819,8 @@ demand condition ``X_o = A\\,\\delta_o (P^c/q_o)^\\sigma`` gives
 \\delta_{o,r} \\;\\propto\\; X_{o,r}\\; q_{o,r}^{\\,\\sigma}
 ```
 
-which is what this returns, normalised per destination. Feeding observed shares
+which is what this returns, normalised per destination: it is
+[`ces_calibration`](@ref) applied to the origins of each destination. Feeding observed shares
 in directly would only be right if all delivered prices were equal, since
 ``\\delta`` is by definition the share at equal delivered prices. From observed
 *value* shares `s` rather than quantities the equivalent form is
@@ -758,22 +844,21 @@ function armington_shares(; flows::AbstractDict, prices::AbstractDict,
                             sigma::Real)
     0 <= sigma < Inf || throw(ArgumentError("sigma must be finite and ≥ 0, got $sigma"))
     flows, prices = namekeys2(flows), namekeys2(prices)
-    δ = Dict{Tuple{String,String},Float64}()
-    for (key, x) in flows
-        x > 0 || continue
+    used = [key for (key, x) in flows if x > 0]
+    isempty(used) && throw(ArgumentError("no positive flow to calibrate on"))
+    for key in used
         haskey(prices, key) || throw(ArgumentError(
             "no delivered price given for the flow $(key[1]) → $(key[2])"))
-        q = prices[key]
-        q > 0 || throw(ArgumentError(
-            "the delivered price of $(key[1]) → $(key[2]) must be positive, got $q"))
-        δ[key] = x * q^sigma
+        prices[key] > 0 || throw(ArgumentError(
+            "the delivered price of $(key[1]) → $(key[2]) must be positive, " *
+            "got $(prices[key])"))
     end
-    isempty(δ) && throw(ArgumentError("no positive flow to calibrate on"))
-    for dest in unique(k[2] for k in keys(δ))          # normalise per destination
-        total = sum(v for (k, v) in δ if k[2] == dest)
-        for k in keys(δ)
-            k[2] == dest && (δ[k] /= total)
-        end
+    δ = Dict{Tuple{String,String},Float64}()
+    for dest in unique(k[2] for k in used)        # one CES group per destination
+        keys_d = [k for k in used if k[2] == dest]
+        c = ces_calibration(quantities = [flows[k] for k in keys_d],
+                            prices = [prices[k] for k in keys_d], sigma = sigma)
+        merge!(δ, Dict(zip(keys_d, c.shares)))
     end
     return δ
 end
