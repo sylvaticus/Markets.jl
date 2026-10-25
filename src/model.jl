@@ -36,18 +36,67 @@ function consumed(d::MarketData)
     return uses
 end
 
+# Whether the members of a CES group of elasticity `σ` enter its aggregator
+# raised to a power, and so need a positive floor: all but the two linear
+# cases, Leontief (σ = 0) and perfect substitutes (σ = ∞).
+powered(σ) = 0 < σ < Inf
+
 """
 $(TYPEDSIGNATURES)
 
-The origins that sit directly under a CES node of `node` and therefore enter an
-aggregator as ``X^\\rho``.  Only those need a positive lower bound; a variety
-pooled by an infinitely substitutable group enters linearly and may go to zero.
+Require the CES aggregate of the quantities `qs`, with value shares `δ` and
+elasticity of substitution `σ`, times `scale`, to be at least `rhs`. The
+aggregate is
+
+    ( Σᵢ δᵢ^(1/σ) · qᵢ^ρ )^(1/ρ),     ρ = (σ-1)/σ
+
+and, at the three values of `σ` where that formula cannot be evaluated, its
+limit there:
+
+* `σ = 0`, Leontief: `minᵢ qᵢ/δᵢ`, written as one linear constraint per member;
+* `σ = 1`, Cobb–Douglas: `Πᵢ (qᵢ/δᵢ)^δᵢ`;
+* `σ = ∞`, perfect substitutes: `Σᵢ qᵢ`.
+
+Every one of them is concave in `qs`, so the set where it is above `rhs` is
+convex. The price of the composite is the CES index `(Σᵢ δᵢ pᵢ^(1-σ))^(1/(1-σ))`
+of the members' prices, and its limits: `Σᵢ δᵢ pᵢ` at 0, `Πᵢ pᵢ^δᵢ` at 1.
+"""
+function ces_constraint!(m, qs, δ, σ, rhs, name; scale = 1.0)
+    scaled(x) = isone(scale) ? x : scale * x
+    if isinf(σ)
+        # perfect substitutes: the group is one good, pooled by plain addition
+        @constraint(m, scaled(sum(qs)) >= rhs, base_name = name)
+    elseif iszero(σ)
+        # fixed proportions: each member is needed in its share of the composite
+        for i in eachindex(qs)
+            @constraint(m, scaled(qs[i]) >= δ[i] * rhs, base_name = "$name[$i]")
+        end
+    elseif isone(σ)
+        # the exponents must sum to 1, both for this to be the limit of the
+        # CES and for it to be concave
+        w = δ ./ sum(δ)
+        @constraint(m, scaled(prod((qs[i] / w[i])^w[i] for i in eachindex(qs))) >= rhs,
+                    base_name = name)
+    else
+        ρ = (σ - 1) / σ
+        aggr = @expression(m, sum(δ[i]^(1 / σ) * qs[i]^ρ for i in eachindex(qs)))
+        @constraint(m, scaled(aggr^(1 / ρ)) >= rhs, base_name = name)
+    end
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The origins that sit directly under a CES node of `node` that raises them to a
+power.  Only those need a positive lower bound; a variety under a Leontief
+node or pooled by an infinitely substitutable group enters linearly and may go
+to zero.
 """
 function floored_origins(node, acc = Set{String}())
     node isa AbstractString && return acc
     for c in node.children
         if c isa AbstractString
-            isfinite(node.sigma) && push!(acc, c)
+            powered(node.sigma) && push!(acc, c)
         else
             floored_origins(c, acc)
         end
@@ -228,22 +277,13 @@ to its children by the CES aggregator of the group.  Called on the root of an
 """
 function armington_quantity(m, node, p::String, r::String, X, floor_at, in_power::Bool = false)
     node isa AbstractString && return X[(p, node, r)]
-    qs = [armington_quantity(m, c, p, r, X, floor_at, isfinite(node.sigma))
+    qs = [armington_quantity(m, c, p, r, X, floor_at, powered(node.sigma))
           for c in node.children]
     # the composite only needs a positive floor where it is itself raised to a
-    # power, i.e. where the group it belongs to substitutes imperfectly
+    # power, i.e. where the group it belongs to has a finite, positive elasticity
     composite = @variable(m, lower_bound = in_power ? floor_at(sum(start_value, qs)) : 0.0,
                              start = sum(start_value, qs), base_name = "origin_composite[$p,$r]")
-    if isinf(node.sigma)
-        # perfect substitutes: the group is one good, pooled by plain addition
-        # (the limit of the CES below, where δ^(1/σ) → 1 and ρ → 1)
-        @constraint(m, sum(qs) >= composite, base_name = "origin_group[$p,$r]")
-    else
-        ρ = (node.sigma - 1) / node.sigma
-        aggr = @expression(m, sum(node.shares[i]^(1 / node.sigma) * qs[i]^ρ
-                                  for i in eachindex(qs)))
-        @constraint(m, aggr^(1 / ρ) >= composite, base_name = "origin_group[$p,$r]")
-    end
+    ces_constraint!(m, qs, node.shares, node.sigma, composite, "origin_group[$p,$r]")
     return composite
 end
 
@@ -268,21 +308,12 @@ function demand_quantity(m, node, r::String, D, floor_at, start, in_power::Bool 
     weights ./= sum(weights)
     members = Any[node.products; node.nests]
     qs = [demand_quantity(m, member, r, D, floor_at, weights[i] * start,
-                          isfinite(node.sigma))
+                          powered(node.sigma))
           for (i, member) in enumerate(members)]
     length(qs) == 1 && return qs[1]
     composite = @variable(m, lower_bound = in_power ? floor_at(sum(start_value, qs)) : 0.0,
                              start = sum(start_value, qs), base_name = "demand_composite[$r]")
-    if isinf(node.sigma)
-        # perfect substitutes: one good to the consumer, so the composite is
-        # the plain sum, which is the limit of the CES below
-        @constraint(m, sum(qs) >= composite, base_name = "demand_group[$r]")
-    else
-        ρ = (node.sigma - 1) / node.sigma
-        aggr = @expression(m, sum(weights[i]^(1 / node.sigma) * qs[i]^ρ
-                                  for i in eachindex(qs)))
-        @constraint(m, aggr^(1 / ρ) >= composite, base_name = "demand_group[$r]")
-    end
+    ces_constraint!(m, qs, weights, node.sigma, composite, "demand_group[$r]")
     return composite
 end
 
@@ -461,8 +492,10 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
                 addto!(used, (r, nest.products[1]), nest.composite * zk)
             else                                     # CES
                 qs = VariableRef[]
+                # a Leontief nest uses its inputs linearly, so they may go to zero
                 for p in nest.products
-                    q = @variable(m, lower_bound = floor_at(nest.composite),
+                    q = @variable(m, lower_bound = iszero(nest.sigma) ? 0.0 :
+                                                   floor_at(nest.composite),
                                      start = nest.composite,
                                      base_name = "x[$r,$(proc.name),$p]")
                     push!(qs, q)
@@ -473,16 +506,8 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
                 # composite-input price equal the input price when prices are
                 # uniform (and total physical input = composite·z), so the dual
                 # prices reproduce the genuine marginal cost of production.
-                if isinf(nest.sigma)
-                    @constraint(m, nest.phi * sum(qs) >= nest.composite * zk,
-                                base_name = "input_nest[$r,$(proc.name)]")
-                else
-                    ρ = (nest.sigma - 1) / nest.sigma
-                    aggr = @expression(m, sum(nest.shares[i]^(1 / nest.sigma) * qs[i]^ρ
-                                              for i in eachindex(qs)))
-                    @constraint(m, nest.phi * aggr^(1 / ρ) >= nest.composite * zk,
-                                base_name = "input_nest[$r,$(proc.name)]")
-                end
+                ces_constraint!(m, qs, nest.shares, nest.sigma, nest.composite * zk,
+                                "input_nest[$r,$(proc.name)]"; scale = nest.phi)
             end
         end
     end

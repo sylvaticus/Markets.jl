@@ -43,6 +43,15 @@ breaking changes.
   may move at no cost takes a route priced `0.0`.
 
 ### Added
+- **Elasticities of substitution of 1 and below.** Every CES — `ces` input
+  nests, `Armington`, `OriginNest` and `DemandNest` — accepts any `sigma ≥ 0`
+  instead of only `sigma > 1`, and so does `armington_shares` (finite values).
+  Below 1 the members are poor substitutes, or complements. `sigma = 1` is
+  written as the Cobb–Douglas `Πᵢ (qᵢ/δᵢ)^δᵢ` and `sigma = 0` as the Leontief
+  `minᵢ qᵢ/δᵢ` (one linear constraint per member, with no quantity floor), the
+  exact limits of the calibrated CES there, so `ces(...; sigma = 0)` is a
+  fixed-proportion requirement of several products. Below about `sigma = 0.01`
+  the CES formula leaves floating-point range: use 0.
 - `jump_model(d)` returns the JuMP model `solve_market` would solve, built but
   not solved, so `print(jump_model(d))` shows the program in full. It takes the
   same solver keywords as `solve_market`. Every constraint is now named

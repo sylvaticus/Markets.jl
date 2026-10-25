@@ -63,11 +63,11 @@ in dense arrays.
 | ``0 \le S_{r,p} \le \bar S_{r,p}`` | ``(r,p) \in \mathcal{S}`` | primary supply, bounded by its capacity |
 | ``0 \le z_{r,k} \le \bar z_{r,k}`` | ``k \in K, r \in R_k`` | process activity, bounded by its capacity |
 | ``C_{s}`` | demand curves `s` over a group | the composite of a group of substitutes, whose members are the ``D`` of each |
-| ``x_{r,k,n,i} \ge q_{min}`` | CES nests ``n``, ``i \in I_n`` | quantity of input ``i`` used in nest ``n`` |
+| ``x_{r,k,n,i} \ge q_{min}`` | CES nests ``n``, ``i \in I_n`` | quantity of input ``i`` used in nest ``n``; bounded by 0 instead when ``\sigma_n = 0`` |
 | ``T_{p,r,r'} \ge 0`` | ``(p,r,r') \in \mathcal{T}``, ``p \in P^H`` | trade flow from ``r`` to ``r'`` |
-| ``X_{p,o,r} \ge 0`` | ``p \in P^A``, ``o \in O_{p,r}`` | quantity of the variety of origin ``o`` used in ``r``; floored only under a finite-``\sigma`` node |
+| ``X_{p,o,r} \ge 0`` | ``p \in P^A``, ``o \in O_{p,r}`` | quantity of the variety of origin ``o`` used in ``r``; floored only under a node with ``0 < \sigma < \infty`` |
 | ``A_{p,r} \ge 0`` | ``p \in P^A``, ``r \in R`` | composite of ``p`` available to the users of ``r``, built only where ``r`` uses it |
-| ``C_{\nu} \ge 0`` | internal nodes ``\nu`` of ``\mathcal{N}_{p,r}`` | sub-composite of a group of origins; floored only when its parent is a finite-``\sigma`` node |
+| ``C_{\nu} \ge 0`` | internal nodes ``\nu`` of ``\mathcal{N}_{p,r}`` | sub-composite of a group of origins; floored only when its parent has ``0 < \sigma < \infty`` |
 
 ``q_{min}`` is the `qfloor` keyword of [`solve_market`](@ref), which defaults to
 ``10^{-6}`` of the smallest reference quantity in the economy (see
@@ -101,7 +101,16 @@ product, with ``\rho_n = (\sigma_n - 1)/\sigma_n``:
 ```
 
 The constraint is an inequality, which keeps the feasible set convex; at the
-optimum it is binding because inputs are costly. A nest with a single product
+optimum it is binding because inputs are costly.
+
+Where the formula cannot be evaluated, the aggregator is replaced by its limit:
+at ``\sigma_n = 1`` by the Cobb–Douglas
+``\prod_i (x_{r,k,n,i}/\delta_{n,i})^{\delta_{n,i}}``, at ``\sigma_n = 0``
+by ``\min_i x_{r,k,n,i}/\delta_{n,i}``, which is written as the linear
+constraints ``\phi_n x_{r,k,n,i} \ge \delta_{n,i}\, \bar a_n z_{r,k}``, one
+per input, and at ``\sigma_n = \infty`` by ``\sum_i x_{r,k,n,i}``. The same
+replacement is made in the Armington and the final-demand trees below; it is
+done in one place, `ces_constraint!`. A nest with a single product
 (Leontief) creates no variable and no constraint: the input use
 ``\bar a_n z_{r,k}`` enters the material balance directly.
 
@@ -181,7 +190,9 @@ that origin — and ``\pi^c_{p,r} = \pi_{\text{root}}`` the price the users of
 ```
 
 which tends to ``\min_o (\pi^s_{p,o} + \tau_{p,o,r})`` as ``\sigma \to
-\infty``. At ``\sigma = \infty`` the engine does not build these constraints
+\infty``, is ``\prod_o (\pi^s_{p,o} + \tau_{p,o,r})^{\delta_{p,o,r}}`` at
+``\sigma = 1`` and ``\sum_o \delta_{p,o,r} (\pi^s_{p,o} + \tau_{p,o,r})``
+at ``\sigma = 0``. At ``\sigma = \infty`` the engine does not build these constraints
 at all: the product is treated as homogeneous, which is the same model.
 
 ### How the tree is built
@@ -274,7 +285,10 @@ transfer, so adding the total back is what returns it to welfare.
 The first term of the objective is concave (exponent ``1 - 1/\eta`` in
 ``(0,1)`` because ``\eta > 1``), the second is convex and subtracted, and the
 others are linear, so the objective is concave. The CES aggregator is concave
-for ``\rho < 1``, so the set where it is above a linear function is convex. The
+for ``\rho < 1``, negative ``\rho`` included, and so are its limits at
+``\sigma = 0`` (a minimum of linear functions) and ``\sigma = 1`` (a weighted
+geometric mean with weights summing to 1), so the set where it is above a
+linear function is convex. The
 material balances are linear. The problem is therefore a convex program, and
 the local optimum found by Ipopt is the global one.
 
@@ -379,11 +393,13 @@ be recovered from `res.model`.
   three kinds of variable:
 
   * final demand ``D``, whose marginal benefit is ``a D^{-1/\eta}``;
-  * the inputs ``x`` of a CES process nest, which enter as ``x^{\rho}``;
+  * the inputs ``x`` of a CES process nest, which enter as ``x^{\rho}``,
+    except in a nest with ``\sigma = 0``, where they enter linearly;
   * the Armington varieties and sub-composites that sit **directly under a
-    finite-``\sigma`` node**. A variety pooled by an infinitely substitutable
-    group enters its aggregator linearly and is bounded below by 0, so
-    varieties inside such a group can go cleanly to zero.
+    node with ``0 < \sigma < \infty``**. A variety under a Leontief node
+    (``\sigma = 0``) or pooled by an infinitely substitutable group enters its
+    aggregator linearly and is bounded below by 0, so it can go cleanly to
+    zero.
 
   Primary supply ``S``, process activity ``z``, trade flows ``T`` and the
   composites ``A`` need no floor and have none.
@@ -467,6 +483,14 @@ equilibrium:
   delivered prices, the variety mix follows the CES demand condition, a supply
   shock in one region moves prices and flows in the other, and the
   specification errors are caught;
+* elasticities of 1 and below: at ``\sigma = 0``, ``0.3`` and ``1`` the
+  process, Armington and final-demand nests satisfy the CES first-order
+  condition and price index (or their limits), the ``\sigma = 0`` and
+  ``\sigma = 1`` branches agree with an elasticity just beside them, a region
+  whose own supply grows imports more of the other variety below 1
+  (complements) and less above it (substitutes), a Cobb–Douglas group
+  inside a Leontief composite prices as the two-level index, and only
+  variables raised to a power are floored;
 * the forest example: the solve succeeds, all prices are positive, no route has
   a price gap above its transport cost, used routes have a gap equal to it, and
   world exports equal world imports for every product.

@@ -275,9 +275,10 @@ where:
   calibration of where the substitution starts from. Without them all inputs
   would be used in equal amounts at equal prices.
 * the **elasticity of substitution** ``\sigma`` fixes how fast the mix moves
-  away from an input whose relative price rises. Values just above 1 give a mix
-  close to Cobb–Douglas (value shares stay nearly constant); large values make
-  the inputs nearly perfect substitutes.
+  away from an input whose relative price rises. At 1 the mix is Cobb–Douglas
+  (value shares stay constant), below 1 the inputs are poor substitutes, at 0
+  the mix does not move at all, and large values make the inputs nearly
+  perfect substitutes.
 
 The shares are written in calibrated form, so that the price of the CES
 composite equals the input price when all input prices are equal. As a result
@@ -286,17 +287,47 @@ production.
 
 ### Range of the elasticity of substitution
 
-[`ces`](@ref) requires ``\sigma > 1``. Mathematically, CES is also defined for
-``0 < \sigma < 1`` (inputs that are poor substitutes, or complements). The
-code restricts it because the aggregator is evaluated as
-``q_i^{\rho}`` with ``\rho = (\sigma - 1)/\sigma``: for ``\sigma < 1``,
-``\rho`` is negative and ``q_i^{\rho}`` grows without bound as an input
-goes to zero, which is numerically harder for the solver. ``\sigma = 1``
-(Cobb–Douglas) is a singular case of this formula (``\rho = 0``).
+``\sigma`` may be any value ``\ge 0``, here and in every other CES of the
+package — the [`Armington`](@ref) and [`OriginNest`](@ref) groups of origins
+and the [`DemandNest`](@ref) groups of final demand:
 
-[`leontief`](@ref) stores ``\sigma = 0``, but that value is never used: a
-single-product nest has nothing to substitute, and the code treats any
-single-product nest as fixed-coefficient regardless of ``\sigma``.
+* ``\sigma > 1``: good substitutes. When an input's relative price rises, its
+  quantity falls by more than its price rose, so its value share falls.
+* ``\sigma = 1``: Cobb–Douglas. Each input keeps the value share
+  ``\delta_i`` whatever the prices.
+* ``0 < \sigma < 1``: poor substitutes, or complements. The quantity falls by
+  less than the price rose, so the value share of the dearer input rises.
+* ``\sigma = 0``: fixed proportions (Leontief). Input ``i`` is ``\delta_i``
+  of the composite whatever the prices.
+
+The aggregator is written with ``\rho = (\sigma - 1)/\sigma``, which cannot
+be evaluated at ``\sigma = 0`` (``\rho = -\infty``), at ``\sigma = 1``
+(``\rho = 0``) or at ``\sigma = \infty``. At those three values the engine
+writes its limit instead, and the price of the composite is the limit of the
+CES index:
+
+| ``\sigma`` | composite of the ``q_i`` | price of the composite |
+|:-----------|:-------------------------|:-----------------------|
+| ``0`` | ``\min_i q_i/\delta_i`` | ``\sum_i \delta_i p_i`` |
+| ``1`` | ``\prod_i (q_i/\delta_i)^{\delta_i}`` | ``\prod_i p_i^{\delta_i}`` |
+| ``\infty`` | ``\sum_i q_i`` | ``\min_i p_i`` |
+
+These are the exact limits of the calibrated CES, so an elasticity just beside
+0 or 1 gives nearly the same equilibrium as 0 or 1 itself. Every one of them is
+concave, so the program stays convex over the whole range.
+
+Two practical points. Below 1 the exponent ``\rho`` is negative, so
+``q_i^{\rho}`` grows without bound as an input goes to zero; the quantity floor
+keeps the solver away from zero, as it already does above 1. And very close to
+0 — below about ``\sigma = 0.01``, depending on the data — ``q_i^{\rho}``
+leaves the range of floating-point numbers and the solve fails. Use
+``\sigma = 0`` there: at ``\sigma = 0.01`` the equilibrium is already within
+a fraction of a percent of it.
+
+A nest of a single product has nothing to substitute and is a fixed
+coefficient whatever its ``\sigma``; [`leontief`](@ref) builds one and stores
+``\sigma = 0``. A fixed-proportion requirement of several products is
+`ces(...; sigma = 0)`.
 
 ### Value-added cost
 

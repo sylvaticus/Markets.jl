@@ -22,13 +22,18 @@ solved(res)      = res.status in (Markets.MOI.LOCALLY_SOLVED, Markets.MOI.OPTIMA
     c = ces(composite = 1.5, products = [:a, :b], shares = [3, 1], sigma = 2)
     @test c.shares ≈ [0.75, 0.25]
     @test c.composite == 1.5 && c.sigma == 2.0 && c.phi == 1.0
-    # shares default to equal ones, sigma must be > 1, shares must align
+    # shares default to equal ones, sigma must be ≥ 0, shares must align
     @test ces(composite = 1.0, products = [:a, :b, :c], sigma = 2).shares ≈ [1/3, 1/3, 1/3]
     @test_throws ArgumentError ces(composite = 1.0, products = [:a, :b], shares = [1.0], sigma = 2)
-    @test_throws ArgumentError ces(composite = 1.0, products = [:a, :b], shares = [1.0, 1.0], sigma = 0.5)
+    @test_throws ArgumentError ces(composite = 1.0, products = [:a, :b], shares = [1.0, 1.0], sigma = -0.5)
+    @test_throws ArgumentError ces(composite = 1.0, products = [:a, :b], sigma = NaN)
+    # poor substitutes, Cobb–Douglas and fixed proportions are all CES nests
+    for σ in (0, 0.5, 1)
+        @test ces(composite = 1.0, products = [:a, :b], sigma = σ).sigma == σ
+    end
     # a Nest built directly validates like one built by `ces`
     @test_throws ArgumentError Nest(1.0, [:a, :b], [1.0], 2.0, 1.0)      # shares mismatch
-    @test_throws ArgumentError Nest(1.0, [:a, :b], [1.0, 1.0], 0.5, 1.0) # sigma too low
+    @test_throws ArgumentError Nest(1.0, [:a, :b], [1.0, 1.0], -1.0, 1.0) # sigma negative
     @test_throws ArgumentError Nest(1.0, [:a, :a], [1.0, 1.0], 2.0, 1.0) # repeated product
     @test_throws ArgumentError Nest(0.0, [:a], [1.0], 0.0, 1.0)          # nothing needed
     @test leontief(product = :a, coeff = 2).sigma == 0.0                 # still fine
@@ -608,7 +613,7 @@ end
     end
 
     @testset "nesting rules" begin
-        @test_throws ArgumentError DemandNest(sigma = 0.5, products = [:a])
+        @test_throws ArgumentError DemandNest(sigma = -0.5, products = [:a])
         @test_throws ArgumentError DemandNest(sigma = 2.0)                       # empty
         @test_throws ArgumentError DemandNest(sigma = 2.0, products = [:a, :b],
                                               shares = [1.0])                     # mismatch
@@ -876,7 +881,15 @@ end
     end
     # they are not the observed shares themselves, which is the point
     @test !isapprox(δ[("EU", "EU")], 0.8; rtol = 1e-3)
-    @test_throws ArgumentError armington_shares(; flows, prices, sigma = 0.5)
+    @test_throws ArgumentError armington_shares(; flows, prices, sigma = -0.5)
+    @test_throws ArgumentError armington_shares(; flows, prices, sigma = Inf)
+    # at σ = 0 the shares are the quantity shares, at σ = 1 the value shares
+    for (σ, weight) in ((0, k -> flows[k]), (1, k -> flows[k] * prices[k]))
+        δσ = armington_shares(; flows, prices, sigma = σ)
+        for k in keys(flows)
+            @test δσ[S.(k)] ≈ weight(k) / sum(weight(j) for j in keys(flows) if j[2] == k[2])
+        end
+    end
     @test_throws ArgumentError armington_shares(flows = Dict((:EU, :EU) => 1.0),
                                                 prices = Dict{Tuple{Symbol,Symbol},Float64}(),
                                                 sigma = 3)
@@ -1006,8 +1019,9 @@ end
     end
 
     @testset "specification errors" begin
-        @test_throws ArgumentError Armington(product = :x, sigma = 0.5)
-        @test_throws ArgumentError Armington(product = :x, sigma = 1.0)
+        @test_throws ArgumentError Armington(product = :x, sigma = -0.5)
+        @test_throws ArgumentError Armington(product = :x, sigma = NaN)
+        @test_throws ArgumentError OriginNest(sigma = -1.0, origins = [:A])
         @test_throws ArgumentError Armington(product = :x, sigma = 2,
                                              shares = Dict((:A, :A) => -1.0))
         @test_throws ArgumentError solve_market(economy([Armington(product = :nope, sigma = 2)]))
@@ -1195,7 +1209,7 @@ end
                                              nests = [OriginNest(sigma = 2, origins = [:EU, :NA])])
         @test_throws ArgumentError OriginNest(sigma = 4,
                                               nests = [OriginNest(sigma = 2, origins = [:EU, :NA])])
-        @test_throws ArgumentError OriginNest(sigma = 0.5, origins = [:EU])
+        @test_throws ArgumentError OriginNest(sigma = -0.5, origins = [:EU])
         @test_throws ArgumentError OriginNest(sigma = 4)                     # empty group
         @test_throws ArgumentError Armington(product = :x, sigma = 2,        # origin in two groups
                                              nests = [OriginNest(sigma = 9, origins = [:EU, :NA]),
@@ -1211,6 +1225,138 @@ end
         @test_throws ArgumentError solve_market(economy([        # homogeneous in AS only
             Armington(product = :x, destination = [:EU, :NA], sigma = 2),
             Armington(product = :x, destination = :AS, sigma = Inf)]))
+    end
+end
+
+@testset "Elasticities of substitution of 1 and below" begin
+    # the CES price index and its limit at σ = 1 (at σ = 0 the formula is
+    # already the Leontief Σδp)
+    index(δ, p, σ) = isone(σ) ? prod(p .^ δ) : sum(δ .* p .^ (1 - σ))^(1 / (1 - σ))
+    # 0: fixed proportions, 0.3: poor substitutes, 1: Cobb–Douglas
+    σs = (0.0, 0.3, 1.0)
+
+    processes(σ) = MarketData(
+        regions   = [:R],
+        products  = [:in1, :in2, :mid, :out],
+        demand    = [DemandSpec(product = :out, region = :R, p0 = 500, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplySpec(product = :in1, region = :R, p0 = 50, q0 = 10, elasticity = 0.8),
+                     SupplySpec(product = :in2, region = :R, p0 = 50, q0 = 3,  elasticity = 0.8)],
+        processes = [Process(name = :stage1, vacost = 20,
+                             inputs  = [ces(composite = 2.0, products = [:in1, :in2],
+                                            shares = [0.6, 0.4], sigma = σ)],
+                             outputs = [:mid => 1.0]),
+                     Process(name = :stage2, vacost = 30,
+                             inputs  = [leontief(product = :mid, coeff = 1.25)],
+                             outputs = [:out => 1.0])])
+
+    τ = 5.0
+    δ = Dict((:A, :A) => 0.8, (:B, :A) => 0.2, (:A, :B) => 0.3, (:B, :B) => 0.7)
+    trade(σ; qA = 30) = MarketData(
+        regions   = [:A, :B],
+        products  = [:x],
+        demand    = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5),
+                     DemandSpec(product = :x, region = :B, p0 = 100, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplySpec(product = :x, region = :A, p0 = 50,  q0 = qA, elasticity = 1.0),
+                     SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 1.0)],
+        transport_costs = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
+        armington = [Armington(product = :x, sigma = σ, shares = δ)])
+    home(res, r) = getq(res.production, r, :x) - flow(res, :x, r, r == :A ? :B : :A)
+
+    @testset "process nest at σ = $σ: cost-minimising mix and zero profit" for σ in σs
+        res = solve_market(processes(σ))
+        @test solved(res)
+        p(x) = price(res, :R, x)
+        q1, q2 = getq(res.production, :R, :in1), getq(res.production, :R, :in2)
+        @test q1 / q2 ≈ (0.6 / 0.4) * (p(:in2) / p(:in1))^σ rtol = 1e-5
+        @test p(:mid) ≈ 2.0 * index([0.6, 0.4], [p(:in1), p(:in2)], σ) + 20 rtol = 1e-5
+    end
+
+    @testset "Armington at σ = $σ: variety mix and price index" for σ in σs
+        res = solve_market(trade(σ))
+        @test solved(res)
+        for (r, o) in ((:A, :B), (:B, :A))
+            qd, qi = pprice(res, r, :x), pprice(res, o, :x) + τ
+            @test home(res, r) / flow(res, :x, o, r) ≈
+                  (δ[(r, r)] / δ[(o, r)]) * (qi / qd)^σ rtol = 1e-5
+            @test price(res, r, :x) ≈ index([δ[(r, r)], δ[(o, r)]], [qd, qi], σ) rtol = 1e-5
+        end
+    end
+
+    @testset "demand nest at σ = $σ: the CES demand condition" for σ in σs
+        nest = DemandNest(sigma = σ, products = [:pellets, :firewood], shares = [0.6, 0.4])
+        res = solve_market(MarketData(
+            regions = [:A], products = [:pellets, :firewood],
+            demand  = [DemandSpec(product = nest, region = :A, p0 = 100, q0 = 20, elasticity = 0.5)],
+            supply  = [SupplySpec(product = :pellets,  region = :A, p0 = 100, q0 = 12, elasticity = 0.8),
+                       SupplySpec(product = :firewood, region = :A, p0 = 100, q0 = 8,
+                                  elasticity = 0.8, shift = 0.5)]))
+        @test solved(res)
+        qp, qf = getq(res.consumption, :A, :pellets), getq(res.consumption, :A, :firewood)
+        pp, pf = price(res, :A, :pellets), price(res, :A, :firewood)
+        @test qp / qf ≈ (0.6 / 0.4) * (pf / pp)^σ rtol = 1e-5
+        # Cobb–Douglas spends a fixed share on each member, whatever the prices
+        isone(σ) && @test pp * qp / (pp * qp + pf * qf) ≈ 0.6 rtol = 1e-5
+    end
+
+    @testset "the branches are the limits of the CES" begin
+        # σ = 0 and σ = 1 are written with their own formulas: an elasticity
+        # just beside each must give nearly the same equilibrium. Beside 0 the
+        # CES formula is out of floating-point range below σ ≈ 0.005, so the
+        # neighbour is 0.01 and the tolerance follows (the variety mix moves
+        # with the price ratio to the power σ)
+        for (σ, ε, tol) in ((0.0, 1e-2, 2e-2), (1.0, 1e-4, 1e-3), (1.0, -1e-4, 1e-3))
+            at, near = solve_market(trade(σ)), solve_market(trade(σ + ε))
+            for r in (:A, :B)
+                @test price(near, r, :x) ≈ price(at, r, :x) rtol = tol
+                @test pprice(near, r, :x) ≈ pprice(at, r, :x) rtol = tol
+                @test home(near, r) ≈ home(at, r) rtol = tol
+            end
+            at, near = solve_market(processes(σ)), solve_market(processes(σ + ε))
+            for x in (:in1, :in2, :mid)
+                @test price(near, :R, x) ≈ price(at, :R, x) rtol = tol
+            end
+        end
+    end
+
+    @testset "below 1 the varieties are complements" begin
+        # more supply in A makes A consume more. Its users then want more of
+        # B's variety too if the two are complements, and less if they are
+        # substitutes
+        imports(σ, qA) = flow(solve_market(trade(σ; qA)), :x, :B, :A)
+        @test imports(0.3, 39) > imports(0.3, 30)
+        @test imports(3.0, 39) < imports(3.0, 30)
+    end
+
+    @testset "nested groups: Cobb–Douglas inside, Leontief outside" begin
+        regions = [:EU, :NA, :AS]
+        shares  = Dict((:EU, :EU) => 0.5,  (:NA, :EU) => 0.3,  (:AS, :EU) => 0.2,
+                       (:NA, :NA) => 0.6,  (:EU, :NA) => 0.25, (:AS, :NA) => 0.15,
+                       (:AS, :AS) => 0.55, (:EU, :AS) => 0.2,  (:NA, :AS) => 0.25)
+        res = solve_market(MarketData(
+            regions  = regions, products = [:x],
+            demand   = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
+                        for r in regions],
+            supply   = [SupplySpec(product = :x, region = :EU, p0 = 60, q0 = 20, elasticity = 1.0),
+                        SupplySpec(product = :x, region = :NA, p0 = 55, q0 = 25, elasticity = 1.0),
+                        SupplySpec(product = :x, region = :AS, p0 = 70, q0 = 15, elasticity = 1.0)],
+            transport_costs = Dict((:x, o, r) => 6.0 for o in regions, r in regions if o != r),
+            armington = [Armington(product = :x, sigma = 0, shares = shares,
+                                   nests = [OriginNest(sigma = 1, origins = [:EU, :NA])])]))
+        @test solved(res)
+        for r in regions
+            q(o)  = pprice(res, o, :x) + (o == r ? 0.0 : 6.0)
+            group = shares[(:EU, r)] + shares[(:NA, r)]
+            Pg = index([shares[(:EU, r)], shares[(:NA, r)]] ./ group, [q(:EU), q(:NA)], 1.0)
+            @test price(res, r, :x) ≈ group * Pg + shares[(:AS, r)] * q(:AS) rtol = 1e-5
+        end
+    end
+
+    @testset "only what is raised to a power is floored" begin
+        lb(m, name) = JuMP.lower_bound(JuMP.variable_by_name(m, name))
+        @test lb(jump_model(trade(0.0)), "X[x,B,A]") == 0.0
+        @test lb(jump_model(trade(1.0)), "X[x,B,A]") > 0.0
+        @test lb(jump_model(processes(0.0)), "x[R,stage1,in1]") == 0.0
+        @test lb(jump_model(processes(1.0)), "x[R,stage1,in1]") > 0.0
     end
 end
 

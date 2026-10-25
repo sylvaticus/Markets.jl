@@ -45,9 +45,11 @@ DemandNest(sigma = 1.6, products = ["electric_car"], shares = [0.25],
 Base.@kwdef struct DemandNest
     """
     Elasticity of substitution ``\\sigma`` between the members of the group. It
-    must be `> 1`, and at least the `sigma` of the nest enclosing it. `Inf`
-    makes the members perfect substitutes — one good to the consumer, bought
-    for whichever of them is cheapest
+    must be `≥ 0`, and at least the `sigma` of the nest enclosing it. Below 1
+    the members are poor substitutes, or complements; `0` makes them be
+    consumed in fixed proportions (Leontief), `1` is Cobb–Douglas, and `Inf`
+    makes them perfect substitutes — one good to the consumer, bought for
+    whichever of them is cheapest
     """
     sigma::Float64
     "Products belonging directly to the group"
@@ -64,8 +66,8 @@ Base.@kwdef struct DemandNest
     share::Float64 = 1.0
 
     function DemandNest(sigma, products, shares, nests, share)
-        sigma > 1 || throw(ArgumentError(
-            "a demand group's elasticity must be > 1, got $sigma"))
+        sigma >= 0 || throw(ArgumentError(
+            "a demand group's elasticity must be ≥ 0, got $sigma"))
         isempty(products) && isempty(nests) && throw(ArgumentError(
             "a demand group must contain at least one product or sub-group"))
         length(products) == length(shares) || throw(ArgumentError(
@@ -278,7 +280,10 @@ fixed proportion to the process activity.
       composite · z  ≤  φ · ( Σᵢ δᵢ^(1/σ) · qᵢ^ρ )^(1/ρ),     ρ = (σ-1)/σ
 
   As an input's price rises the optimiser smoothly shifts the mix toward
-  cheaper inputs. Build it with [`ces`](@ref), which requires `sigma > 1`.
+  cheaper inputs. Build it with [`ces`](@ref). `sigma` may be any value
+  `≥ 0`: the formula is replaced by its limit at `σ = 0` (fixed proportions,
+  `minᵢ qᵢ/δᵢ`), at `σ = 1` (Cobb–Douglas, `Πᵢ (qᵢ/δᵢ)^δᵢ`) and at `σ = ∞`
+  (perfect substitutes, `Σᵢ qᵢ`).
 
 Use the [`leontief`](@ref) and [`ces`](@ref) builders rather than this
 constructor: they normalise the shares and check the arguments.
@@ -299,8 +304,9 @@ Base.@kwdef struct Nest
     shares::Vector{Float64} = fill(1 / length(products), length(products))
     """
     Elasticity of substitution ``\\sigma`` between the products of the nest.
-    It must be `> 1`, or `Inf` for inputs that are perfect substitutes; it is
-    ignored (and conventionally set to 0) for a single-product (Leontief) nest
+    It must be `≥ 0`: `0` for inputs needed in fixed proportions, `1` for
+    Cobb–Douglas, `Inf` for perfect substitutes. It is ignored (and
+    conventionally set to 0) for a single-product (Leontief) nest
     """
     sigma::Float64
     "Scale parameter ``\\phi`` of the CES aggregator"
@@ -318,9 +324,9 @@ Base.@kwdef struct Nest
         all(>(0), shares) || throw(ArgumentError("the shares of a nest must be positive"))
         phi > 0 || throw(ArgumentError("the scale of a nest must be positive, got $phi"))
         # a single-product nest is a fixed coefficient and never consults sigma
-        length(products) == 1 || sigma > 1 || throw(ArgumentError(
-            "a nest of several products needs an elasticity of substitution above 1 " *
-            "(or Inf for perfect substitutes), got $sigma"))
+        length(products) == 1 || sigma >= 0 || throw(ArgumentError(
+            "a nest of several products needs an elasticity of substitution ≥ 0, " *
+            "got $sigma"))
         new(composite, nms(products), shares, sigma, phi)
     end
 end
@@ -347,7 +353,9 @@ a bundle of `products` per unit of process activity.
 
 `shares` are the value shares of each input when all input prices are equal
 (equal shares by default); they need not sum to 1, as they are normalised
-internally. `sigma` is the elasticity of substitution and must be `> 1`.
+internally. `sigma` is the elasticity of substitution and must be `≥ 0`:
+below 1 the inputs are poor substitutes, `0` needs them in fixed proportions,
+`1` is Cobb–Douglas and `Inf` makes them perfect substitutes.
 
 # Example
 ```julia
@@ -362,8 +370,8 @@ function ces(; composite::Real, products::AbstractVector,
     length(products) == length(shares) || throw(ArgumentError(
         "ces needs one share per product, got $(length(products)) products and " *
         "$(length(shares)) shares"))
-    sigma > 1 || throw(ArgumentError(
-        "ces needs an elasticity of substitution above 1, got $sigma"))
+    sigma >= 0 || throw(ArgumentError(
+        "ces needs an elasticity of substitution ≥ 0, got $sigma"))
     s = collect(float.(shares)); s ./= sum(s)
     Nest(composite = composite, products = products, shares = s, sigma = sigma, phi = phi)
 end
@@ -518,7 +526,7 @@ OriginNest(sigma = 12, origins = ["EU", "US"])
 Base.@kwdef struct OriginNest
     """
     Elasticity of substitution ``\\sigma`` between the members of the group. It
-    must be `> 1`, and at least the `sigma` of the nest that encloses it.
+    must be `≥ 0`, and at least the `sigma` of the nest that encloses it.
     `Inf` makes the members perfect substitutes: the group is pooled into a
     single good, as in the homogeneous case, while still being a distinct
     variety to the outside
@@ -530,8 +538,8 @@ Base.@kwdef struct OriginNest
     nests::Vector{OriginNest} = OriginNest[]
 
     function OriginNest(sigma, origins, nests)
-        sigma > 1 || throw(ArgumentError(
-            "an origin group's elasticity must be > 1, got $sigma"))
+        sigma >= 0 || throw(ArgumentError(
+            "an origin group's elasticity must be ≥ 0, got $sigma"))
         isempty(origins) && isempty(nests) && throw(ArgumentError(
             "an origin group must contain at least one origin or sub-group"))
         for n in nests
@@ -603,7 +611,9 @@ delivered prices,
 
 which tends to the cheapest delivered price as `σ → ∞`: `sigma = Inf` is
 exactly the homogeneous (Samuelson spatial price equilibrium) case, and a large
-finite `sigma` approaches it.
+finite `sigma` approaches it. At the other end, `sigma = 1` is the
+Cobb–Douglas composite `Πₒ (Xₒ/δₒ)^δₒ`, priced at `Πₒ (Pₒ + τₒ)^δₒ`, and
+`sigma = 0` the Leontief one `minₒ Xₒ/δₒ`, priced at `Σₒ δₒ (Pₒ + τₒ)`.
 
 A single `sigma` makes every origin substitute equally well for every other,
 which is the defining restriction of a flat CES. Two ways out, both available
@@ -642,8 +652,11 @@ Base.@kwdef struct Armington
     product::String
     """
     Elasticity of substitution ``\\sigma`` between the varieties of the
-    different origins. It must be `> 1`; `Inf` (the default for every product
-    not listed) means perfect substitutes, i.e. a homogeneous product
+    different origins. It must be `≥ 0`. Below 1 the varieties are poor
+    substitutes, or complements; `0` makes each destination buy them in fixed
+    proportions (Leontief) and `1` is Cobb–Douglas. `Inf` (the default for
+    every product not listed) means perfect substitutes, i.e. a homogeneous
+    product
     """
     sigma::Float64 = Inf
     """
@@ -672,8 +685,8 @@ Base.@kwdef struct Armington
     nests::Vector{OriginNest} = OriginNest[]
 
     function Armington(product, sigma, shares, destination, nests)
-        sigma > 1 || throw(ArgumentError(
-            "the Armington elasticity of $product must be > 1 (or Inf for a " *
+        sigma >= 0 || throw(ArgumentError(
+            "the Armington elasticity of $product must be ≥ 0 (or Inf for a " *
             "homogeneous product), got $sigma"))
         all(≥(0), values(shares)) || throw(ArgumentError(
             "the Armington shares of $product must not be negative"))
@@ -711,7 +724,8 @@ prices.
 from that origin in the base year, its own output included as `(r, r)`.
 `prices` maps the same pairs to the **delivered** price of that variety there,
 i.e. the producer price of the origin plus the cost of carrying it to the
-destination. `sigma` is the elasticity the shares are being calibrated for.
+destination. `sigma` is the elasticity the shares are being calibrated for,
+any finite value `≥ 0`.
 
 The shares are *not* the observed quantity or value shares. Inverting the CES
 demand condition ``X_o = A\\,\\delta_o (P^c/q_o)^\\sigma`` gives
@@ -742,7 +756,7 @@ Armington(product = "wine", sigma = 4, shares = shares)
 """
 function armington_shares(; flows::AbstractDict, prices::AbstractDict,
                             sigma::Real)
-    sigma > 1 || throw(ArgumentError("sigma must be > 1, got $sigma"))
+    0 <= sigma < Inf || throw(ArgumentError("sigma must be finite and ≥ 0, got $sigma"))
     flows, prices = namekeys2(flows), namekeys2(prices)
     δ = Dict{Tuple{String,String},Float64}()
     for (key, x) in flows

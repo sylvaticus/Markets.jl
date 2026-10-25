@@ -149,9 +149,11 @@ There are two kinds of nest:
   activity.
 * [`ces`](@ref): `composite` units of a CES bundle of several `products`.
   `shares` are the value shares of each input when all input prices are equal
-  (equal shares if omitted), and `sigma` (> 1) is the elasticity of
+  (equal shares if omitted), and `sigma` (≥ 0) is the elasticity of
   substitution: the higher it is, the more the mix moves away from the
-  expensive input when relative prices change.
+  expensive input when relative prices change. `sigma = 0` needs the inputs in
+  fixed proportions, `sigma = 1` is Cobb–Douglas, and `sigma = Inf` makes them
+  perfect substitutes.
 
 For example, a refinery that splits each tonne of crude into 0.45 t of
 petrol, 0.35 t of diesel and 0.15 t of fuel oil, and a steel mill that needs
@@ -235,9 +237,11 @@ armington = [Armington(product = "wine", sigma = 4),              # equal shares
                                      ("CN", "CN") => 0.9, ("EU", "CN") => 0.05, ("US", "CN") => 0.05))]
 ```
 
-* `sigma` is the elasticity of substitution between origins. It must be `> 1`;
+* `sigma` is the elasticity of substitution between origins, any value `≥ 0`:
   the lower it is, the more buyers stick to their usual origin when prices
-  move.
+  move. Below 1 the varieties are poor substitutes, or complements; `sigma = 1`
+  is Cobb–Douglas (each origin keeps a fixed share of the spending) and
+  `sigma = 0` fixes the mix of origins whatever the prices.
 * `shares` are keyed `(origin, destination)` and are the shares that would be
   observed if all delivered prices were equal, so they carry the home bias.
   They are **not** the observed shares: calibrate them from a base-year trade
