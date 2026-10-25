@@ -531,6 +531,35 @@ end
                                            capacity = 0.0)
     end
 
+    @testset "a value-added cost may differ by region" begin
+        regional(cost) = MarketData(
+            regions   = [:A, :B], products = [:w, :g],
+            demand    = [DemandSpec(product = :g, region = r, p0 = 300, q0 = 10, elasticity = 1.2)
+                         for r in (:A, :B)],
+            supply    = [SupplySpec(product = :w, region = r, p0 = 40, q0 = 40, elasticity = 0.8)
+                         for r in (:A, :B)],
+            processes = [Process(name = :mill, vacost = cost,
+                                 inputs  = [leontief(product = :w, coeff = 2.0)],
+                                 outputs = [:g => 1.0])],
+            transport_costs = Dict((p, o, r) => 30.0
+                                   for p in (:w, :g), o in (:A, :B), r in (:A, :B) if o != r))
+        res = solve_market(regional(Dict(:A => 50, :B => 80)))
+        @test solved(res)
+        # zero profit, each region at its own cost
+        for (r, c) in ((:A, 50), (:B, 80))
+            @test price(res, r, :g) ≈ 2 * price(res, r, :w) + c rtol = 1e-6
+        end
+        @test price(res, :B, :g) > price(res, :A, :g)
+        # one number for every region is the same as a dictionary of equal ones
+        same = solve_market(regional(Dict(:A => 50, :B => 50)))
+        flat = solve_market(regional(50))
+        @test price(same, :B, :g) ≈ price(flat, :B, :g) rtol = 1e-8
+        @test occursin("cost 50–80", sprint(print, regional(Dict(:A => 50, :B => 80))))
+        # a region the process runs in must have a cost, and only declared ones may
+        @test_throws ArgumentError validate(regional(Dict(:A => 50)))
+        @test_throws ArgumentError validate(regional(Dict(:A => 50, :B => 80, :C => 1)))
+    end
+
     @testset "a trade ceiling binds and earns a congestion rent" begin
         free  = solve_market(economy())
         moved = only(free.trade[free.trade.product .== S(:g), :quantity])
@@ -895,6 +924,88 @@ end
                                                 sigma = 3)
 end
 
+@testset "Armington calibration from a trade matrix" begin
+    # A small world solved once with arbitrary shares stands in for the base
+    # year: its flows and prices are what a user would observe. Rebuilt from
+    # those alone, the economy must give them back.
+    regions = [:A, :B, :C, :D]
+    τ(o, r) = o == r ? 0.0 : 4.0 + 3.0 * abs(findfirst(==(o), regions) - findfirst(==(r), regions))
+    nests = [OriginNest(sigma = 8.0, origins = [:A], nests = [OriginNest(sigma = Inf, origins = [:B, :C])])]
+    truth = MarketData(regions = regions, products = [:x],
+        demand = [DemandSpec(product = :x, region = r, p0 = 100, q0 = q0, elasticity = 0.8)
+                  for (r, q0) in zip(regions, (12.0, 8.0, 15.0, 10.0))],
+        supply = [SupplySpec(product = :x, region = r, p0 = p0, q0 = q0, elasticity = 1.2)
+                  for (r, p0, q0) in zip(regions, (60, 55, 58, 70), (10.0, 14.0, 9.0, 12.0))],
+        transport_costs = Dict((:x, o, r) => τ(o, r) for o in regions, r in regions if o != r),
+        armington = [Armington(product = :x, sigma = 3.0, nests = nests,
+                               shares = Dict((o, r) => 1.0 + 0.3 * i + 0.1 * j
+                                             for (i, o) in enumerate(regions),
+                                                 (j, r) in enumerate(regions)))])
+    base = solve_market(truth; solver_options = (tol = 1e-12,))
+    @test solved(base)
+
+    made     = Dict(S(r) => getq(base.production, r, :x) for r in regions)
+    received = Dict(S(r) => pprice(base, r, :x) for r in regions)
+    flows = Dict((S(o), S(r)) => flow(base, :x, o, r) for o in regions, r in regions if o != r)
+    for r in S.(regions)
+        flows[(r, r)] = made[r] - sum(x for ((o, _), x) in flows if o == r)
+    end
+    filter!(f -> last(f) > 1e-7, flows)
+    delivered = Dict((S(o), S(r)) => received[S(o)] + τ(o, r) for o in regions, r in regions)
+
+    arm = armington_calibration(product = :x, flows = flows, prices = delivered, sigma = 3.0,
+                                nests = nests, rtol = 1e-6)
+    @test arm.nests == nests && arm.sigma == 3.0
+    for r in S.(regions)
+        @test sum(v for ((_, d), v) in arm.shares if d == r) ≈ 1
+    end
+    # the consumer price the base year implies: the average delivered unit value
+    bought(r) = sum(x for ((_, d), x) in flows if d == r)
+    unit_value(r) = sum(x * delivered[k] for (k, x) in flows if k[2] == r) / bought(r)
+    rebuilt = MarketData(regions = regions, products = [:x],
+        demand = [DemandSpec(product = :x, region = r, p0 = unit_value(S(r)), q0 = bought(S(r)),
+                             elasticity = 0.8) for r in regions],
+        supply = [SupplySpec(product = :x, region = r, p0 = received[S(r)], q0 = made[S(r)],
+                             elasticity = 1.2) for r in regions],
+        transport_costs = truth.transport_costs, armington = [arm])
+    res = solve_market(rebuilt; solver_options = (tol = 1e-12,))
+    @test solved(res)
+    for r in regions
+        @test pprice(res, r, :x) ≈ received[S(r)] rtol = 1e-6
+        @test price(res, r, :x) ≈ unit_value(S(r)) rtol = 1e-6
+        @test getq(res.production, r, :x) ≈ made[S(r)] rtol = 1e-5
+        # the composite is counted in the units of the flows
+        @test getq(res.consumption, r, :x) ≈ bought(S(r)) rtol = 1e-5
+    end
+    # the same prices as the economy it was observed from, which counted its
+    # composites in index units
+    for r in regions
+        @test pprice(res, r, :x) ≈ pprice(base, r, :x) rtol = 1e-6
+    end
+    # flows from outside the pool come back one by one; inside it only its
+    # total to each destination is determined
+    for o in (:A, :D), r in regions
+        o == r && continue
+        @test flow(res, :x, o, r) ≈ flow(base, :x, o, r) rtol = 1e-4 atol = 1e-6
+    end
+
+    # a pool member that would be the cheapest but shipped nothing contradicts
+    # the data, and a flow without a price cannot be calibrated
+    cheap = copy(delivered)
+    pooled = [k for k in keys(flows) if k[1] in ("B", "C") && k[2] == "A"]
+    idle = only(k for k in (("B", "A"), ("C", "A")) if !haskey(flows, k) || flows[k] < 1e-7)
+    cheap[idle] = 0.5 * minimum(delivered[k] for k in pooled)
+    @test_throws ArgumentError armington_calibration(product = :x, flows = flows, prices = cheap,
+                                                     sigma = 3.0, nests = nests, rtol = 1e-6)
+    @test_throws ArgumentError armington_calibration(product = :x, flows = flows,
+        prices = Dict(k => v for (k, v) in delivered if k != ("D", "A")), sigma = 3.0)
+    @test_throws ArgumentError armington_calibration(product = :x, flows = flows,
+                                                     prices = delivered, sigma = Inf)
+    # the scale is checked like the shares, and a missing destination gets 1
+    @test_throws ArgumentError Armington(product = :x, sigma = 3, scale = 0.0)
+    @test Markets.scale_of(Armington(product = :x, sigma = 3, scale = Dict(:A => 2.0)), "B") == 1.0
+end
+
 @testset "CES calibration" begin
     q, p = [7.0, 1.4, 3.0], [55.0, 250.0, 120.0]
     spending = sum(q .* p)
@@ -927,6 +1038,27 @@ end
         @test ces_calibration(quantities = [2.0, 0.0], prices = [80.0, 95.0],
                               sigma = Inf).price == 80.0  # a dearer member nobody buys
         @test_throws ArgumentError ces_calibration(quantities = q, prices = p, sigma = Inf)
+    end
+
+    @testset "the scale that counts the composite in the members' unit" begin
+        for σ in (0.0, 0.5, 1.0, 3.0)
+            c = ces_calibration(quantities = q, prices = p, sigma = σ)
+            @test c.scale ≈ sum(q) / c.quantity
+            # priced per unit of the sum, the composite costs the average unit price
+            @test c.price / c.scale ≈ spending / sum(q)
+        end
+        @test ces_calibration(quantities = q, prices = fill(80.0, 3), sigma = Inf).scale == 1
+        # a process bundle built on it uses the base-year inputs per unit of activity
+        c = ces_calibration(quantities = q, prices = p, sigma = 2.0)
+        n = ces(composite = sum(q), products = [:a, :b, :c], shares = c.shares, sigma = 2.0,
+                phi = c.scale)
+        @test n.phi * (sum(n.shares .^ (1 / 2) .* q .^ (1 / 2)))^2 ≈ n.composite
+        # perfect substitutes bought at prices equal only to their last digits
+        near = [80.0, 80.0 * (1 + 1e-7)]
+        @test_throws ArgumentError ces_calibration(quantities = [1.0, 2.0], prices = near,
+                                                   sigma = Inf)
+        @test ces_calibration(quantities = [1.0, 2.0], prices = near, sigma = Inf,
+                              rtol = 1e-6).price == 80.0
     end
 
     @testset "what it refuses" begin
@@ -1573,30 +1705,35 @@ end
     @test nrow(res.prices) == length(d.regions) * length(d.products)
     @test all(skipmissing(res.prices.price) .> 0)
 
+    # built from rounded, unbalanced data, the model lands near every
+    # observation: within a per cent for prices and quantities, a few per cent
+    # for the trade flows, the largest gaps being on the smallest flows
+    largest(name) = last(ex.relative_gaps(last(only(c for c in ex.comparison
+                                                     if first(c) == name))...))
+    for name in ("producer prices", "consumer prices", "production", "consumption")
+        @test largest(name) < 0.01
+    end
+    @test largest("trade") < 0.05
+    @test 0 < largest("production")               # near, not on
+
     # papermill is Leontief: it buys the pulp composite and sells its own
-    # variety of paper, so zero profit ties the producer price to the user one
-    for r in d.regions
-        @test pprice(res, r, :paper) ≈ 1.1 * price(res, r, :pulp) + 200 rtol = 1e-4
+    # variety of paper, so zero profit ties the producer price to the user one,
+    # at the value-added cost of each region
+    papermill = only(p for p in d.processes if p.name == "papermill")
+    for r in papermill.regions
+        @test pprice(res, r, :paper) ≈ 1.1 * price(res, r, :pulp) +
+                                       Markets.vacost_of(papermill, r) rtol = 1e-5
     end
     # no pulp mill in SEF and GEF, hence no pulp of their own to price
     @test ismissing(pprice(res, :SEF, :pulp)) && ismissing(pprice(res, :GEF, :pulp))
     @test !ismissing(pprice(res, :SWF, :pulp))
 
-    # the French regions are perfect substitutes for each other, so between
-    # them the solution is the homogeneous one: no cross-hauling ...
+    # the French regions are near-perfect substitutes: wood moves between them
+    # both ways, but far less of it than leaves France
     intra = res.trade[in.(res.trade.from, Ref(france)) .& in.(res.trade.to, Ref(france)), :]
-    for row in eachrow(intra)
-        row.quantity > 1e-3 || continue
-        @test flow(res, row.product, row.to, row.from) <= 1e-3
-    end
-    # ... and no price gap wider than the cost of shipping between them
-    for p in d.products, a in france, b in france
-        a < b || continue
-        (ismissing(pprice(res, a, p)) || ismissing(pprice(res, b, p))) && continue
-        @test abs(pprice(res, a, p) - pprice(res, b, p)) <=
-              d.transport_costs[(p, a, b)] + 1e-6
-    end
-    # between blocs that no longer holds: the varieties are different goods
+    @test any(flow(res, row.product, row.to, row.from) > 1e-3 for row in eachrow(intra))
+    @test sum(intra.quantity) < sum(ex.french_trade.crossing_the_border)
+    # between blocs the varieties are different goods, with price gaps above freight
     @test any(abs(pprice(res, "NA", p) - pprice(res, "AS", p)) > d.transport_costs[(p, "NA", "AS")]
               for p in d.products)
 

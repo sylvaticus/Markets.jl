@@ -88,9 +88,20 @@ function validate(d::MarketData)
         proc.capacity isa Dict && for r in keys(proc.capacity)
             check_region(r, "the capacity of process $(proc.name)")
         end
+        if proc.vacost isa Dict
+            for r in keys(proc.vacost)
+                check_region(r, "the value-added cost of process $(proc.name)")
+            end
+            # a region left out would run the process for free, which is
+            # never what was meant
+            missed = [r for r in regions_of(proc, d) if !haskey(proc.vacost, r)]
+            isempty(missed) || fail("process $(proc.name) operates in " *
+                "$(join(missed, ", ")) but its value-added cost gives none there")
+        end
         # a process with nothing to buy and nothing to pay is a free source of
         # its outputs, and the economy around it has no finite optimum
-        isempty(proc.inputs) && proc.vacost <= 0 && !isfinite(maximum_capacity(proc)) &&
+        isempty(proc.inputs) && maximum_vacost(proc) <= 0 &&
+            !isfinite(maximum_capacity(proc)) &&
             fail("process $(proc.name) has no inputs, no value-added cost and no " *
                  "capacity, so it would produce without limit; give it an input, a " *
                  "cost or a capacity")
@@ -115,6 +126,9 @@ function validate(d::MarketData)
         end
         for o in collect_origins!(String[], a.nests)
             check_region(o, "an origin group of $(a.product)")
+        end
+        a.scale isa Dict && for r in keys(a.scale)
+            check_region(r, "the Armington scale of $(a.product)")
         end
     end
 
@@ -148,6 +162,10 @@ end
 
 "The entries of `xs` that occur more than once, in order of first occurrence."
 duplicates(xs) = unique(x for x in xs if count(==(x), xs) > 1)
+
+"The largest value-added cost a process pays anywhere."
+maximum_vacost(p::Process) =
+    p.vacost isa Dict ? (isempty(p.vacost) ? 0.0 : maximum(values(p.vacost))) : p.vacost
 
 "The largest capacity a process may run at anywhere, `Inf` if unbounded."
 maximum_capacity(p::Process) =

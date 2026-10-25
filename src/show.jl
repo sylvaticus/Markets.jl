@@ -217,7 +217,13 @@ function Base.show(io::IO, d::MarketData)
         rows, notes = Vector{String}[], String[]
         for (p, inp) in zip(order, inputs)
             note = String[]
-            p.vacost == 0 || push!(note, "cost " * fmt(p.vacost))
+            if p.vacost isa Dict
+                # one per region would crowd the chart: the range says enough
+                lo, hi = isempty(p.vacost) ? (0.0, 0.0) : extrema(values(p.vacost))
+                hi == 0 || push!(note, "cost " * (lo == hi ? fmt(lo) : fmt(lo) * "–" * fmt(hi)))
+            else
+                p.vacost == 0 || push!(note, "cost " * fmt(p.vacost))
+            end
             p.capacity isa Dict ?
                 push!(note, "cap " * join((string(r, " ", fmt(c))
                                            for (r, c) in by_region(p.capacity)), ", ")) :

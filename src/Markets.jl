@@ -32,7 +32,8 @@ using DocStringExtensions: TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 
 export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
        TradeLimit, DemandNest, Tax,
-       leontief, ces, disposal, armington_shares, ces_calibration, exogenous_shift,
+       leontief, ces, disposal, armington_shares, armington_calibration, ces_calibration,
+       exogenous_shift,
        validate, solve_market, jump_model, Results, for_region
 
 # re-exported from JuMP, so that a model from `jump_model` can be typeset

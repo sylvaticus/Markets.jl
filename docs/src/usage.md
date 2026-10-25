@@ -155,7 +155,9 @@ chosen by the model. It has:
 * a list of **outputs**, as `product => yield` pairs per unit of activity. Several
   outputs make a joint-production process (a main product and its residues).
 * a **value-added cost** `vacost` per unit of activity, covering everything not
-  modelled as an explicit input (labour, energy, capital, ...).
+  modelled as an explicit input (labour, energy, capital, ...) — a single number
+  for every region, or a `region => cost` dictionary covering each region the
+  process operates in.
 * optionally the `regions` where it may operate (default: all), and a
   `capacity` bounding its activity — a single number for every region, or a
   `region => bound` dictionary. Without one, a process with constant returns
@@ -278,6 +280,11 @@ armington = [Armington(product = "wine", sigma = 4),              # equal shares
   If omitted, every origin available to a destination gets an equal share. An
   origin with no share (or a share of 0) is left out of that destination's
   composite, and so can never gain trade later.
+
+  With origin groups (below), [`armington_calibration`](@ref) builds the whole
+  specification from the same two dictionaries — shares through every level of
+  the tree, and the `scale` that keeps each composite in the physical units
+  of the flows at the base year, so that base-year data balance exactly.
 * `sigma = Inf`, and any product not listed, is the homogeneous case above.
   Inside an [`OriginNest`](@ref) it instead pools that group of origins into a
   single good, which is how a set of regions that form one internal market —
@@ -494,10 +501,12 @@ a complete economy with this API and solves it: eight regions (four of them
 French), the roundwood-to-paper-and-pellets chain, a product that is both burnt
 directly and milled, joint products, CES input bundles, a
 process restricted to the regions that have the capacity, and a three-level
-Armington structure in which the French regions are perfect substitutes for
-each other, close substitutes for the rest of the EU and more distant ones for
-the other blocs. It then runs a storm-salvage scenario and traces how far the
-shock travels.
+Armington structure in which the French regions are near-perfect substitutes
+for each other, close substitutes for the rest of the EU and more distant ones for
+the other blocs. It builds all of it from observed base-year data read from
+CSV files — calibrating every parameter it does not observe or choose — and
+compares the equilibrium with those data before running a storm-salvage
+scenario that traces how far the shock travels, and a gas-price one.
 
 The page is generated from
 [`examples/forest/forest_market.jl`](https://github.com/sylvaticus/Markets.jl/blob/main/examples/forest/forest_market.jl),

@@ -268,7 +268,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
         elseif t.on == "process"
             for proc in d.processes, r in regions_of(proc, d)
                 selects(t.process, proc.name) && selects(t.region, r) || continue
-                revenue += (t.relative ? t.rate * proc.vacost : t.rate) * val(z[(r, proc.name)])
+                revenue += (t.relative ? t.rate * vacost_of(proc, r) : t.rate) * val(z[(r, proc.name)])
             end
         else
             for ((p, o, r), v) in flows

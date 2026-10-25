@@ -1,0 +1,15 @@
+process,region,product,quantity
+plymill,EU,swr,1.07
+plymill,EU,hwr,0.94
+panelmill,EU,chips,0.33
+panelmill,EU,smallwood,0.71
+panelmill,EU,swr,0.26
+panelmill,EU,hwr,0.09
+pulpmill,EU,swr,1.35
+pulpmill,EU,hwr,0.61
+pulpmill,EU,chips,0.71
+pulpmill,EU,smallwood,1.5
+pelletmill,EU,chips,0.4
+pelletmill,EU,smallwood,1.75
+pelletmill,EU,swr,0.17
+pelletmill,EU,hwr,0.07

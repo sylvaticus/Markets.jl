@@ -334,7 +334,8 @@ coefficient whatever its ``\sigma``; [`leontief`](@ref) builds one and stores
 `vacost` is the cost per unit of activity of everything not modelled as an
 explicit input: labour, energy, capital, chemicals. It is a constant, so
 these inputs have an exogenous price and cannot substitute for the modelled
-inputs.
+inputs. It may differ by region, as wages and energy do, and a `vacost`
+calibrated on base-year margins always will.
 
 ### Why processes, and not supply and demand per transformation
 
@@ -420,15 +421,64 @@ own variety, and the step disappears. The same experiment, with
 
 Smooth, and gentle: a 15% cost advantage moves the split from 50/50 to 53/47.
 The [forest example](@ref "The forest sector: France in the world") declares an
-`Armington` specification for every product, so it does not exhibit the
-behaviour above at all. **Read the caveat as applying to products you have
-deliberately left homogeneous**, which in practice means intermediates for
-which no trade shares were available.
+`Armington` specification for every product, so between its blocs it does
+not exhibit the behaviour above at all. **Read the caveat as applying to
+products you have deliberately left homogeneous**, which in practice means
+intermediates for which no trade shares were available, and groups of regions
+pooled as perfect substitutes — where, once costs are calibrated, it takes a
+sharper form still.
+
+#### Perfect substitutes and constant returns
+
+Calibrating `vacost` on base-year margins puts every mill that ran exactly at
+break-even, in every region. Between regions whose products are perfect
+substitutes — a homogeneous product, or an [`OriginNest`](@ref) with
+`sigma = Inf` — that turns the step above into a **plateau**: the location of
+processing inside the group is not decided at all.
+
+The mechanism is simple. Take two regions of the group that both sell the
+input *and* the output into the same market — two French regions both
+exporting logs and lumber to the rest of the EU, say. Move one unit of sawing
+from the first to the second: the first exports the logs it no longer saws,
+the second exports that many fewer, and the lumber changes hands the other
+way. Both swaps happen inside one market, at one delivered price, so the move
+costs exactly nothing, and so does the next one. Nothing in the model prefers
+one split to another; the solver stops wherever its path ends, and a cost
+difference of a hair moves the whole plateau.
+
+How large that is, in a version of the
+[forest example](@ref "The forest sector: France in the world") with
+`sigma = Inf` inside France: freed from any bound, the solver puts the small
+French mills tens of per cent away from their observed activity, and a ±0.1%
+change in the costs of French mills empties `OF` of sawmilling and nearly
+doubles it in `SWF`. Whether a base year sits on such a plateau depends on its
+trade pattern. When each region of the group sells its output to a
+*different* market, moving processing between them shifts quantities between
+markets, whose demands slope, and the split is pinned; when they share a
+market for both input and output, as regions of one country selling to their
+neighbours commonly do, it is not.
+
+There are three ways out, in increasing order of what they ask for:
+
+* **A finite elasticity inside the group**, however high. Each region's
+  product then has a demand of its own, and the plateau tilts into a slope.
+  The cost is that the group is no longer one market: products cross-haul
+  between its regions, and producer prices may differ by more than the
+  freight between them — by a few per cent on manufactured products at
+  `sigma = 30`. The forest example does this, and shows both.
+* **A value-added cost rising with activity**, the principled remedy described
+  in the next section. Each region's mill then has a supply curve of its own,
+  so the split is decided by costs rather than left open, and the group can
+  stay perfectly substitutable.
+* **Capacities that bind at the base year.** They pin the split, but only if
+  set equal to observed output, which says every mill ran flat out — rarely
+  true, and it forbids every mill from growing in any scenario. A capacity
+  with room to spare leaves the plateau in place inside its bounds.
 
 #### The fix that is not implemented, and why
 
-The principled remedy is not to abandon processes but to give them decreasing
-returns: replace the constant `vacost` with a cost rising in the activity
+The principled remedy, for the step and for the plateau alike, is not to
+abandon processes but to give them decreasing returns: replace the constant `vacost` with a cost rising in the activity
 level, calibrated so that the observed activity is what a processor would
 choose at observed margins. This is [positive mathematical
 programming](@ref howitt1995), the standard answer in agricultural sector
@@ -710,7 +760,12 @@ Two consequences of calibrated shares are worth knowing:
   consumption of an Armington product is a composite index, not a tonnage, and
   the m³ or tonne identity that holds for a homogeneous product does not hold
   for it. Production, trade and the balances are in physical units throughout;
-  it is only the composite that is an index.
+  it is only the composite that is an index. The `scale` of an
+  [`Armington`](@ref) specification multiplies the composite, and
+  [`armington_calibration`](@ref) sets it so that the composite equals the
+  physical sum at the base year: base-year data in m³ then balance exactly,
+  and the composite is priced at the average delivered unit value. Away from
+  the base year the composite drifts from the sum again, as any CES does.
 
 ### Shares and elasticity answer different questions
 
@@ -893,25 +948,28 @@ Entering `p0` and `q0` is not calibration, it is data entry. Calibration is
 choosing the parameters you do **not** observe so that the benchmark becomes an
 equilibrium:
 
-* `vacost` of each process, from the observed output price less the observed
-  cost of its inputs — which makes zero profit hold exactly at base-year
-  prices;
+* `vacost` of each process in each region, from the observed output prices
+  less the observed cost of its inputs there — which makes zero profit hold
+  exactly at base-year prices;
 * `transport_costs` on each route, from the observed price gap between its ends on
   routes that were actually used;
-* [`armington_shares`](@ref) for the trade shares, from the base-year bilateral
-  matrix at base-year delivered prices — not from the raw observed shares, for
-  the reason given under
+* [`armington_calibration`](@ref) for the trade shares and the scale of each
+  composite, from the base-year bilateral matrix at base-year delivered prices,
+  through every level of the origin groups — not from the raw observed shares,
+  for the reason given under
   [Imperfect substitution between origins (Armington)](@ref);
+  [`armington_shares`](@ref) does the shares alone for a flat CES;
 * [`ces_calibration`](@ref) for the shares of any other CES group — the
   substitutes in a [`DemandNest`](@ref), the inputs of a [`ces`](@ref) nest —
   and for the `p0` and `q0` of a demand curve over a bundle, which are its CES
   price index and the base-year spending divided by that index;
 * `shift` on the curves, to absorb what remains.
 
-The example in [The forest sector: France in the world](@ref) does none of
-this. Its reference points are plausible figures, not a jointly consistent
-benchmark, which is exactly why its equilibrium prices sit some way from them.
-It is an illustration of the machinery, not a calibrated model.
+The example in [The forest sector: France in the world](@ref) does all of it,
+from base-year data read from files, and then compares the equilibrium with
+those data. They are rounded and do not quite balance, as real data do not, so
+the model lands near them rather than on them, and the size of the gaps is
+read as described above.
 
 ### Never re-anchor on your own output
 

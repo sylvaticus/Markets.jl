@@ -411,9 +411,13 @@ Base.@kwdef struct Process
     regions::Union{String,Vector{String}} = "all"
     """
     Value-added cost per unit of activity: the cost of everything not modelled
-    as an explicit input (labour, energy, capital, ...)
+    as an explicit input (labour, energy, capital, ...). A single number
+    applies to every region the process operates in; a `region => cost`
+    dictionary sets them one by one, and must then cover every such region.
+    Wages, energy and capital do not cost the same everywhere, and a cost
+    calibrated on base-year margins differs from region to region
     """
-    vacost::Float64 = 0.0
+    vacost::Union{Float64,Dict{String,Float64}} = 0.0
     """
     Upper bound on the activity level — the installed capacity of the plants
     that exist. A single number applies to every region the process operates
@@ -427,7 +431,7 @@ Base.@kwdef struct Process
         caps = capacity isa Dict ? values(capacity) : (capacity,)
         all(>(0), caps) || throw(ArgumentError(
             "the capacity of process $name must be positive, got $capacity"))
-        new(nm(name), inputs, namepairs(outputs), selector(regions), vacost,
+        new(nm(name), inputs, namepairs(outputs), selector(regions), namebound(vacost),
             namebound(capacity))
     end
 end
@@ -435,6 +439,9 @@ end
 "Upper bound on the activity of process `p` in region `r`, `Inf` if unbounded."
 capacity_of(p::Process, r::String) =
     p.capacity isa Dict ? get(p.capacity, r, Inf) : p.capacity
+
+"Value-added cost per unit of activity of process `p` in region `r`."
+vacost_of(p::Process, r::String) = p.vacost isa Dict ? p.vacost[r] : p.vacost
 
 """
 $(TYPEDEF)
@@ -609,6 +616,9 @@ delivered prices,
 
     Pᶜ = ( Σₒ δₒ · (Pₒ + τₒ)^(1-σ) )^(1/(1-σ))
 
+A `scale` φ multiplies the aggregate, and divides this price, by the same
+factor.
+
 which tends to the cheapest delivered price as `σ → ∞`: `sigma = Inf` is
 exactly the homogeneous (Samuelson spatial price equilibrium) case, and a large
 finite `sigma` approaches it. At the other end, `sigma = 1` is the
@@ -683,8 +693,21 @@ Base.@kwdef struct Armington
     default) gives the flat CES in which all origins substitute equally
     """
     nests::Vector{OriginNest} = OriginNest[]
+    """
+    Scale ``\\phi`` of the composite, one number for every destination or a
+    `destination => scale` dictionary (a destination absent from it gets 1).
+    With shares that sum to 1 the CES aggregate equals the plain sum of the
+    varieties bought only where their delivered prices are equal, and falls
+    short of it where they differ. A scale of the base-year sum over the
+    base-year aggregate makes the composite count physical units again at the
+    base year, at a price equal to the average delivered unit value, which is
+    what lets base-year data in m³ or tonnes balance exactly;
+    [`armington_calibration`](@ref) sets it. The default, 1, leaves the
+    aggregate as it is
+    """
+    scale::Union{Float64,Dict{String,Float64}} = 1.0
 
-    function Armington(product, sigma, shares, destination, nests)
+    function Armington(product, sigma, shares, destination, nests, scale)
         sigma >= 0 || throw(ArgumentError(
             "the Armington elasticity of $product must be ≥ 0 (or Inf for a " *
             "homogeneous product), got $sigma"))
@@ -700,9 +723,15 @@ Base.@kwdef struct Armington
         collect_origins!(grouped, nests)
         allunique(grouped) || throw(ArgumentError(
             "an origin appears in more than one group of $product"))
-        new(nm(product), sigma, namekeys2(shares), selector(destination), nests)
+        all(>(0), scale isa AbstractDict ? values(scale) : (scale,)) || throw(ArgumentError(
+            "the Armington scale of $product must be positive, got $scale"))
+        new(nm(product), sigma, namekeys2(shares), selector(destination), nests,
+            namebound(scale))
     end
 end
+
+"Scale of the composite of Armington specification `a` in destination `r`."
+scale_of(a::Armington, r::String) = a.scale isa Dict ? get(a.scale, r, 1.0) : a.scale
 
 "Append every origin appearing anywhere in `nests` to `acc`."
 function collect_origins!(acc::Vector{String}, nests::Vector{OriginNest})
@@ -740,6 +769,13 @@ nobody observes:
   ``\\sum_i p_i q_i`` divided by `price`. It is an index number, not a physical
   quantity: m³ of firewood and tonnes of pellets do not add up, while their
   values at a common price do.
+* `scale`: ``\\sum_i q_i`` divided by `quantity`. Where the members are
+  measured in one unit — m³ of wood of different kinds in a mill's input
+  bundle — this is the scale ``\\phi`` that makes the composite count that
+  unit again at the base year, at the average unit price
+  ``\\sum_i p_i q_i / \\sum_i q_i``: pass it as the `phi` of [`ces`](@ref),
+  with the base-year ``\\sum_i q_i`` per unit of activity as `composite`.
+  Where the members do not add up it means nothing, and is ignored.
 
 `price` and `quantity` are the reference point of whatever the group feeds:
 the `p0` and `q0` of the [`DemandSpec`](@ref) over a [`DemandNest`](@ref), or,
@@ -755,22 +791,24 @@ Where the CES takes its limiting form, so does the calibration:
 | `Inf` | quantity shares, which do not enter the model | the common price | ``\\sum_i q_i`` |
 
 Perfect substitutes are bought only at the lowest price, so with `sigma = Inf`
-every member with a positive quantity must have that price. A member with a
-zero quantity gets a zero share, which [`DemandNest`](@ref) and [`ces`](@ref)
-do not accept: leave it out of the group.
+every member with a positive quantity must have that price, to within the
+relative tolerance `rtol`. A member with a zero quantity gets a zero share,
+which [`DemandNest`](@ref) and [`ces`](@ref) do not accept: leave it out of the
+group.
 
 # Example
 ```julia
 ## the base year in one region: 7 units of firewood at 55, 1.4 of pellets at 250
 fuel = ces_calibration(quantities = [7.0, 1.4], prices = [55.0, 250.0], sigma = 3)
-## (shares = [0.0505, 0.9495], price = 177.05, quantity = 4.151)
+## (shares = [0.0505, 0.9495], price = 177.05, quantity = 4.151, scale = 2.023)
 DemandSpec(region = "OF", p0 = fuel.price, q0 = fuel.quantity, elasticity = 0.35,
            product = DemandNest(sigma = 3, products = ["firewood", "pellets"],
                                 shares = fuel.shares))
 ```
 """
 function ces_calibration(; quantities::AbstractVector{<:Real},
-                           prices::AbstractVector{<:Real}, sigma::Real)
+                           prices::AbstractVector{<:Real}, sigma::Real,
+                           rtol::Real = 1e-8)
     q, p = collect(float.(quantities)), collect(float.(prices))
     length(q) == length(p) || throw(ArgumentError(
         "ces_calibration needs one price per quantity, got $(length(q)) quantities " *
@@ -783,19 +821,20 @@ function ces_calibration(; quantities::AbstractVector{<:Real},
         # perfect substitutes: the composite is the plain sum, bought at the
         # lowest price, and the shares never enter the model
         price = minimum(p)
-        all(isapprox(p[i], price; rtol = 1e-8) for i in eachindex(q) if q[i] > 0) ||
+        all(isapprox(p[i], price; rtol) for i in eachindex(q) if q[i] > 0) ||
             throw(ArgumentError(
                 "with sigma = Inf the members are perfect substitutes, bought only at " *
                 "the lowest price, but members bought in the base year have the " *
                 "prices $(p[q .> 0])"))
-        return (shares = q ./ sum(q), price = price, quantity = sum(q))
+        return (shares = q ./ sum(q), price = price, quantity = sum(q), scale = 1.0)
     end
     weights = q .* p .^ sigma
     shares  = weights ./ sum(weights)
     # the CES price index, and its Cobb–Douglas limit where 1/(1-σ) is undefined
     price = isone(sigma) ? prod(p .^ shares) :
                            sum(shares .* p .^ (1 - sigma))^(1 / (1 - sigma))
-    return (shares = shares, price = price, quantity = sum(q .* p) / price)
+    quantity = sum(q .* p) / price
+    return (shares = shares, price = price, quantity = quantity, scale = sum(q) / quantity)
 end
 
 """
@@ -861,6 +900,122 @@ function armington_shares(; flows::AbstractDict, prices::AbstractDict,
         merge!(δ, Dict(zip(keys_d, c.shares)))
     end
     return δ
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The [`Armington`](@ref) specification of `product` that reproduces a base-year
+trade matrix exactly: its shares, through every level of the origin groups
+`nests`, and the `scale` of each destination's composite.
+
+`flows` maps `(origin, destination)` pairs to the base-year quantity shipped,
+the diagonal included — what each region keeps of its own production, which
+trade statistics do not report and production minus exports gives. `prices`
+maps the same pairs to the **delivered** price: the producer price at the
+origin plus the cost of carrying the product to the destination, plus any
+duty charged on the way. `sigma` and `nests` are the structure the
+specification will have.
+
+Each destination's tree is calibrated from the bottom up, by
+[`ces_calibration`](@ref) at every node: a group's price index and composite
+quantity make it one member of the group above, and an origin's share is the
+product of the shares on its path to the root. At the root, the scale is the
+base-year sum of the flows over the composite quantity, so that the composite
+counts the physical units the flows are measured in and its price is the
+average delivered unit value,
+
+```math
+P^c_r = \\frac{\\sum_o X_{o,r}\\, q_{o,r}}{\\sum_o X_{o,r}},
+```
+
+which is the consumer price the base year implies. Calibrated on that price,
+the destination's demand curves and the input bundles of its processes buy
+exactly the base-year quantities.
+
+A group of perfect substitutes (`sigma = Inf`) is a pool, bought only at its
+lowest delivered price: every member shipping to a destination must have that
+price there, to within `rtol`, and the members' shares do not matter, only
+their sum. An origin of a pool that ships nothing to a destination is kept in
+its composite if `prices` gives its delivered price there, so that it can
+start shipping when it becomes the cheapest, and the calibration checks that
+it is not the cheapest already. Any other origin that ships nothing is left
+out of that destination for good, as [`armington_shares`](@ref) does.
+
+Every origin given a share must be able to deliver to its destination in the
+economy the specification goes into — produce the product, and have a route
+there — or the engine drops it and the shares no longer add up to what was
+calibrated.
+
+# Example
+```julia
+## France pooled, then with the rest of the EU, then against the rest
+flows  = Dict(("FR", "EU") => 4.0,  ("EU", "EU") => 70.0, ("US", "EU") => 6.0)
+prices = Dict(("FR", "EU") => 214.0, ("EU", "EU") => 205.0, ("US", "EU") => 238.0)
+armington_calibration(product = "sawnwood", flows = flows, prices = prices,
+                      sigma = 3, nests = [OriginNest(sigma = 9, origins = ["FR", "EU"])])
+```
+"""
+function armington_calibration(; product::Name, flows::AbstractDict,
+                                 prices::AbstractDict, sigma::Real,
+                                 nests::Vector{OriginNest} = OriginNest[],
+                                 rtol::Real = 1e-8)
+    0 <= sigma < Inf || throw(ArgumentError("sigma must be finite and ≥ 0, got $sigma"))
+    flows, prices = namekeys2(flows), namekeys2(prices)
+    flow(o, r) = get(flows, (o, r), 0.0)
+    grouped = collect_origins!(String[], nests)
+
+    shares = Dict{Tuple{String,String},Float64}()
+    scale  = Dict{String,Float64}()
+    for r in unique(k[2] for (k, x) in flows if x > 0)
+        delivered(o) = haskey(prices, (o, r)) ? prices[(o, r)] : throw(ArgumentError(
+            "no delivered price of $product given for the flow $o → $r"))
+
+        # A node of the tree is calibrated into its price, its composite
+        # quantity and the share of each origin beneath it within the node, or
+        # `nothing` when nothing beneath it is bought. Inside a pool an origin
+        # that is not bought stays as long as it has a price.
+        function calibrate(o::String, pooled::Bool)
+            flow(o, r) > 0 && return (price = delivered(o), quantity = flow(o, r),
+                                      within = Dict(o => 1.0))
+            pooled && haskey(prices, (o, r)) &&
+                return (price = prices[(o, r)], quantity = 0.0, within = Dict(o => 1.0))
+            return nothing
+        end
+        function calibrate(n::OriginNest, pooled::Bool)
+            inside = pooled || isinf(n.sigma)
+            members = filter(!isnothing, Any[[calibrate(o, inside) for o in n.origins];
+                                             [calibrate(sub, inside) for sub in n.nests]])
+            return combine(members, n.sigma)
+        end
+        function combine(members, σ)
+            # a group nothing is bought from is dropped, as the engine drops it,
+            # and a group of one is that one member
+            any(m -> m.quantity > 0, members) || return nothing
+            length(members) == 1 && return members[1]
+            c = ces_calibration(quantities = [m.quantity for m in members],
+                                prices = [m.price for m in members], sigma = σ, rtol = rtol)
+            # in a pool the shares are never consulted, only their sum, and a
+            # member not bought must keep a positive one to stay in it
+            δ = isinf(σ) ? fill(1 / length(members), length(members)) : c.shares
+            within = Dict{String,Float64}()
+            for (m, s) in zip(members, δ), (o, w) in m.within
+                within[o] = s * w
+            end
+            return (price = c.price, quantity = c.quantity, within = within)
+        end
+
+        top = filter(!isnothing, Any[[calibrate(n, false) for n in nests];
+                                     [calibrate(o, false) for o in unique(k[1] for k in keys(flows))
+                                      if !(o in grouped)]])
+        root = combine(top, sigma)
+        for (o, w) in root.within
+            shares[(o, r)] = w
+        end
+        scale[r] = sum(x for (k, x) in flows if k[2] == r && x > 0) / root.quantity
+    end
+    return Armington(product = product, sigma = sigma, shares = shares, nests = nests,
+                     scale = scale)
 end
 
 """

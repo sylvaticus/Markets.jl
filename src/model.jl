@@ -543,8 +543,10 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
             if haskey(A, (p, r))
                 balance[(r, p)] = @constraint(m, A[(p, r)] - use == 0.0,
                                               base_name = "balance[$r,$p]")
-                @constraint(m, armington_quantity(m, tree_of[(p, r)], p, r, X, floor_at) >=
-                               A[(p, r)], base_name = "armington[$p,$r]")
+                φ = scale_of(arm[(p, r)], r)
+                aggregate = armington_quantity(m, tree_of[(p, r)], p, r, X, floor_at)
+                @constraint(m, (isone(φ) ? aggregate : φ * aggregate) >= A[(p, r)],
+                            base_name = "armington[$p,$r]")
             end
         else
             # homogeneous product: imports into r minus exports from r
@@ -595,7 +597,7 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
         end for k in keys(S)))
     conv_cost = @expression(m, sum(
         let t = tax_rates(d.taxes, "process"; process = proc.name, region = r)
-            ((1 + t.relative) * proc.vacost + t.absolute) * z[(r, proc.name)]
+            ((1 + t.relative) * vacost_of(proc, r) + t.absolute) * z[(r, proc.name)]
         end for proc in d.processes for r in regions_of(proc, d)))
     route_cost(key) = d.transport_costs[key] + get(tariff, key, 0.0) +
         tax_rates(d.taxes, "trade"; product = key[1], from = key[2], to = key[3]).absolute

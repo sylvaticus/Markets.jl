@@ -52,7 +52,7 @@ in dense arrays.
 | ``\bar a_n, \delta_{n,i}, \sigma_n, \phi_n`` | composite requirement, shares, elasticity of substitution and scale of nest ``n`` |
 | ``\delta_{p,o,r}`` | value share of origin ``o`` in destination ``r`` (normalised over ``O_{p,r}``) |
 | ``\mathcal{N}_{p,r}`` | the CES tree destination ``r`` aggregates the origins of ``p`` with: leaves are origins, each node ``\nu`` carrying an elasticity ``\sigma_\nu`` and shares over its children |
-| ``c_k`` | value-added cost per unit of activity of ``k`` (`vacost`) |
+| ``c_{k,r}`` | value-added cost per unit of activity of ``k`` in ``r`` (`vacost`, one number or one per region) |
 | ``\tau_{p,r,r'}`` | unit transport cost on a route |
 
 ### Variables
@@ -79,7 +79,7 @@ in dense arrays.
 \begin{aligned}
 \max\; & \sum_{(r,p) \in \mathcal{D}} \frac{a_{r,p}}{1 - 1/\eta_{r,p}}\, D_{r,p}^{\,1 - 1/\eta_{r,p}}
        \;-\; \sum_{(r,p) \in \mathcal{S}} \frac{b_{r,p}}{1 + 1/\varepsilon_{r,p}}\, S_{r,p}^{\,1 + 1/\varepsilon_{r,p}} \\
-       & \;-\; \sum_{k} \sum_{r \in R_k} c_k\, z_{r,k}
+       & \;-\; \sum_{k} \sum_{r \in R_k} c_{k,r}\, z_{r,k}
        \;-\; \sum_{(p,r,r') \in \mathcal{T}} \tau_{p,r,r'}\, T_{p,r,r'}
        \;-\; \sum_{p \in P^A} \sum_{r} \sum_{o \in O_{p,r},\, o \ne r} \tau_{p,o,r}\, X_{p,o,r}
 \end{aligned}
@@ -164,7 +164,10 @@ region infeasible, since ``A`` carries a positive lower bound while
 one per internal node ``\nu`` of the tree, where ``q_c`` is ``X_{p,o,r}`` for a
 leaf and ``C_c`` for a group, and ``q_\nu`` is ``A_{p,r}`` at the root and
 ``C_\nu`` below it. With no groups the tree is one node and this is a single
-CES over the origins.
+CES over the origins. At the root the left-hand side is multiplied by the
+destination's `scale` ``\phi_{p,r}`` (1 unless given), which divides the
+composite price by the same factor; [`armington_calibration`](@ref) sets it
+so that at the base year the composite equals the plain sum of the flows.
 
 Note that ``o = r`` is in ``O_{p,r}``: a region's own variety goes through the
 composite like any other, and ``X_{p,r,r}`` is its domestic use. A node left
@@ -255,7 +258,7 @@ rates and ``t_r`` for the summed relative ones on a given base:
 |:---|:---|
 | supply | ``b \to (1 + t_r)\,b``, plus a term ``t_a S``: the market must cover the marginal cost and the wedge |
 | demand | ``a \to a/(1 + t_r)``, less a term ``t_a C/(1+t_r)``: the curve is what the consumer pays, the gradient is what the market pays |
-| process | ``c_k \to (1 + t_r)\,c_k + t_a`` |
+| process | ``c_{k,r} \to (1 + t_r)\,c_{k,r} + t_a`` |
 | trade | ``\tau \to \tau + t_a + \text{(ad valorem equivalent)}`` |
 
 The first three are exact in one solve. The fourth is exact for ``t_a``; the ad
@@ -494,9 +497,18 @@ equilibrium:
   (complements) and less above it (substitutes), a Cobb–Douglas group
   inside a Leontief composite prices as the two-level index, and only
   variables raised to a power are floored;
-* the forest example: the solve succeeds, all prices are positive, no route has
-  a price gap above its transport cost, used routes have a gap equal to it, and
-  world exports equal world imports for every product.
+* nested Armington calibration: [`armington_calibration`](@ref), on the flows
+  and prices of a solved economy with a pooled group, rebuilds one that returns
+  its prices, production and consumption, counts each composite in the units
+  of the flows, and refuses a pool member that would have been the cheapest
+  without shipping; [`ces_calibration`](@ref)'s `scale` prices a bundle at the
+  average unit price, and a `vacost` given by region gives zero profit at each
+  region's own cost;
+* the forest example: built from its rounded, unbalanced data files, it lands
+  within a per cent of every price and quantity and within a few per cent of
+  every trade flow; all prices are positive, world exports equal world imports
+  for every product, and the storm lowers prices most in France, then in the
+  EU, then in the far blocs.
 
 Run them with:
 
