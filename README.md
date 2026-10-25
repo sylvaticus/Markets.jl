@@ -104,12 +104,14 @@ parts: *Using the module*, two worked *Examples*, *Modelling choices*,
 
 
 **Authorship**
+
 | Role | Contributor |
 |------|-------------|
 | Conception, design, and supervision | Antonello Lobianco |
 | Validation and co-design committee | To be formed.|
 
 **Implementation (AI-assisted)**
+
 Claude Opus 5.5 (Anthropic)
 
 Antonello Lobianco is responsible for the scientific content of this project and accountable for any errors, including those in AI-generated code.
