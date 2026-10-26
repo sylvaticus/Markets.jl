@@ -34,6 +34,7 @@ export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
        TradeLimit, DemandNest, Tax,
        leontief, ces, disposal, armington_shares, armington_calibration, ces_calibration,
        impute_flows, exogenous_shift, Material, material_accounts,
+       Limit, LimitExpression, @limit,
        validate, solve_market, jump_model, Results, for_region
 
 # re-exported from JuMP, so that a model from `jump_model` can be typeset
@@ -41,6 +42,7 @@ export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
 export latex_formulation
 
 include("names.jl")
+include("limits.jl")
 include("types.jl")
 include("validate.jl")
 include("results.jl")     # defines Results, which model.jl dispatches on

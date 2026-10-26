@@ -926,6 +926,11 @@ of prices or of final demand.
 the model knows nothing of indivisible investments, minimum efficient scale or
 shutdown decisions.
 
+Linear constraints on any of the model's quantities — a resource shared by
+several products, a quota, a minimum share — can be added with
+[`@limit`](@ref) without leaving the formulation: they keep the problem convex,
+and each comes back with its rent; see [Limits on any quantity](@ref).
+
 ## Physical accounts
 
 Every quantity the model solves for is physical — what each region produced,

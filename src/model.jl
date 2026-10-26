@@ -320,6 +320,64 @@ end
 """
 $(TYPEDSIGNATURES)
 
+A [`TradeLimit`](@ref) as the [`Limit`](@ref) it is: the weighted sum of the
+flows of the products it covers, between the regions it covers, at most its
+capacity.
+"""
+function as_limit(l::TradeLimit, d::MarketData)
+    covered = [p for p in d.products if matches(l.products, p)]
+    expression = sum((get(l.weights, p, 1.0) * flow(product = p, from = l.from, to = l.to)
+                      for p in covered); init = zero(LimitExpression))
+    return Limit(name = l.name, expression = expression, upper = l.capacity)
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The variables and expressions of the model that the quantity reference `q`
+selects, to be summed: `vars` holds the model's supply `S`, final demand `D`,
+activity `z`, cross-border `flows` and process inputs `drawn`.
+"""
+function quantity_terms(q::QuantityRef, d::MarketData, vars)
+    sel = q.selection
+    is(f, x) = matches(getfield(sel, f), x)
+    terms = Any[]
+    if q.kind == :supply || q.kind == :production
+        for ((r, p), v) in vars.S
+            is(:region, r) && is(:product, p) && push!(terms, v)
+        end
+        if q.kind == :production
+            for proc in d.processes, r in regions_of(proc, d), (p, y) in proc.outputs
+                is(:region, r) && is(:product, p) && push!(terms, y * vars.z[(r, proc.name)])
+            end
+        end
+    elseif q.kind == :consumption
+        for ((r, p), v) in vars.D
+            is(:region, r) && is(:product, p) && push!(terms, v)
+        end
+    elseif q.kind == :activity
+        for ((r, k), v) in vars.z
+            is(:region, r) && is(:process, k) && push!(terms, v)
+        end
+    elseif q.kind == :inputs
+        for ((r, k, _, p), v) in vars.drawn
+            is(:region, r) && is(:process, k) && is(:product, p) && push!(terms, v)
+        end
+    else
+        for ((p, o, r), v) in vars.flows
+            is(:product, p) || continue
+            keep = q.kind == :flow    ? is(:from, o) && is(:to, r) :
+                   q.kind == :exports ? is(:region, o) && !is(:region, r) :
+                                        !is(:region, o) && is(:region, r)     # imports
+            keep && push!(terms, v)
+        end
+    end
+    return terms
+end
+
+"""
+$(TYPEDSIGNATURES)
+
 The *relative* rate of tax on a final-demand curve.  An ad valorem rate scales
 the price of every member of a group alike, and so scales the group's price
 index; a rate that differed between members would not, and there is no single
@@ -461,22 +519,6 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
         end
     end
 
-    # --- ceilings on what may be carried between regions --------------------
-    # one constraint per limit, over the weighted sum of the flows it covers,
-    # whether those are homogeneous trade variables or Armington varieties
-    flow_vars = merge(Dict{Tuple{String,String,String},VariableRef}(T),
-                      Dict(k => v for (k, v) in X if k[2] != k[3]))
-    trade_limit = Dict{String,ConstraintRef}()
-    for limit in d.trade_limits
-        haskey(trade_limit, limit.name) && throw(ArgumentError(
-            "duplicate trade limit named $(limit.name)"))
-        covered = [k for k in keys(flow_vars) if covers(limit, k...)]
-        isempty(covered) && @warn "trade limit $(limit.name) covers no flow of this economy"
-        trade_limit[limit.name] = @constraint(m,
-            sum(get(limit.weights, k[1], 1.0) * flow_vars[k] for k in covered;
-                init = 0.0) <= limit.capacity, base_name = "trade_limit[$(limit.name)]")
-    end
-
     # --- assemble per-(region,product) sources & uses -----------------------
     produced = Dict{Tuple{String,String},Any}()   # process outputs + primary supply
     used     = Dict{Tuple{String,String},Any}()   # process inputs + final demand
@@ -562,6 +604,37 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
         end
     end
 
+    # --- limits: linear constraints on the quantities ------------------------
+    # The trade limits first, as the limits on flows they are, then the
+    # economy's own. Each becomes one constraint per finite bound, or one
+    # equality.
+    flow_vars = merge(Dict{Tuple{String,String,String},Any}(T),
+                      Dict{Tuple{String,String,String},Any}(k => v for (k, v) in X if k[2] != k[3]))
+    vars = (S = S, D = D, z = z, flows = flow_vars, drawn = drawn)
+    limits = NamedTuple[]
+    for (limit, strict) in [[(as_limit(l, d), false) for l in d.trade_limits];
+                            [(l, true) for l in d.limits]]
+        any(l -> l.limit.name == limit.name, limits) && throw(ArgumentError(
+            "duplicate limit named $(limit.name)"))
+        e = AffExpr(0.0)
+        covered = 0
+        for (q, w) in limit.expression.terms
+            terms = quantity_terms(q, d, vars)
+            strict && isempty(terms) && throw(ArgumentError(
+                "limit $(limit.name): $q matches no quantity of this economy"))
+            covered += length(terms)
+            foreach(t -> add_to_expression!(e, w, t), terms)
+        end
+        covered == 0 && @warn "limit $(limit.name) covers no quantity of this economy"
+        # a trade limit keeps the name it always had in the model
+        base = strict ? "limit[$(limit.name)]" : "trade_limit[$(limit.name)]"
+        constraints = limit.lower == limit.upper ? [@constraint(m, e == limit.upper, base_name = base)] :
+            ConstraintRef[c for c in (isfinite(limit.upper) ? @constraint(m, e <= limit.upper, base_name = base) : nothing,
+                                      isfinite(limit.lower) ? @constraint(m, e >= limit.lower, base_name = base) : nothing)
+                          if c !== nothing]
+        push!(limits, (limit = limit, expression = e, constraints = constraints))
+    end
+
     # --- objective: net social surplus --------------------------------------
     #   + gross consumer benefit  Σ ∫₀ᴰ P(d)dd
     #   − resource (supply) cost   Σ ∫₀ˢ P(s)ds
@@ -613,7 +686,7 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost)
 
     return m, (D = D, S = S, z = z, T = T, X = X, A = A, drawn = drawn, balance = balance,
-               origin_balance = origin_balance, trade_limit = trade_limit)
+               origin_balance = origin_balance, limits = limits)
 end
 
 """
@@ -631,7 +704,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
     m, v = build_model(d, tariff; model_options...)
     wall_time = @elapsed optimize!(m)
     return build_results(d, m, v.D, v.S, v.z, v.T, v.X, v.balance, v.origin_balance,
-                         v.trade_limit, tariff, tol, wall_time; A = v.A, drawn = v.drawn)
+                         v.limits, tariff, tol, wall_time; A = v.A, drawn = v.drawn)
 end
 
 """

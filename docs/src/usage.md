@@ -383,6 +383,85 @@ base. `Results.taxes` reports what each raises — which matters, because a taxe
 objective counts the revenue as a cost rather than a transfer and so is no
 longer welfare. See [Taxes, subsidies and other wedges](@ref).
 
+### Limits on any quantity
+
+A [`Limit`](@ref) is a linear constraint on the quantities of the model:
+a resource that several products share, a quota, a minimum, a share of one
+quantity in another, a fixed sum. [`@limit`](@ref) writes it as the
+inequality it stands for:
+
+```julia
+limits = [@limit("stands of SEF", supply(region = "SEF", product = "logs") +
+                                  supply(region = "SEF", product = "firewood") <= 12.4),
+          @limit("milled at home", activity(region = "SWF", process = "sawmill") >=
+                                   0.5 * supply(region = "SWF", product = "logs")),
+          @limit("import share", imports(region = "OF", product = "lumber") <=
+                                 consumption(region = "OF", product = "lumber") / 3),
+          @limit("export band", 1.0 <= exports(region = "RW", product = "logs") <= 3.0),
+          @limit("fixed quota", flow(product = "logs", from = "RW", to = "EU") == 2.0)]
+
+market = MarketData(; regions, products, demand, supply, processes, transport_costs, limits)
+```
+
+The quantities are named by eight term builders, each summing over the
+regions, products and processes it selects — a name, a vector of names, or
+`"all"`, the default:
+
+| Builder | Sums |
+|:--------|:-----|
+| `supply(; region, product)` | primary supply |
+| `consumption(; region, product)` | final demand |
+| `production(; region, product)` | primary supply plus process outputs |
+| `activity(; region, process)` | process activity levels |
+| `inputs(; region, process, product)` | what processes draw of their inputs |
+| `flow(; product, from, to)` | shipments between regions |
+| `exports(; region, product)` | shipments leaving the region, or the group of regions |
+| `imports(; region, product)` | shipments entering it |
+
+Quantities may be added, subtracted, multiplied or divided by numbers, put on
+either side of the comparison, and mixed with constants, which end up in the
+bound. `lower <= expression <= upper` sets both bounds at once, and `==` fixes
+the expression. Anything else — the product of two quantities, a quantity in
+a denominator, a power, `sqrt` — is refused when the limit is written,
+because it would no longer be linear: a linear limit keeps the problem convex,
+so the equilibrium is still the solution of one optimisation and its rent has
+a clear meaning.
+
+Inside `@limit` the builders are those of Markets.jl, so a variable of your own
+called `supply` is not in the way; outside it, write them `Markets.supply(…)`
+and so on, and give the expression to [`Limit`](@ref) yourself:
+
+```julia
+Limit(name = "stands of SEF", upper = 12.4,
+      expression = Markets.supply(region = "SEF", product = ["logs", "firewood"]))
+```
+
+Two cautions. A macro reads everything up to the end of the line, so several
+in one call need parentheses, as above. And `consumption` and `inputs` of an
+[`Armington`](@ref) product are measured, as the model measures them, in units
+of the region's composite, while `flow`, `exports` and `imports` are physical;
+a share that mixes the two is linear and valid, but slightly off physically
+(see [Physical accounts](@ref)).
+
+Limits are generated like any other data, in loops. A resource that several
+products share — stands that give both logs and firewood, say — is kept from
+being counted twice by bounding **every combination** of the products by the
+stock of everything at least one of them can come from, which is exactly
+what makes the harvests fit into the stock (Hall's theorem):
+
+```julia
+combinations(xs) = [xs[[isodd(i >> (j - 1)) for j in eachindex(xs)]] for i in 1:(2^length(xs) - 1)]
+limits = [@limit("$r: " * join(C, " + "),
+                 sum(supply(region = r, product = p) for p in C) <= available(r, C))
+          for r in regions for C in combinations(primary)]
+```
+
+`Results.limits` reports each limit — the [`TradeLimit`](@ref)s among them —
+with its bounds, the `value` its expression takes, and its `rent`: the gain in
+the objective from relaxing the bound that binds by one unit, positive for an
+upper bound and negative for a lower one, zero for a limit that does not bind.
+The [forest example](@ref "What the forest holds") uses it for its stands.
+
 ## Looking at an economy
 
 Typing the name of a `MarketData` in the REPL gives one line, such as
@@ -481,7 +560,7 @@ counted as the transfer it is, and twelve `DataFrame`s:
 | `net_trade`   | region, product, exports, imports, net | net = exports − imports |
 | `prices`      | region, product, price, producer\_price | what local users pay, and what local producers get |
 | `activity`    | region, process, level, capacity, rent | process activity, its bound, and the quasi-rent a binding bound earns |
-| `limits`      | limit, capacity, used, rent | trade ceilings and their congestion rent |
+| `limits`      | limit, lower, upper, value, rent | every [`Limit`](@ref) and [`TradeLimit`](@ref), and the rent of the bound that binds |
 | `taxes`       | tax, on, revenue | what each instrument raises |
 
 Either price column is `missing` where it has no meaning: a region that cannot
@@ -539,8 +618,9 @@ a product that is both burnt directly and milled, joint products, CES input
 bundles, a process restricted to the regions that have the capacity, and a
 three-level Armington structure in which the French regions are near-perfect
 substitutes for each other, close substitutes for the rest of the EU and more
-distant ones for the other blocs — and runs a storm-salvage scenario and a
-gas-price one on it, with uncalibrated numbers. The
+distant ones for the other blocs — and runs three scenarios on it, with
+uncalibrated numbers: a storm that floods one region with salvaged timber, a
+dearer gas, and a third of the French forests set aside. The
 [second](@ref "The forest sector: calibrating with partial data") builds the
 same model from partial, inconsistent statistics read from CSV files,
 calibrating every parameter it does not observe or choose; the

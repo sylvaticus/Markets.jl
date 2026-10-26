@@ -127,9 +127,12 @@ Base.@kwdef struct Results
     """
     activity::DataFrame
     """
-    Ceilings on trade: `limit`, its `capacity`, how much of it is `used`, and
-    the congestion `rent` an extra unit of it would be worth. Empty when the
-    economy has no [`TradeLimit`](@ref)
+    Every [`Limit`](@ref) and [`TradeLimit`](@ref): `limit`, its `lower` and
+    `upper` bounds (`-Inf` and `Inf` where it has none), the `value` its
+    expression takes, and its `rent` — the gain in the objective from relaxing
+    the bound that binds by one unit: positive for an upper bound, like a
+    congestion rent or a quota price, negative for a lower one, the subsidy
+    that would get agents to meet it unaided. Empty when there are none
     """
     limits::DataFrame
     """
@@ -167,7 +170,7 @@ function solver_attribute(m::Model, attr, fallback)
     end
 end
 
-function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit,
+function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_built,
                        tariff, tol, wall_time;
                        A = Dict{Tuple{String,String},VariableRef}(),
                        drawn = Dict{Tuple{String,String,Int,String},Any}())
@@ -319,17 +322,18 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
         push!(activity, (r, proc.name, lvl, cap, rent))
     end
 
-    limits = DataFrame(limit = String[], capacity = Float64[], used = Float64[],
-                       rent = Float64[])
-    for limit in d.trade_limits
-        c = trade_limit[limit.name]
-        used = sum(get(limit.weights, k[1], 1.0) * val(v)
-                   for (k, v) in flows if covers(limit, k...); init = 0.0)
-        # `shadow_price` is the gain from relaxing the constraint by one unit,
-        # which is exactly the congestion rent. (For an *equality* it is the
-        # wrong function, as it discards the sign — see the prices below.)
-        rent = has_duals(m) ? denoise(shadow_price(c)) : 0.0
-        push!(limits, (limit.name, limit.capacity, used, rent))
+    # the value of each limit's expression, and what relaxing the bound that
+    # binds would be worth: in a maximisation, minus the dual of the constraint
+    limits = DataFrame(limit = String[], lower = Float64[], upper = Float64[],
+                       value = Float64[], rent = Float64[])
+    for L in limits_built
+        value = val(L.expression)
+        # complementary slackness: a bound that is not reached earns nothing,
+        # whatever numerical dust its dual carries
+        reached(bound) = abs(value - bound) <= 1e-6 * max(1.0, abs(bound))
+        rent = has_duals(m) ?
+            sum((-dual(c) for c in L.constraints if reached(normalized_rhs(c))); init = 0.0) : 0.0
+        push!(limits, (L.limit.name, L.limit.lower, L.limit.upper, value, denoise(rent)))
     end
 
     # what each tax raises, so that the transfer the objective treats as a

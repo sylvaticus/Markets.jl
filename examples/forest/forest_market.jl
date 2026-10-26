@@ -2,7 +2,7 @@
 #
 # This example builds a complete spatial partial-equilibrium model of the
 # forest-products sector with [Markets.jl](https://github.com/sylvaticus/Markets.jl),
-# solves it, and runs two scenarios on it. It is the first of three pages:
+# solves it, and runs three scenarios on it. It is the first of three pages:
 #
 # 1. **this one**, on how to write the model and use it, with the kind of
 #    numbers that are at hand before any calibration effort;
@@ -495,7 +495,61 @@ nothing # hide
 
 # ## What cannot move, and what is taxed
 #
-# Two final things stand between the economy as described and the equilibrium.
+# Three final things stand between the economy as described and the
+# equilibrium.
+#
+# ### What the forest holds
+#
+# The supply curves say how much wood owners are willing to sell at each
+# price. They say nothing of how much there is: a year's harvest cannot take
+# more than the stands hold. That limit is not one per product, because the
+# products share their stands. Softwood logs come from conifers, hardwood logs
+# from broadleaves, and smallwood — thinnings and tops — from both, so a m³ of
+# conifer can be sold as a log or as smallwood, but not as both.
+#
+# Here is what each region can cut in a year, in Mm³, by kind of stand —
+# about a fifth more than it cuts in a normal year:
+
+stock = Dict("SEF" => (conifers =  11.0, broadleaves =   6.0),
+             "SWF" => (conifers =  16.0, broadleaves =   4.0),
+             "GEF" => (conifers =   7.0, broadleaves =  13.0),
+             "OF"  => (conifers =   9.0, broadleaves =  18.0),
+             "EU"  => (conifers = 520.0, broadleaves = 340.0),
+             "NA"  => (conifers = 700.0, broadleaves = 190.0),
+             "AS"  => (conifers = 360.0, broadleaves = 570.0),
+             "RW"  => (conifers = 480.0, broadleaves = 610.0))
+stands_of = Dict("swr" => [:conifers], "hwr" => [:broadleaves],
+                 "smallwood" => [:conifers, :broadleaves])
+primary = ["swr", "hwr", "smallwood"]
+nothing # hide
+
+# The rule that keeps every m³ counted once is the one of the Forest Sector
+# Model FFSM: for **every combination** of the primary products, their total
+# harvest cannot exceed the stock of all the stands at least one of them can
+# come from. Softwood logs alone are bounded by the conifers; softwood logs
+# and smallwood together by conifers and broadleaves, since smallwood can come
+# from either. Checking each product on its own would not do — two products
+# may each fit while together drawing on the same stands beyond what they hold
+# — and checking every combination is exactly enough: by Hall's theorem, the
+# harvests then fit into the stands without any m³ being counted twice.
+#
+# With three products that is seven combinations per region. Each is a
+# [`@limit`](@ref): a linear constraint on the quantities of the model, here on
+# the sum of the supplies of a combination. Inside `@limit`, `supply(…)` names
+# the supply of the model, not the curves of the same name above:
+
+combinations(xs) = [xs[[isodd(i >> (j - 1)) for j in eachindex(xs)]]
+                    for i in 1:(2^length(xs) - 1)]
+available(r, C, stock) = sum(getfield(stock[r], s) for s in union((stands_of[p] for p in C)...))
+
+forest_limits(stock) =
+    [@limit("$r: " * join(C, " + "),
+            sum(supply(region = r, product = p) for p in C) <= available(r, C, stock))
+     for r in regions for C in combinations(primary)]
+
+forest_limits(stock)[1:7]
+
+# ### Logistics and policy
 #
 # Wood leaving the Landes has to be carried on the roads and through the ports
 # that are there. A [`TradeLimit`](@ref) caps the **sum** of the flows it
@@ -519,7 +573,8 @@ taxes = [Tax(name = "rw_log_duty", on = "trade", product = ["swr", "hwr"], from 
 # ## Solving
 
 example_market = MarketData(; regions, products, demand, supply, processes,
-                              transport_costs, armington, trade_limits, taxes)
+                              transport_costs, armington, trade_limits, taxes,
+                              limits = forest_limits(stock))
 
 res = solve_market(example_market)
 nothing # hide
@@ -553,7 +608,7 @@ unstack(res.consumption, :region, :product, :quantity)
 
 # ## What binds, and what it is worth
 #
-# Three of the things set up above are limits rather than curves, and the
+# Several of the things set up above are limits rather than curves, and the
 # solution says what each is worth at the margin.
 #
 # The pellet mills first. Where the installed plant is enough, the capacity
@@ -564,11 +619,16 @@ unstack(res.consumption, :region, :product, :quantity)
 
 res.activity[res.activity.process .== "pelletmill", :]
 
-# The Landes evacuation limit is slack in a normal year: the region ships about
-# 13 Mm³ of roundwood against a ceiling of 18, so the ceiling costs nothing and
-# earns nothing.
+# The limits come next, the evacuation ceiling of the Landes and the stands of
+# every region together. Their `rent` is what one more unit of the bound would
+# be worth; all are slack in a normal year, so all are zero:
 
-res.limits
+res.limits[res.limits.rent .!= 0, :]
+
+# The evacuation ceiling, for one: the region ships about 13 Mm³ of roundwood
+# against a ceiling of 18, so it costs nothing and earns nothing.
+
+res.limits[res.limits.limit .== "landes_evacuation", :]
 
 # And the export duty on logs leaving the rest of the world raises this, at a
 # quarter of the border price on every m³ that still crosses:
@@ -675,7 +735,22 @@ first(sort(price_gaps, :ratio, rev = true), 6)
 # comes to that indeterminacy; 30 keeps it well away while leaving the four
 # regions nearly interchangeable.
 
-# ## A storm in the Landes
+# ## Implementing scenarios
+#
+# A scenario is the same economy with something changed: a curve shifted, a
+# stock smaller, a price outside the model higher. The economy is plain data,
+# so a scenario is a copy of it with some fields replaced, solved again, and
+# read against the reference run. One small helper does the copying:
+
+reconfigure(d; kwargs...) =
+    MarketData(; (f => get(kwargs, f, getfield(d, f)) for f in fieldnames(MarketData))...)
+nothing # hide
+
+# Three scenarios follow: a storm that floods the Landes with salvaged pine, a
+# dearer gas that sends households to wood fuel, and a third of the French
+# forests set aside.
+#
+# ### A storm in the Landes
 #
 # In January 2009 the storm Klaus felled some 40 Mm³ of maritime pine in
 # south-west France, several years of harvest at once. The salvage has to be
@@ -695,12 +770,10 @@ first(sort(price_gaps, :ratio, rev = true), 6)
 #                                          elasticity = 0.6))
 # ```
 #
-# Here the salvage simply triples what the Landes offer at any price, and
-# everything else is left alone:
-
-reconfigure(d; kwargs...) =
-    MarketData(; (f => get(kwargs, f, getfield(d, f)) for f in fieldnames(MarketData))...)
-nothing # hide
+# Here the salvage simply triples what the Landes offer at any price. The
+# felled trees are also wood that can now be cut, so the storm adds them to
+# the conifer stock of the Landes, as dead timber that can be salvaged — some
+# 30 Mm³ of the 40 Klaus brought down. Everything else is left alone:
 
 salvage = [s.region == "SWF" && s.product == "swr" ?
                SupplySpec(product = "swr", region = "SWF", p0 = s.p0, q0 = s.q0,
@@ -708,7 +781,10 @@ salvage = [s.region == "SWF" && s.product == "swr" ?
            for s in supply]
 nothing # hide
 
-storm = solve_market(reconfigure(example_market, supply = salvage))
+felled = merge(stock, Dict("SWF" => (conifers = stock["SWF"].conifers + 30.0,
+                                     broadleaves = stock["SWF"].broadleaves)))
+storm = solve_market(reconfigure(example_market, supply = salvage,
+                                 limits = forest_limits(felled)))
 nothing # hide
 
 # The question a spatial model exists to answer is how far the shock travels.
@@ -738,7 +814,7 @@ DataFrame((region = r,
 # much as its neighbours, which are near-perfect substitutes for it and should
 # share in the glut. What holds the glut back is that the wood cannot get out:
 
-storm.limits
+storm.limits[storm.limits.limit .== "landes_evacuation", :]
 
 # The ceiling that cost nothing in a normal year is now full, and its
 # congestion rent is the price of a m³ of capacity to move wood out of the
@@ -747,7 +823,7 @@ storm.limits
 # because the wood is worth less in principle, but because it cannot reach
 # anyone who would pay more for it.
 
-# ## When gas gets dearer
+# ### When gas gets dearer
 #
 # The last of the exogenous things is the price of the fuels wood competes
 # with. Doubling the gas price does not touch any curve in the model — gas is
@@ -784,6 +860,41 @@ gas.activity[gas.activity.process .== "pelletmill", :]
 # bundle of substitutes in demand, a capacity bound on transformation, and a
 # price from outside the model — and the result is not what any of them would
 # have given alone.
+
+# ### Setting forests aside
+#
+# The stands bind once there are fewer of them. Suppose a third of every
+# French forest is set aside — protected, out of reach of the harvest — and
+# nothing else changes:
+
+protected = Dict(r => r in france ? (conifers = 2 / 3 * s.conifers, broadleaves = 2 / 3 * s.broadleaves) : s
+                 for (r, s) in stock)
+aside = solve_market(reconfigure(example_market, limits = forest_limits(protected)))
+nothing # hide
+
+# Now the French regions hit their stands, and the limits that bind are those
+# of all three products together: every m³ either kind of stand can give is
+# cut.
+
+aside.limits[aside.limits.rent .> 0, :]
+
+# The rent of each is what one more m³ of standing timber would be worth to
+# the economy: the stumpage value the scarcity creates, on top of what the
+# supply curves ask. What it does to the harvest and to the price of logs:
+
+DataFrame((region = r,
+           harvest_before = sum(quantity_of(res.production, r, p) for p in primary),
+           harvest_after  = sum(quantity_of(aside.production, r, p) for p in primary),
+           log_price_change = 100 * (price_of(r, "swr", aside) / price_of(r, "swr", res) - 1))
+          for r in regions)
+
+# France cuts a sixth less wood, as much as its stands now allow, yet the
+# price of its logs barely moves: French logs compete with those of the rest
+# of Europe, a close substitute, which makes up most of the difference. The
+# scarcity shows up instead in the rent — the gap between what a m³ fetches
+# and what its owner would have sold it for — which is the value the protected
+# stands take out of the harvest. A region whose wood had no close substitute
+# would see it in its prices too.
 
 # ## The limits of uncalibrated data
 #
@@ -875,6 +986,10 @@ save_outcomes("uncalibrated.csv", ["reference" => res, "storm" => storm, "gas" =
 # * Put real elasticities in. [Buongiorno (2015)](@ref buongiorno2015) for the
 #   demand side, [McDaniel & Balistreri (2003)](@ref mcdaniel2003) for the
 #   Armington ones.
+# * Add limits of your own with [`@limit`](@ref): a minimum share of
+#   domestic logs in the French mills, a quota on exports, a cap on the
+#   smallwood that may be burnt — any linear constraint on the quantities of
+#   the model, with its rent reported in `Results.limits`.
 # * Calibrate it: the [next page](@ref "The forest sector: calibrating with partial data")
 #   replaces the gravity shares, the single prices and the guessed costs with
 #   numbers worked out from data.

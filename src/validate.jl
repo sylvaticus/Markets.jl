@@ -133,6 +133,16 @@ function validate(d::MarketData)
     end
 
     # --- limits and taxes ---------------------------------------------------
+    limit_names = [[l.name for l in d.trade_limits]; [l.name for l in d.limits]]
+    allunique(limit_names) || fail("these limits are declared more than once: " *
+                                   "$(join(duplicates(limit_names), ", "))")
+    fields = Dict(:region => (regions, "region"), :from => (regions, "region"),
+                  :to => (regions, "region"), :product => (products, "product"),
+                  :process => (Set(names), "process"))
+    for limit in d.limits, (q, _) in limit.expression.terms, (f, value) in pairs(q.selection)
+        set, kind = fields[f]
+        check_selector(value, set, "limit $(limit.name)", kind)
+    end
     for limit in d.trade_limits
         check_selector(limit.products, products, "trade limit $(limit.name)", "product")
         check_selector(limit.from, regions, "trade limit $(limit.name)", "region")

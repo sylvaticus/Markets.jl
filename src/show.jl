@@ -294,6 +294,17 @@ function Base.show(io::IO, d::MarketData)
                                for l in d.trade_limits]))
     end
 
+    if !isempty(d.limits)
+        heading("Limits")
+        foreach(line, columns([[l.name,
+                                l.lower == l.upper ? string("= ", fmt(l.upper)) :
+                                    join(filter(!isempty,
+                                         [isfinite(l.lower) ? "≥ " * fmt(l.lower) : "",
+                                          isfinite(l.upper) ? "≤ " * fmt(l.upper) : ""]), ", "),
+                                sprint(show, l.expression)]
+                               for l in d.limits]))
+    end
+
     # --- policy -------------------------------------------------------------
     if !isempty(d.taxes)
         heading("Taxes and subsidies")

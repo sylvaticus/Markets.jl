@@ -560,6 +560,71 @@ end
         @test_throws ArgumentError validate(regional(Dict(:A => 50, :B => 80, :C => 1)))
     end
 
+    @testset "a limit on any quantity" begin
+        free = solve_market(economy())
+        supplied(res, r) = only(res.supply[res.supply.region .== S(r), :quantity])
+        cap = 0.8 * supplied(free, :A)
+        capped(c) = solve_market(economy(limits = TradeLimit[]) |>
+            d -> MarketData(; (f => getfield(d, f) for f in fieldnames(MarketData))...,
+                              limits = [@limit "stands" supply(region = :A, product = :w) <= c]))
+        res = capped(cap)
+        @test solved(res)
+        row = only(eachrow(res.limits))
+        @test row.limit == "stands" && row.upper == cap && row.lower == -Inf
+        @test row.value ≈ cap rtol = 1e-5
+        @test supplied(res, :A) ≈ cap rtol = 1e-5
+        # the rent is what one more unit of the bound is worth to the objective
+        δ = 1e-3
+        @test row.rent > 0
+        @test row.rent ≈ (capped(cap + δ).objective - res.objective) / δ rtol = 1e-2
+        # built without the macro, the same limit gives the same equilibrium
+        same = solve_market(MarketData(; (f => getfield(economy(), f) for f in fieldnames(MarketData))...,
+            limits = [Limit(name = "stands", upper = cap,
+                            expression = Markets.supply(region = :A, product = :w))]))
+        @test same.objective ≈ res.objective rtol = 1e-8
+
+        with(limits...) = solve_market(MarketData(; (f => getfield(economy(), f) for f in fieldnames(MarketData))...,
+                                                    limits = collect(Limit, limits)))
+        # a minimum is met at a cost, and its rent is negative: a subsidy
+        floor = 1.5 * supplied(free, :B)
+        res = with(@limit "harvest B" supply(region = :B, product = :w) >= floor)
+        @test only(res.limits.value) ≈ floor rtol = 1e-5
+        @test only(res.limits.rent) < 0
+        # an equality fixes the expression
+        quota = 0.5 * only(free.trade[free.trade.product .== "g", :quantity])
+        res = with(@limit "quota" exports(region = :A, product = :g) == quota)
+        @test only(res.limits.value) ≈ quota rtol = 1e-5
+        @test only(res.limits.lower) == only(res.limits.upper) == quota
+        # quantities on both sides, a constant, and a range
+        res = with(@limit("milled at home", activity(region = :A, process = :mill) <=
+                                            0.4 * production(region = :A, product = :w) - 1),
+                   @limit("band", 2.0 <= supply(region = :B, product = :w) <= 3.0))
+        @test solved(res)
+        mill = only(res.activity[res.activity.region .== "A", :level])
+        @test mill <= 0.4 * supplied(res, :A) - 1 + 1e-6
+        @test 2.0 - 1e-6 <= supplied(res, :B) <= 3.0 + 1e-6
+        band = only(res.limits[res.limits.limit .== "band", :])
+        @test band.lower == 2.0 && band.upper == 3.0
+        # a group exports only what leaves it
+        @test_throws ArgumentError with(@limit "inside" exports(region = [:A, :B], product = :g) <= 1)
+        # it is part of the economy's summary
+        @test occursin("Limits", sprint(print, MarketData(; (f => getfield(economy(), f) for f in fieldnames(MarketData))...,
+                                                          limits = [@limit "stands" supply(region = :A) <= 1])))
+
+        # what it refuses: names the economy does not have, quantities that
+        # do not exist, two limits of one name, and anything not linear
+        @test_throws ArgumentError with(@limit "x" supply(region = :Mars) <= 1)
+        @test_throws ArgumentError with(@limit "x" consumption(region = :A, product = :w) <= 1)
+        @test_throws ArgumentError with(@limit("x", supply(region = :A) <= 1),
+                                        @limit("x", supply(region = :B) <= 1))
+        @test_throws ArgumentError Markets.supply(product = :w) * Markets.supply(product = :g)
+        @test_throws ArgumentError 1 / Markets.supply(product = :w)
+        @test_throws ArgumentError sqrt(Markets.supply(product = :w))
+        @test_throws ArgumentError @limit "x" 1 <= 2
+        @test_throws ArgumentError Limit(name = "x", expression = Markets.supply(), lower = 2, upper = 1)
+        @test_throws ArgumentError Limit(name = "x", expression = Markets.supply())
+    end
+
     @testset "a trade ceiling binds and earns a congestion rent" begin
         free  = solve_market(economy())
         moved = only(free.trade[free.trade.product .== S(:g), :quantity])
@@ -570,7 +635,8 @@ end
         @test flow(res, :g, :A, :B) ≈ quota rtol = 1e-4
         row = only(eachrow(res.limits))
         @test row.limit == "quota"
-        @test row.used ≈ quota rtol = 1e-4
+        @test row.value ≈ quota rtol = 1e-4
+        @test row.upper == quota && row.lower == -Inf
         @test row.rent > 0
         # with the ceiling binding, the price gap is transport *plus* the rent
         @test price(res, :B, :g) - price(res, :A, :g) ≈ 10.0 + row.rent rtol = 1e-4
@@ -582,7 +648,7 @@ end
                                              weights = Dict(:w => 0.5, :g => 1.0))]))
         @test solved(res)
         used = 0.5 * flow(res, :w, :A, :B) + flow(res, :g, :A, :B)
-        @test only(res.limits.used) ≈ used rtol = 1e-5
+        @test only(res.limits.value) ≈ used rtol = 1e-5
         @test used ≈ 6.0 rtol = 1e-4
         # a loose ceiling changes nothing
         loose = solve_market(economy(limits = [TradeLimit(name = :port, from = :A,
@@ -1903,6 +1969,17 @@ end
         @test minimum(drop.(france, Ref(ex))) > drop("EU", ex) >
               maximum(drop.(["NA", "AS", "RW"], Ref(ex)))
         @test all(drop(r, ex) > 0 for r in d.regions)
+        # the shared stands bound every combination of the primary products:
+        # slack in a normal year, binding once a third of France is set aside
+        @test nrow(res.limits) == 1 + 7 * length(d.regions)
+        @test all(iszero, res.limits.rent)
+        bound = ex.aside.limits[ex.aside.limits.rent .> 0, :]
+        @test sort(bound.limit) == sort(["$r: swr + hwr + smallwood" for r in france])
+        @test all(bound.value .≈ bound.upper)
+        for r in france
+            @test sum(getq(ex.aside.production, r, p) for p in ex.primary) <=
+                  ex.available(r, ex.primary, ex.protected) + 1e-6
+        end
         # uncalibrated, the reference run misses the one price given per product
         @test any(abs(price(res, r, :plywood) / ex.reference["plywood"][1] - 1) > 0.05
                   for r in d.regions)

@@ -1274,6 +1274,11 @@ Base.@kwdef struct MarketData
     """
     trade_limits::Vector{TradeLimit} = TradeLimit[]
     """
+    Linear constraints on any of the quantities of the model, as a vector of
+    [`Limit`](@ref)s: shared resources, quotas, minimum shares, fixed sums
+    """
+    limits::Vector{Limit} = Limit[]
+    """
     Taxes and subsidies, as a vector of [`Tax`](@ref)es, on production, on
     consumption, on transformation or on trade
     """
@@ -1289,9 +1294,9 @@ Base.@kwdef struct MarketData
         Dict{Tuple{String,String,String},Float64}()
 
     function MarketData(regions, products, demand, supply, processes, armington,
-                        trade_limits, taxes, transport_costs)
+                        trade_limits, limits, taxes, transport_costs)
         new(nms(regions), nms(products), demand, supply, processes, armington,
-            trade_limits, taxes, namekeys3(transport_costs))
+            trade_limits, limits, taxes, namekeys3(transport_costs))
     end
 end
 

@@ -12,6 +12,7 @@ formulation are on the [Modelling choices](@ref) page.
 | `src/types.jl`    | data schema: [`DemandSpec`](@ref), [`SupplySpec`](@ref), [`Nest`](@ref), [`leontief`](@ref), [`ces`](@ref), [`Process`](@ref), [`Armington`](@ref), [`OriginNest`](@ref), [`MarketData`](@ref) |
 | `src/model.jl`    | [`solve_market`](@ref): builds and solves the JuMP model |
 | `src/results.jl`  | [`Results`](@ref) and [`for_region`](@ref): extraction of the result tables |
+| `src/limits.jl`   | [`Limit`](@ref), [`LimitExpression`](@ref) and [`@limit`](@ref): linear constraints on the quantities of the model |
 | `src/materials.jl` | [`Material`](@ref) and [`material_accounts`](@ref): material carried by the goods, traced through a solution |
 | `examples/forest/` | the worked example, in three runnable scripts that are also the source of its three pages: `forest_market.jl` (writing the model), `forest_calibration.jl` (calibrating it with partial data) and `forest_full_data.jl` (complete data, and the comparison); `data/` holds their base years, `results/` what the first two save for the third |
 | `test/runtests.jl` | test suite |
@@ -509,6 +510,12 @@ equilibrium:
   received, every use of it is credited with their ratio so that the uses add
   up to what was received, homogeneous products need no correction, and each
   nest's physical inputs are set against its recipe;
+* limits: a cap, a minimum, an equality, a range and a limit with quantities
+  on both sides hold at the solution; the rent of a binding cap equals the
+  change in the objective when the cap moves, a minimum's rent is negative,
+  the macro and the explicit constructor give the same equilibrium, a group's
+  exports leave the group, and unknown names, quantities that do not exist,
+  duplicate names and anything not linear are refused;
 * material accounts: every region's material balance closes, and the world's
   — extraction equals consumption plus losses; the content of primary supply
   is the one given, region by region, what a region uses is the mix of what it
