@@ -83,8 +83,10 @@ source with Literate.jl, as is the larger
   results.
 * **Examples** — [Two regions and a dairy](@ref) first, the smallest model
   that is still a market; then
-  [The forest sector: France in the world](@ref), the same machinery at full
-  size, from the data to a storm-salvage scenario.
+  the forest sector at full size, in three pages:
+  [writing the model](@ref "The forest sector: France in the world"),
+  [calibrating it with partial data](@ref "The forest sector: calibrating with partial data"),
+  and [what complete data and calibration change](@ref "The forest sector: complete data, and what calibration changes").
 * [Modelling choices](@ref) — what the model assumes and why: partial
   equilibrium, surplus maximisation, spatial trade, CES substitution, dynamics.
 * [Code implementation](@ref) — the exact mathematical program the code builds,

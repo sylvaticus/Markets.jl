@@ -285,6 +285,9 @@ armington = [Armington(product = "wine", sigma = 4),              # equal shares
   specification from the same two dictionaries — shares through every level of
   the tree, and the `scale` that keeps each composite in the physical units
   of the flows at the base year, so that base-year data balance exactly.
+  Where flows are missing — between the regions of one country, typically —
+  [`impute_flows`](@ref) fills them in from production, use and whatever
+  totals are known; see [Calibrating with partial data](@ref).
 * `sigma = Inf`, and any product not listed, is the homogeneous case above.
   Inside an [`OriginNest`](@ref) it instead pools that group of origins into a
   single good, which is how a set of regions that form one internal market —
@@ -496,24 +499,28 @@ and the underlying JuMP model are kept in `res.data` and `res.model`.
 one process, one route, and milk that is both drunk and turned into cheese —
 and the place to start.
 
-The [forest example](@ref "The forest sector: France in the world") page builds
-a complete economy with this API and solves it: eight regions (four of them
-French), the roundwood-to-paper-and-pellets chain, a product that is both burnt
-directly and milled, joint products, CES input bundles, a
-process restricted to the regions that have the capacity, and a three-level
-Armington structure in which the French regions are near-perfect substitutes
-for each other, close substitutes for the rest of the EU and more distant ones for
-the other blocs. It builds all of it from observed base-year data read from
-CSV files — calibrating every parameter it does not observe or choose — and
-compares the equilibrium with those data before running a storm-salvage
-scenario that traces how far the shock travels, and a gas-price one.
+The forest example builds a complete economy with this API, over three pages.
+The [first](@ref "The forest sector: France in the world") writes the model —
+eight regions (four of them French), the roundwood-to-paper-and-pellets chain,
+a product that is both burnt directly and milled, joint products, CES input
+bundles, a process restricted to the regions that have the capacity, and a
+three-level Armington structure in which the French regions are near-perfect
+substitutes for each other, close substitutes for the rest of the EU and more
+distant ones for the other blocs — and runs a storm-salvage scenario and a
+gas-price one on it, with uncalibrated numbers. The
+[second](@ref "The forest sector: calibrating with partial data") builds the
+same model from partial, inconsistent statistics read from CSV files,
+calibrating every parameter it does not observe or choose; the
+[third](@ref "The forest sector: complete data, and what calibration changes")
+from complete, consistent data, and compares the scenarios of the three.
 
-The page is generated from
-[`examples/forest/forest_market.jl`](https://github.com/sylvaticus/Markets.jl/blob/main/examples/forest/forest_market.jl),
-which is an ordinary script: run it to get the same tables in a terminal.
+The pages are generated from the scripts in
+[`examples/forest/`](https://github.com/sylvaticus/Markets.jl/blob/main/examples/forest),
+which are ordinary scripts: run them, in order, to get the same tables in a
+terminal.
 
 ```bash
-julia --project=. examples/forest/forest_market.jl
+julia --project=docs examples/forest/forest_market.jl
 ```
 
 ## How to amend an economy

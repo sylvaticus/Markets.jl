@@ -430,33 +430,32 @@ sharper form still.
 
 #### Perfect substitutes and constant returns
 
-Calibrating `vacost` on base-year margins puts every mill that ran exactly at
-break-even, in every region. Between regions whose products are perfect
+Calibrating `vacost` on base-year margins puts every process that ran exactly
+at break-even, in every region. Between regions whose products are perfect
 substitutes — a homogeneous product, or an [`OriginNest`](@ref) with
 `sigma = Inf` — that turns the step above into a **plateau**: the location of
 processing inside the group is not decided at all.
 
 The mechanism is simple. Take two regions of the group that both sell the
-input *and* the output into the same market — two French regions both
-exporting logs and lumber to the rest of the EU, say. Move one unit of sawing
-from the first to the second: the first exports the logs it no longer saws,
-the second exports that many fewer, and the lumber changes hands the other
-way. Both swaps happen inside one market, at one delivered price, so the move
-costs exactly nothing, and so does the next one. Nothing in the model prefers
-one split to another; the solver stops wherever its path ends, and a cost
-difference of a hair moves the whole plateau.
+input *and* the output into the same market — two regions of one country
+both exporting a raw material and the product made from it to the same
+neighbour, say. Move one unit of processing from the first to the second: the
+first exports the raw material it no longer processes, the second exports
+that much less, and the product changes hands the other way. Both swaps
+happen inside one market, at one delivered price, so the move costs exactly
+nothing, and so does the next one. Nothing in the model prefers one split to
+another; the solver stops wherever its path ends, and a cost difference of a
+hair moves the whole plateau. In a test on the forest economy of the
+[examples](@ref "The forest sector: France in the world") with its French
+regions perfectly substitutable, a 0.1% change in the costs of the French
+mills emptied one region of sawmilling and nearly doubled it in another.
 
-How large that is, in a version of the
-[forest example](@ref "The forest sector: France in the world") with
-`sigma = Inf` inside France: freed from any bound, the solver puts the small
-French mills tens of per cent away from their observed activity, and a ±0.1%
-change in the costs of French mills empties `OF` of sawmilling and nearly
-doubles it in `SWF`. Whether a base year sits on such a plateau depends on its
-trade pattern. When each region of the group sells its output to a
-*different* market, moving processing between them shifts quantities between
-markets, whose demands slope, and the split is pinned; when they share a
-market for both input and output, as regions of one country selling to their
-neighbours commonly do, it is not.
+Whether a base year sits on such a plateau depends on its trade pattern. When
+each region of the group sells its output to a *different* market, moving
+processing between them shifts quantities between markets, whose demands
+slope, and the split is pinned; when they share a market for both input and
+output, as regions of one country selling to their neighbours commonly do, it
+is not.
 
 There are three ways out, in increasing order of what they ask for:
 
@@ -464,15 +463,15 @@ There are three ways out, in increasing order of what they ask for:
   product then has a demand of its own, and the plateau tilts into a slope.
   The cost is that the group is no longer one market: products cross-haul
   between its regions, and producer prices may differ by more than the
-  freight between them — by a few per cent on manufactured products at
-  `sigma = 30`. The forest example does this, and shows both.
+  freight between them. The forest examples do this, with `sigma = 30`, and
+  show both.
 * **A value-added cost rising with activity**, the principled remedy described
   in the next section. Each region's mill then has a supply curve of its own,
   so the split is decided by costs rather than left open, and the group can
   stay perfectly substitutable.
 * **Capacities that bind at the base year.** They pin the split, but only if
-  set equal to observed output, which says every mill ran flat out — rarely
-  true, and it forbids every mill from growing in any scenario. A capacity
+  set equal to observed output, which says every plant ran flat out — rarely
+  true, and it forbids every plant from growing in any scenario. A capacity
   with room to spare leaves the plateau in place inside its bounds.
 
 #### The fix that is not implemented, and why
@@ -965,11 +964,84 @@ equilibrium:
   price index and the base-year spending divided by that index;
 * `shift` on the curves, to absorb what remains.
 
-The example in [The forest sector: France in the world](@ref) does all of it,
-from base-year data read from files, and then compares the equilibrium with
-those data. They are rounded and do not quite balance, as real data do not, so
-the model lands near them rather than on them, and the size of the gaps is
-read as described above.
+The forest examples do all of it from base-year data read from files:
+[from partial, rounded statistics](@ref "The forest sector: calibrating with partial data"),
+where the model lands near the data rather than on them, and
+[from complete, consistent data](@ref "The forest sector: complete data, and what calibration changes"),
+where it returns them exactly.
+
+### Calibrating with partial data
+
+Data will be missing, and what is there will not quite agree. Neither stops a
+calibration, and neither matters as much as it seems, because scenario results
+are differences from the model's own reference run, never from the data. The
+question is not whether the reference run reproduces every observed number,
+but whether it is right about what the differences depend on.
+
+That depends on the mechanics of the model:
+
+* **Constant elasticities give the same percentage response wherever the
+  reference run sits.** A curve shifted by 10% moves its price by the same
+  percentage whether the price is 90 or 110, so much of a scenario is robust to
+  a reference run that sits some way from the data.
+* **Nothing protects a scenario from a reference run that is wrong about what
+  the shock runs into.** A capacity or a logistic limit that the reference run
+  places nearer to binding than it was binds sooner, and changes the result
+  in kind, not only in size. Market shares matter the same way — how strongly
+  one region's price passes into another's is ``\sigma`` times the share —
+  and so do relative sizes, the margins of the processes, and where they run.
+* **The detail of flows inside a group of regions matters little**, as long
+  as the totals around it are right: the group's trade with the outside, and
+  each member's production and use.
+
+The [forest examples](@ref "The forest sector: complete data, and what calibration changes")
+measure this on one economy and two scenarios. A reference run calibrated on
+partial data — every flow touching the regions of one country imputed from
+national totals — gives practically the results of one calibrated on complete
+data. One left uncalibrated, with a single price per product, trade shares
+from a rule and guessed costs, gets most of the results about right and
+doubles the main one, because it places a logistic limit closer to binding
+than the data do.
+
+That says where to spend the effort:
+
+| get right | can be imputed or approximated |
+|:---|:---|
+| production and use by region | flows between regions of one country — [`impute_flows`](@ref) |
+| trade at the level customs report it | regional prices: the national price, or it adjusted by transport |
+| a price level for each product, in each region where it differs | the recipes of the processes: published conversion factors, one region's input mix |
+| the constraints your scenarios will run into: capacities, logistic limits, policies | consumer prices: derived from flows and producer prices |
+
+[`impute_flows`](@ref) fills in a trade matrix with the flows closest to a
+gravity pattern that meet every known total. It works best on the part that is
+actually unknown. When customs report a country's trade with each partner but
+not which of its regions it went through, impute only the country's corner of
+the matrix: its regions with their production and use, and each partner
+standing for its trade with the country as a whole — what it sent in, as an
+origin, and what it took out, as a destination:
+
+```julia
+## for one product; `country` are the regions of the country, `partners` the rest
+corner = impute_flows(
+    production = merge(Dict(r => production[r] for r in country),
+                       Dict(b => imports_from[b] for b in partners)),
+    use        = merge(Dict(r => use[r] for r in country),
+                       Dict(b => exports_to[b] for b in partners)),
+    distance = distance, decay = 1.4, home_bias = 3.0,
+    totals = Dict((partners, partners) => 0.0))   # their trade with each other is known
+```
+
+The rest of the matrix is what customs report between partners, and what each
+partner keeps of its own production; the whole goes to
+[`armington_calibration`](@ref) as if it had been observed. The
+[second forest page](@ref "The forest sector: calibrating with partial data")
+does exactly this.
+
+Inconsistent data need no special treatment: the reference run *is* their
+reconciliation, the one point where every balance holds, and its distance from
+the data says where the data disagree. Only two things are hard errors: a
+region exporting more than it produced, which leaves its own deliveries
+negative, and a process with a negative margin, which the model would close.
 
 ### Never re-anchor on your own output
 

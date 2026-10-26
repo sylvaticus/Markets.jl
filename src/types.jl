@@ -1019,6 +1019,114 @@ function armington_calibration(; product::Name, flows::AbstractDict,
 end
 
 """
+$(TYPEDSIGNATURES)
+
+A trade matrix for one product where the statistics do not give one: the
+flows that follow a gravity pattern as closely as possible while adding up to
+everything that *is* known.
+
+`production` and `use` give, by region, how much was made and how much was
+used there — consumed plus taken in by its mills. Every region ships what it
+makes somewhere, itself included, and receives what it uses from somewhere,
+so these are the row and column totals of the matrix. They seldom agree
+exactly; the uses are scaled to the total production so that they do. The
+known totals below are met as given, so one that fixes the whole use of a
+region has to agree with that use once scaled.
+
+The pattern is the gravity one: a flow between two regions falls off as
+``e^{-\\text{decay} \\cdot d}`` with their `distance` ``d``, a function
+`(origin, destination) -> d` or a dictionary keyed `(origin, destination)` in
+either order, and a region's deliveries to itself are weighted by
+`home_bias`.
+
+`totals` adds whatever else is known, as `(origins, destinations) => quantity`,
+each side one region or a vector of them: a single observed flow,
+`("NA", "EU") => 9.6`, or a total over a group, such as national exports that
+customs report without saying which region of the country they left from,
+`(["SEF", "SWF", "GEF", "OF"], "EU") => 12.5`.
+
+The flows are found by iterative proportional fitting — scaling them in turn
+to meet each total, until all are met to within `rtol` — which gives the
+matrix closest to the gravity pattern, in the entropy sense, that meets every
+total. A set of totals that contradict each other, such as exports larger
+than production, cannot all be met, and is an error after `maxiter` rounds.
+
+The result, diagonal included, is what [`armington_calibration`](@ref) takes as
+`flows`, alone or merged with the flows that were observed.
+
+# Example
+```julia
+## logs among the regions of France, from what each harvested and sawed and
+## from national exports to the rest of the EU
+france = ["SEF", "SWF", "GEF", "OF"]
+impute_flows(production = Dict("SEF" => 3.6, "SWF" => 8.9, "GEF" => 3.0, "OF" => 3.7),
+             use        = Dict("SEF" => 2.4, "SWF" => 5.1, "GEF" => 1.6, "OF" => 1.9,
+                               "EU" => 8.2),
+             distance   = (o, r) -> o == r ? 0.0 : 0.1,
+             decay = 1.4, home_bias = 3.0,
+             totals = Dict((france, "EU") => 8.2))
+```
+"""
+function impute_flows(; production::AbstractDict, use::AbstractDict, distance,
+                        decay::Real, home_bias::Real = 1.0,
+                        totals::AbstractDict = Dict{Tuple{String,String},Float64}(),
+                        rtol::Real = 1e-10, maxiter::Integer = 10_000)
+    decay >= 0 || throw(ArgumentError("decay must be ≥ 0, got $decay"))
+    home_bias > 0 || throw(ArgumentError("home_bias must be positive, got $home_bias"))
+    made, used = namekeys(production), namekeys(use)
+    all(>=(0), values(made)) && all(>=(0), values(used)) || throw(ArgumentError(
+        "production and use must not be negative"))
+    sum(values(made); init = 0.0) > 0 && sum(values(used); init = 0.0) > 0 ||
+        throw(ArgumentError("nothing is produced or nothing is used"))
+    d(o, r) = o == r ? 0.0 :
+        distance isa AbstractDict ?
+            (haskey(distance, (o, r)) ? distance[(o, r)] : haskey(distance, (r, o)) ?
+             distance[(r, o)] : throw(ArgumentError("no distance given between $o and $r"))) :
+        distance(o, r)
+
+    # the cells of the matrix, and the gravity pattern they start from
+    origins      = sort([o for (o, q) in made if q > 0])
+    destinations = sort([r for (r, q) in used if q > 0])
+    cells = [(o, r) for o in origins for r in destinations]
+    x = [exp(-decay * d(o, r)) * (o == r ? home_bias : 1.0) for (o, r) in cells]
+
+    # every total, as the cells it sums over and the quantity it must reach
+    scaled = sum(values(made)) / sum(values(used))
+    constraints = Tuple{String,Vector{Int},Float64}[]
+    for o in origins
+        push!(constraints, ("the production of $o", findall(c -> c[1] == o, cells), made[o]))
+    end
+    for r in destinations
+        push!(constraints, ("the use of $r", findall(c -> c[2] == r, cells), scaled * used[r]))
+    end
+    side(s) = s isa Name ? [nm(s)] : nms(s)
+    for ((from, to), q) in totals
+        q >= 0 || throw(ArgumentError("a known total must not be negative, got $q"))
+        os, rs = side(from), side(to)
+        covered = findall(c -> c[1] in os && c[2] in rs, cells)
+        isempty(covered) && q > 0 && throw(ArgumentError(
+            "the total from $(join(os, ", ")) to $(join(rs, ", ")) covers no region " *
+            "that produces and no region that uses the product"))
+        push!(constraints, ("the flows from $(join(os, ", ")) to $(join(rs, ", "))",
+                            covered, float(q)))
+    end
+
+    miss(idx, q) = abs(sum(x[idx]; init = 0.0) - q) / max(q, eps())
+    for _ in 1:maxiter
+        for (_, idx, q) in constraints
+            s = sum(x[idx]; init = 0.0)
+            s > 0 && (x[idx] .*= q / s)
+        end
+        maximum(miss(idx, q) for (_, idx, q) in constraints) <= rtol &&
+            return Dict(zip(cells, x))
+    end
+    worst = argmax(c -> miss(c[2], c[3]), constraints)
+    throw(ArgumentError("the known totals contradict each other: after $maxiter rounds " *
+                        "$(worst[1]) is still $(round(100 * miss(worst[2], worst[3]); sigdigits = 3))% " *
+                        "away from its value"))
+end
+
+"""
 $(TYPEDEF)
 
 A tax or a subsidy — a subsidy being a negative rate — driving a wedge between

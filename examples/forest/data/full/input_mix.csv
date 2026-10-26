@@ -1,0 +1,15 @@
+process,region,product,quantity
+plymill,EU,swr,1.072277618
+plymill,EU,hwr,0.9428195709
+panelmill,EU,chips,0.3308038267
+panelmill,EU,smallwood,0.7116330993
+panelmill,EU,swr,0.2594305824
+panelmill,EU,hwr,0.0856689474
+pulpmill,EU,swr,1.347138721
+pulpmill,EU,hwr,0.609169468
+pulpmill,EU,chips,0.7079922346
+pulpmill,EU,smallwood,1.499100276
+pelletmill,EU,chips,0.3969553966
+pelletmill,EU,smallwood,1.749477767
+pelletmill,EU,swr,0.1728233131
+pelletmill,EU,hwr,0.06654718479

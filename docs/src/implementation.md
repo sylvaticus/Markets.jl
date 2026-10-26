@@ -12,7 +12,7 @@ formulation are on the [Modelling choices](@ref) page.
 | `src/types.jl`    | data schema: [`DemandSpec`](@ref), [`SupplySpec`](@ref), [`Nest`](@ref), [`leontief`](@ref), [`ces`](@ref), [`Process`](@ref), [`Armington`](@ref), [`OriginNest`](@ref), [`MarketData`](@ref) |
 | `src/model.jl`    | [`solve_market`](@ref): builds and solves the JuMP model |
 | `src/results.jl`  | [`Results`](@ref) and [`for_region`](@ref): extraction of the result tables |
-| `examples/forest/` | `forest_market.jl`: the worked example, a runnable script that is also the source of the [Forest example](@ref "The forest sector: France in the world") page |
+| `examples/forest/` | the worked example, in three runnable scripts that are also the source of its three pages: `forest_market.jl` (writing the model), `forest_calibration.jl` (calibrating it with partial data) and `forest_full_data.jl` (complete data, and the comparison); `data/` holds their base years, `results/` what the first two save for the third |
 | `test/runtests.jl` | test suite |
 | `docs/`           | this documentation (Documenter.jl, with Literate.jl for the example page) |
 
@@ -504,11 +504,16 @@ equilibrium:
   without shipping; [`ces_calibration`](@ref)'s `scale` prices a bundle at the
   average unit price, and a `vacost` given by region gives zero profit at each
   region's own cost;
-* the forest example: built from its rounded, unbalanced data files, it lands
-  within a per cent of every price and quantity and within a few per cent of
-  every trade flow; all prices are positive, world exports equal world imports
-  for every product, and the storm lowers prices most in France, then in the
-  EU, then in the far blocs.
+* trade imputation: [`impute_flows`](@ref) meets production, use and known
+  totals (single flows and group totals), keeps the gravity pattern up to one
+  factor per origin and one per destination, scales uses to production, and
+  refuses totals that contradict each other;
+* the forest example: written with uncalibrated numbers, it solves with all
+  prices positive, world exports equal to world imports, and a storm that
+  lowers prices most in France, then in the EU, then in the far blocs;
+  calibrated on partial data, it lands within a per cent of every price and
+  quantity and a few per cent of every customs flow; calibrated on complete
+  data, it returns them to the precision of the solver.
 
 Run them with:
 

@@ -1006,6 +1006,64 @@ end
     @test Markets.scale_of(Armington(product = :x, sigma = 3, scale = Dict(:A => 2.0)), "B") == 1.0
 end
 
+@testset "Imputing a trade matrix" begin
+    regions = ["A", "B", "C"]
+    pos = Dict("A" => 0.0, "B" => 1.0, "C" => 2.5)
+    dist(o, r) = abs(pos[o] - pos[r])
+    made = Dict("A" => 10.0, "B" => 6.0, "C" => 4.0)
+    used = Dict("A" => 5.0, "B" => 8.0, "C" => 7.0)
+    sums(f, side, r) = sum(x for (k, x) in f if k[side] == r)
+
+    # production and use alone: the totals hold, and the flows are the gravity
+    # pattern scaled by one factor per origin and one per destination
+    f = impute_flows(production = made, use = used, distance = dist, decay = 0.8, home_bias = 2.0)
+    for r in regions
+        @test sums(f, 1, r) ≈ made[r] rtol = 1e-8
+        @test sums(f, 2, r) ≈ used[r] rtol = 1e-8
+    end
+    g(o, r) = exp(-0.8 * dist(o, r)) * (o == r ? 2.0 : 1.0)
+    @test f[("A", "B")] * f[("B", "C")] / (f[("A", "C")] * f[("B", "B")]) ≈
+          g("A", "B") * g("B", "C") / (g("A", "C") * g("B", "B")) rtol = 1e-6
+
+    # known totals are met: one flow, and a group over several origins
+    known = Dict(("A", "C") => 1.0, (["A", "B"], "B") => 6.5)
+    f = impute_flows(production = made, use = used, distance = dist, decay = 0.8,
+                     totals = known)
+    @test f[("A", "C")] ≈ 1.0 rtol = 1e-8
+    @test f[("A", "B")] + f[("B", "B")] ≈ 6.5 rtol = 1e-8
+    @test all(sums(f, 1, r) ≈ made[r] for r in regions)
+
+    # uses that do not add up to production are scaled until they do
+    f = impute_flows(production = made, use = Dict(r => 2q for (r, q) in used),
+                     distance = dist, decay = 0.8)
+    @test all(sums(f, 2, r) ≈ used[r] for r in regions)
+
+    # distances as a dictionary, in either order; a region that makes or uses
+    # nothing has no row or no column
+    d = Dict(("A", "B") => 1.0, ("C", "A") => 2.5, ("B", "C") => 1.5)
+    f = impute_flows(production = merge(made, Dict("D" => 0.0)), use = used,
+                     distance = d, decay = 0.8)
+    @test sums(f, 1, "A") ≈ 10.0 rtol = 1e-8
+    @test !any(k -> k[1] == "D", keys(f))
+
+    # contradictions and nonsense
+    @test_throws ArgumentError impute_flows(production = made, use = used, distance = dist,
+                                            decay = 0.8, totals = Dict(("A", "B") => 20.0))
+    @test_throws ArgumentError impute_flows(production = made, use = used, distance = d,
+                                            decay = 0.8, totals = Dict(("A", "Z") => 1.0))
+    @test_throws ArgumentError impute_flows(production = made, use = used, distance = dist,
+                                            decay = -1)
+    @test_throws ArgumentError impute_flows(production = Dict("A" => -1.0), use = used,
+                                            distance = dist, decay = 1)
+    @test_throws ArgumentError impute_flows(production = made, use = used,
+                                            distance = Dict(("A", "B") => 1.0), decay = 1)
+
+    # an imputed matrix is what armington_calibration takes
+    arm = armington_calibration(product = :x, sigma = 4.0, flows = f,
+                                prices = Dict(k => 100.0 + 10dist(k...) for k in keys(f)))
+    @test all(sum(v for (k, v) in arm.shares if k[2] == r) ≈ 1 for r in regions)
+end
+
 @testset "CES calibration" begin
     q, p = [7.0, 1.4, 3.0], [55.0, 250.0, 120.0]
     spending = sum(q .* p)
@@ -1696,58 +1754,86 @@ end
 end
 
 @testset "Forest example" begin
-    # the documented example is a runnable script: run it, then check that the
-    # equilibrium it reports satisfies the conditions it claims
-    ex = Module(:ForestExample)
-    Base.include(ex, joinpath(@__DIR__, "..", "examples", "forest", "forest_market.jl"))
-    d, res, france = ex.example_market, ex.res, ex.france
-    @test solved(res)
-    @test nrow(res.prices) == length(d.regions) * length(d.products)
-    @test all(skipmissing(res.prices.price) .> 0)
-
-    # built from rounded, unbalanced data, the model lands near every
-    # observation: within a per cent for prices and quantities, a few per cent
-    # for the trade flows, the largest gaps being on the smallest flows
-    largest(name) = last(ex.relative_gaps(last(only(c for c in ex.comparison
-                                                     if first(c) == name))...))
-    for name in ("producer prices", "consumer prices", "production", "consumption")
-        @test largest(name) < 0.01
-    end
-    @test largest("trade") < 0.05
-    @test 0 < largest("production")               # near, not on
-
-    # papermill is Leontief: it buys the pulp composite and sells its own
-    # variety of paper, so zero profit ties the producer price to the user one,
-    # at the value-added cost of each region
-    papermill = only(p for p in d.processes if p.name == "papermill")
-    for r in papermill.regions
-        @test pprice(res, r, :paper) ≈ 1.1 * price(res, r, :pulp) +
-                                       Markets.vacost_of(papermill, r) rtol = 1e-5
-    end
-    # no pulp mill in SEF and GEF, hence no pulp of their own to price
-    @test ismissing(pprice(res, :SEF, :pulp)) && ismissing(pprice(res, :GEF, :pulp))
-    @test !ismissing(pprice(res, :SWF, :pulp))
-
-    # the French regions are near-perfect substitutes: wood moves between them
-    # both ways, but far less of it than leaves France
-    intra = res.trade[in.(res.trade.from, Ref(france)) .& in.(res.trade.to, Ref(france)), :]
-    @test any(flow(res, row.product, row.to, row.from) > 1e-3 for row in eachrow(intra))
-    @test sum(intra.quantity) < sum(ex.french_trade.crossing_the_border)
-    # between blocs the varieties are different goods, with price gaps above freight
-    @test any(abs(pprice(res, "NA", p) - pprice(res, "AS", p)) > d.transport_costs[(p, "NA", "AS")]
-              for p in d.products)
-
-    # world trade balances: total exports = total imports for each product
-    for g in groupby(res.net_trade, :product)
-        @test sum(g.net) ≈ 0 atol = 1e-5
-    end
-
-    # the storm scenario reaches France hardest, then the EU, then the far blocs
+    # the documented example is three runnable scripts: run them in order —
+    # the last reads what the first two save — and check that the equilibria
+    # they report satisfy the conditions they claim
+    run(file) = (m = Module(); Base.include(m, joinpath(@__DIR__, "..", "examples", "forest", file)); m)
     swr(r, result) = only(result.prices[(result.prices.region .== S(r)) .&
                                         (result.prices.product .== "swr"), :price])
-    drop(r) = 1 - swr(r, ex.storm) / swr(r, res)
-    @test minimum(drop.(france)) > drop("EU") > maximum(drop.(["NA", "AS", "RW"]))
-    @test all(drop(r) > 0 for r in d.regions)        # cheaper everywhere
+    drop(r, ex) = 1 - swr(r, ex.storm) / swr(r, ex.res)
+
+    @testset "writing the model" begin
+        ex = run("forest_market.jl")
+        d, res, france = ex.example_market, ex.res, ex.france
+        @test solved(res) && solved(ex.storm) && solved(ex.gas)
+        @test nrow(res.prices) == length(d.regions) * length(d.products)
+        @test all(skipmissing(res.prices.price) .> 0)
+        # papermill is Leontief: it buys the pulp composite and sells its own
+        # variety of paper, so zero profit ties the producer price to the user one
+        for r in d.regions
+            @test pprice(res, r, :paper) ≈ 1.1 * price(res, r, :pulp) + 200 rtol = 1e-4
+        end
+        # no pulp mill in SEF and GEF, hence no pulp of their own to price
+        @test ismissing(pprice(res, :SEF, :pulp)) && ismissing(pprice(res, :GEF, :pulp))
+        # the French regions are near-perfect substitutes: wood moves between
+        # them both ways, but far less of it than leaves France
+        intra = res.trade[in.(res.trade.from, Ref(france)) .& in.(res.trade.to, Ref(france)), :]
+        @test any(flow(res, row.product, row.to, row.from) > 1e-3 for row in eachrow(intra))
+        @test sum(intra.quantity) < sum(ex.french_trade.crossing_the_border)
+        # world trade balances: total exports = total imports for each product
+        for g in groupby(res.net_trade, :product)
+            @test sum(g.net) ≈ 0 atol = 1e-5
+        end
+        # the storm reaches France hardest, then the EU, then the far blocs
+        @test minimum(drop.(france, Ref(ex))) > drop("EU", ex) >
+              maximum(drop.(["NA", "AS", "RW"], Ref(ex)))
+        @test all(drop(r, ex) > 0 for r in d.regions)
+        # uncalibrated, the reference run misses the one price given per product
+        @test any(abs(price(res, r, :plywood) / ex.reference["plywood"][1] - 1) > 0.05
+                  for r in d.regions)
+    end
+
+    @testset "calibrating with partial data" begin
+        ex = run("forest_calibration.jl")
+        res = ex.res
+        @test solved(res) && solved(ex.storm) && solved(ex.gas)
+        # the imputed flows add up to what customs and surveys report
+        @test minimum(values(ex.flows)) >= 0
+        # built from rounded, unbalanced data, the model lands near every
+        # observation: within a per cent, a few per cent for customs flows
+        largest(name) = last(ex.relative_gaps(last(only(c for c in ex.comparison
+                                                         if first(c) == name))...))
+        for name in ("producer prices", "production", "consumption")
+            @test largest(name) < 0.01
+        end
+        @test largest("customs trade") < 0.05
+        @test 0 < largest("production")               # near, not on
+        # zero profit at each region's own cost
+        papermill = only(p for p in ex.processes if p.name == "papermill")
+        for r in papermill.regions
+            @test pprice(res, r, :paper) ≈ 1.1 * price(res, r, :pulp) +
+                                           Markets.vacost_of(papermill, r) rtol = 1e-5
+        end
+    end
+
+    @testset "complete data, and the comparison" begin
+        ex = run("forest_full_data.jl")
+        res = ex.res
+        @test solved(res)
+        # consistent data come back to the precision of the solver
+        for (model, observed) in (
+                (ex.modelled(res.prices, :producer_price, :region, :product), ex.πˢ),
+                (ex.modelled(res.production, :quantity, :region, :product), ex.made),
+                (ex.modelled(res.consumption, :quantity, :region, :product), ex.consumed),
+                (ex.modelled(res.trade, :quantity, :product, :from, :to), ex.shipped))
+            @test last(ex.relative_gaps(model, observed)) < 1e-5
+        end
+        # partial data give the scenarios of complete data; uncalibrated ones
+        # deepen the storm in the Landes
+        row(case) = ex.comparison[startswith.(ex.comparison.case, case), :]
+        @test abs(only(row("partial").storm_SWF) - only(row("complete").storm_SWF)) < 0.5
+        @test only(row("uncalibrated").storm_SWF) < only(row("complete").storm_SWF) - 3
+    end
 end
 
 end

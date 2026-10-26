@@ -5,8 +5,12 @@ using Markets
 # The examples live in examples/ as runnable scripts with their explanation in
 # comments; Literate turns each into a page whose code Documenter then
 # executes, so the tables on those pages are the solver's own output.
+# The three forest pages run in this order: the last reads what the first two
+# saved in examples/forest/results.
 const EXAMPLES = [joinpath(@__DIR__, "..", "examples", "minimal", "minimal_market.jl"),
-                  joinpath(@__DIR__, "..", "examples", "forest",  "forest_market.jl")]
+                  joinpath(@__DIR__, "..", "examples", "forest",  "forest_market.jl"),
+                  joinpath(@__DIR__, "..", "examples", "forest",  "forest_calibration.jl"),
+                  joinpath(@__DIR__, "..", "examples", "forest",  "forest_full_data.jl")]
 const GENERATED = joinpath(@__DIR__, "src", "generated")
 
 rm(GENERATED; recursive = true, force = true)
@@ -24,7 +28,11 @@ makedocs(
         "Using the module"    => "usage.md",
         "Examples" => [
             "Two regions and a dairy (minimal)" => "generated/minimal_market.md",
-            "Forest sector economics (advanced)"  => "generated/forest_market.md",
+            "Forest sector economics (advanced)" => [
+                "Writing the model"        => "generated/forest_market.md",
+                "Calibrating with partial data" => "generated/forest_calibration.md",
+                "Complete data, and what calibration changes" => "generated/forest_full_data.md",
+            ],
         ],
         "Modelling choices"   => "modelling.md",
         "Code implementation" => [
