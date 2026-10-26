@@ -480,6 +480,9 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     # --- assemble per-(region,product) sources & uses -----------------------
     produced = Dict{Tuple{String,String},Any}()   # process outputs + primary supply
     used     = Dict{Tuple{String,String},Any}()   # process inputs + final demand
+    # what each nest of each process draws of each product, kept for the
+    # physical accounts of the results: (region, process, nest, product)
+    drawn    = Dict{Tuple{String,String,Int,String},Any}()
     addto!(dict, key, term) = (dict[key] = haskey(dict, key) ? dict[key] + term : term)
 
     for proc in d.processes, r in regions_of(proc, d)
@@ -487,9 +490,10 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
         for (p, yield) in proc.outputs
             addto!(produced, (r, p), yield * zk)
         end
-        for nest in proc.inputs
+        for (k, nest) in enumerate(proc.inputs)
             if length(nest.products) == 1            # Leontief
                 addto!(used, (r, nest.products[1]), nest.composite * zk)
+                drawn[(r, proc.name, k, nest.products[1])] = nest.composite * zk
             else                                     # CES
                 qs = VariableRef[]
                 # a Leontief nest uses its inputs linearly, so they may go to zero
@@ -500,6 +504,7 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
                                      base_name = "x[$r,$(proc.name),$p]")
                     push!(qs, q)
                     addto!(used, (r, p), q)
+                    drawn[(r, proc.name, k, p)] = q
                 end
                 # Calibrated CES: shares are *value* shares (Σδ = 1) and enter
                 # the quantity aggregator as δ^(1/σ).  This makes the implied
@@ -607,7 +612,7 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
 
     @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost)
 
-    return m, (D = D, S = S, z = z, T = T, X = X, balance = balance,
+    return m, (D = D, S = S, z = z, T = T, X = X, A = A, drawn = drawn, balance = balance,
                origin_balance = origin_balance, trade_limit = trade_limit)
 end
 
@@ -626,7 +631,7 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
     m, v = build_model(d, tariff; model_options...)
     wall_time = @elapsed optimize!(m)
     return build_results(d, m, v.D, v.S, v.z, v.T, v.X, v.balance, v.origin_balance,
-                         v.trade_limit, tariff, tol, wall_time)
+                         v.trade_limit, tariff, tol, wall_time; A = v.A, drawn = v.drawn)
 end
 
 """

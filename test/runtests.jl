@@ -1006,6 +1006,58 @@ end
     @test Markets.scale_of(Armington(product = :x, sigma = 3, scale = Dict(:A => 2.0)), "B") == 1.0
 end
 
+@testset "Physical accounts" begin
+    # wood is an Armington product, drunk by households and milled together
+    # with scrap, a homogeneous one, in a CES bundle
+    res = solve_market(MarketData(
+        regions = [:A, :B], products = [:wood, :scrap, :board],
+        demand  = [DemandSpec(product = :wood, region = :A, p0 = 60, q0 = 8, elasticity = 0.8),
+                   DemandSpec(product = :wood, region = :B, p0 = 60, q0 = 6, elasticity = 0.8),
+                   DemandSpec(product = :board, region = :A, p0 = 300, q0 = 3, elasticity = 1.2)],
+        supply  = [SupplySpec(product = :wood, region = :A, p0 = 40, q0 = 12, elasticity = 1.0),
+                   SupplySpec(product = :wood, region = :B, p0 = 45, q0 = 10, elasticity = 1.0),
+                   SupplySpec(product = :scrap, region = :A, p0 = 30, q0 = 4, elasticity = 1.0)],
+        processes = [Process(name = :mill, regions = [:A], vacost = 50,
+                             inputs = [ces(composite = 2.0, products = [:wood, :scrap],
+                                           shares = [0.6, 0.4], sigma = 2.0)],
+                             outputs = [:board => 1.0])],
+        transport_costs = Dict((p, o, r) => 5.0 for p in (:wood, :scrap, :board),
+                               o in (:A, :B), r in (:A, :B) if o != r),
+        armington = [Armington(product = :wood, sigma = 3.0,
+                               shares = Dict((:A, :A) => 0.7, (:B, :A) => 0.3,
+                                             (:B, :B) => 0.6, (:A, :B) => 0.4))]))
+    @test solved(res)
+    comp(r) = only(res.composites[res.composites.region .== S(r), :])
+    for r in (:A, :B)
+        c = comp(r)
+        # received is the sum of the varieties delivered, the region's own included
+        @test c.received ≈ getq(res.production, r, :wood) - flow(res, :wood, r, r == :A ? :B : :A) +
+                           flow(res, :wood, r == :A ? :B : :A, r) rtol = 1e-6
+        @test c.ratio ≈ c.received / c.composite
+        @test c.ratio > 1 + 1e-4           # a mixed, unscaled composite counts for less
+        # every use is credited with the region's ratio, and the uses add up to
+        # what was received
+        cons = only(res.consumption[(res.consumption.region .== S(r)) .&
+                                    (res.consumption.product .== "wood"), :])
+        @test cons.physical ≈ cons.quantity * c.ratio
+        drawn = res.inputs[(res.inputs.region .== S(r)) .& (res.inputs.product .== "wood"), :]
+        @test cons.physical + sum(drawn.physical; init = 0.0) ≈ c.received rtol = 1e-6
+    end
+    # a homogeneous product has no composite and no gap of its own
+    @test !any(res.composites.product .== "scrap")
+    @test only(res.consumption[res.consumption.product .== "board", :physical]) ≈
+          only(res.consumption[res.consumption.product .== "board", :quantity])
+    # the recipe of the mill against its physical inputs
+    rec = only(res.recipes[res.recipes.process .== "mill", :])
+    @test rec.inputs == "wood, scrap"
+    @test rec.recipe ≈ 2.0 * only(res.activity[res.activity.process .== "mill", :level])
+    @test rec.physical ≈ sum(res.inputs[res.inputs.process .== "mill", :physical])
+    @test rec.gap ≈ rec.physical - rec.recipe
+    @test abs(rec.gap) > 1e-4
+    # the region slice carries the physical tables too
+    @test nrow(for_region(res, :A).composites) == 1
+end
+
 @testset "Imputing a trade matrix" begin
     regions = ["A", "B", "C"]
     pos = Dict("A" => 0.0, "B" => 1.0, "C" => 2.5)
@@ -1808,6 +1860,16 @@ end
         end
         @test largest("customs trade") < 0.05
         @test 0 < largest("production")               # near, not on
+        # the physical account closes: what each region received of a product
+        # is what its households and its mills used, physically
+        for c in eachrow(res.composites)
+            used = sum(res.consumption[(res.consumption.region .== c.region) .&
+                                       (res.consumption.product .== c.product), :physical];
+                       init = 0.0) +
+                   sum(res.inputs[(res.inputs.region .== c.region) .&
+                                  (res.inputs.product .== c.product), :physical]; init = 0.0)
+            @test used ≈ c.received rtol = 1e-5
+        end
         # zero profit at each region's own cost
         papermill = only(p for p in ex.processes if p.name == "papermill")
         for r in papermill.regions

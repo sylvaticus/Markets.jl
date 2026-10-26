@@ -59,8 +59,44 @@ Base.@kwdef struct Results
     bounding it and the scarcity `rent` a binding capacity earns per unit
     """
     supply::DataFrame
-    "Final demand: `region`, `product`, `quantity`"
+    """
+    Final demand: `region`, `product`, `quantity`, in the units the demand
+    curves and prices use, and `physical`, the same in the physical units of
+    the flows. The two differ only for an [`Armington`](@ref) product, whose
+    users buy a composite: see `composites`
+    """
     consumption::DataFrame
+    """
+    The composite of each [`Armington`](@ref) product in each region that uses
+    it, against the physical quantity behind it: `region`, `product`,
+    `received` (the sum of the varieties delivered there, its own included),
+    `composite` (what its users draw on, final demand and processes together)
+    and `ratio` = `received` / `composite`. A CES composite equals the sum of
+    what it is made of only at the mix it was calibrated at; elsewhere `ratio`
+    is the physical quantity a unit of composite stands for, and every use of
+    the composite in the region is credited with it in `physical` columns.
+    Value is exact on the composite side: `composite` times the price users
+    pay is what was spent on the varieties, delivered
+    """
+    composites::DataFrame
+    """
+    What each process draws of each input: `region`, `process`, `product`,
+    `composite` (in the units the balances and prices use) and `physical` (the
+    same in the physical units of the flows)
+    """
+    inputs::DataFrame
+    """
+    Each input nest of each process against its recipe: `region`, `process`,
+    `inputs` (the products of the nest), `recipe` (the nest's requirement per
+    unit of activity times the activity), `physical` (the physical quantity of
+    its inputs, summed) and `gap` = `physical` − `recipe`. A recipe is met in
+    composite units; the gap is the physical quantity the aggregation of
+    imperfect substitutes uses up (positive) or makes up (negative) on the
+    way, whether in the region's Armington composites or in a CES nest
+    itself. It closes a physical account of the economy. The sum means
+    something only where the products of a nest share a physical unit
+    """
+    recipes::DataFrame
     "Bilateral trade flows, positive ones only: `product`, `from`, `to`, `quantity`"
     trade::DataFrame
     "Trade by region: `region`, `product`, `exports`, `imports`, `net` (= exports − imports)"
@@ -120,7 +156,9 @@ function solver_attribute(m::Model, attr, fallback)
 end
 
 function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit,
-                       tariff, tol, wall_time)
+                       tariff, tol, wall_time;
+                       A = Dict{Tuple{String,String},VariableRef}(),
+                       drawn = Dict{Tuple{String,String,Int,String},Any}())
     val(x) = value(x)
     # bilateral flows: the trade variables of the homogeneous products and the
     # cross-border varieties of the Armington ones
@@ -165,12 +203,52 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
     end
     sort!(supply, [:region, :product])
 
-    consumption = DataFrame(region = String[], product = String[], quantity = Float64[])
+    # physical accounts: what a unit of each region's composite stands for, in
+    # the physical units of the flows that make it up
+    composites = DataFrame(region = String[], product = String[], received = Float64[],
+                           composite = Float64[], ratio = Float64[])
+    ratio = Dict{Tuple{String,String},Float64}()
+    for ((p, r), a) in A
+        composite = val(a)
+        received = sum(val(v) for ((q, _, d), v) in X if q == p && d == r; init = 0.0)
+        composite > tol || continue
+        ratio[(r, p)] = received / composite
+        push!(composites, (r, p, received, composite, ratio[(r, p)]))
+    end
+    sort!(composites, [:region, :product])
+    physical(r, p, q) = q * get(ratio, (r, p), 1.0)
+
+    consumption = DataFrame(region = String[], product = String[], quantity = Float64[],
+                            physical = Float64[])
     for ((r, p), v) in D
         q = val(v)
-        q > tol && push!(consumption, (r, p, q))   # the same rule as the others
+        q > tol && push!(consumption, (r, p, q, physical(r, p, q)))   # the same rule as the others
     end
     sort!(consumption, [:region, :product])
+
+    inputs = DataFrame(region = String[], process = String[], product = String[],
+                       composite = Float64[], physical = Float64[])
+    taken = Dict{Tuple{String,String,String},Float64}()
+    for ((r, proc, _, p), e) in drawn
+        taken[(r, proc, p)] = get(taken, (r, proc, p), 0.0) + val(e)
+    end
+    for ((r, proc, p), q) in taken
+        q > tol && push!(inputs, (r, proc, p, q, physical(r, p, q)))
+    end
+    sort!(inputs, [:region, :process, :product])
+
+    recipes = DataFrame(region = String[], process = String[], inputs = String[],
+                        recipe = Float64[], physical = Float64[], gap = Float64[])
+    for proc in d.processes, r in regions_of(proc, d)
+        level = val(z[(r, proc.name)])
+        level > tol || continue
+        for (k, nest) in enumerate(proc.inputs)
+            recipe = nest.composite * level
+            phys = sum(physical(r, p, val(drawn[(r, proc.name, k, p)])) for p in nest.products)
+            push!(recipes, (r, proc.name, join(nest.products, ", "), recipe, phys, phys - recipe))
+        end
+    end
+    sort!(recipes, [:region, :process])
 
     trade = DataFrame(product = String[], from = String[], to = String[], quantity = Float64[])
     for ((p, from, to), v) in flows
@@ -289,7 +367,8 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
                    iterations = iterations,
                    objective = objective, welfare = objective + sum(taxes.revenue; init = 0.0),
                    supply = supply, production = production,
-                   consumption = consumption, trade = trade, net_trade = net,
+                   consumption = consumption, composites = composites, inputs = inputs,
+                   recipes = recipes, trade = trade, net_trade = net,
                    prices = prices, activity = activity, limits = limits, taxes = taxes)
 end
 
@@ -301,7 +380,8 @@ Slice every table of `res` for a single `region` (trade keeps both incoming and
 outgoing flows).
 
 Returns a `NamedTuple`
-`(; production, supply, consumption, prices, net_trade, activity, trade)`.
+`(; production, supply, consumption, composites, inputs, recipes, prices,
+net_trade, activity, trade)`.
 The `limits` and `taxes` tables are not among them: a trade ceiling spans
 routes and a tax may span regions, so neither belongs to one region.
 """
@@ -311,6 +391,9 @@ function for_region(res::Results, region::Name)
     (production  = f(res.production, :region),
      supply      = f(res.supply, :region),
      consumption = f(res.consumption, :region),
+     composites  = f(res.composites, :region),
+     inputs      = f(res.inputs, :region),
+     recipes     = f(res.recipes, :region),
      prices      = f(res.prices, :region),
      net_trade   = f(res.net_trade, :region),
      activity    = f(res.activity, :region),

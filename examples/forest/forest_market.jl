@@ -844,7 +844,7 @@ results_dir = joinpath(pkgdir(Markets), "examples", "forest", "results")
 function outcome(result, scenario)
     t = outerjoin(select(result.prices, :region, :product, :price, :producer_price),
                   rename(result.production, :quantity => :production),
-                  rename(result.consumption, :quantity => :consumption),
+                  select(result.consumption, :region, :product, :quantity => :consumption),
                   on = [:region, :product])
     return insertcols!(t, 1, :scenario => scenario)
 end

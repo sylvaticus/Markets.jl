@@ -467,13 +467,16 @@ message in `raw_status`, the `solve_time` in seconds and the `iterations` it
 took (summed over all `solves` when an ad valorem tariff is found by iteration,
 and `missing` for a solver that does not count them), the value of the
 maximised `objective`, the `welfare` that objective implies once tax revenue is
-counted as the transfer it is, and nine `DataFrame`s:
+counted as the transfer it is, and twelve `DataFrame`s:
 
 | Field | Columns | Content |
 |:------|:--------|:--------|
 | `production`  | region, product, quantity | primary supply + manufactured output |
 | `supply`      | region, product, quantity, capacity, rent | primary supply alone, with its ceiling and the scarcity rent a binding one earns |
-| `consumption` | region, product, quantity | final demand |
+| `consumption` | region, product, quantity, physical | final demand, in the units of the demand curves and in physical units |
+| `composites`  | region, product, received, composite, ratio | the composite each region uses of an Armington product, against the physical sum of the varieties it received |
+| `inputs`      | region, process, product, composite, physical | what each process draws of each input |
+| `recipes`     | region, process, inputs, recipe, physical, gap | each input nest's physical inputs against its recipe |
 | `trade`       | product, from, to, quantity | bilateral flows (positive only) |
 | `net_trade`   | region, product, exports, imports, net | net = exports − imports |
 | `prices`      | region, product, price, producer\_price | what local users pay, and what local producers get |
@@ -489,6 +492,12 @@ be disposed of at a cost shows a negative one.
 `price` and `producer_price` differ only for an [`Armington`](@ref) product,
 where local users buy a composite of all origins' varieties while local
 producers sell their own; for every other product the two columns are equal.
+
+`quantity` and `physical` differ only for an Armington product: its users
+draw on a CES composite of the varieties, which equals their physical sum only
+at the mix it was calibrated at. The last three tables keep the physical
+account of the economy, and `gap` is the quantity the CES aggregation used up
+or made up; see [Physical accounts](@ref).
 
 [`for_region`](@ref) slices all tables for one region at once. The input data
 and the underlying JuMP model are kept in `res.data` and `res.model`.

@@ -360,9 +360,12 @@ physical conversions.
 This package takes the process route, and the reasons are worth stating plainly
 because they are also its limitations.
 
-**What the choice buys.** Mass and yield consistency hold by construction: what
-goes into a plant comes out of it, as product or as residue, and no combination
-of estimated elasticities can violate that. The parameters are engineering
+**What the choice buys.** Every balance is an equality in physical units, and
+a recipe is a fixed yield: what goes into a plant comes out of it, as product
+or as residue, and no combination of estimated elasticities can violate that.
+The one qualification is aggregation: a CES bundle of inputs, or an Armington
+composite of origins, is an aggregate rather than a sum, and the physical
+account then needs one more line — see [Physical accounts](@ref). The parameters are engineering
 coefficients, which exist for most transformations, where econometric estimates
 on intermediate markets usually do not. A technology with no history at all can
 be added by writing down its recipe. And because the problem stays a single
@@ -754,17 +757,16 @@ Two consequences of calibrated shares are worth knowing:
   create new trade relationships, only grow and shrink existing ones. Give a
   plausible small share to a route you want to be able to open.
 * **The composite is not the physical sum.** ``A_r`` is a CES aggregate of the
-  varieties, and since the shares sum to one it is at most their sum, with
-  equality only when the mix is the one the shares describe. So reported
-  consumption of an Armington product is a composite index, not a tonnage, and
-  the m³ or tonne identity that holds for a homogeneous product does not hold
-  for it. Production, trade and the balances are in physical units throughout;
-  it is only the composite that is an index. The `scale` of an
-  [`Armington`](@ref) specification multiplies the composite, and
-  [`armington_calibration`](@ref) sets it so that the composite equals the
-  physical sum at the base year: base-year data in m³ then balance exactly,
-  and the composite is priced at the average delivered unit value. Away from
-  the base year the composite drifts from the sum again, as any CES does.
+  varieties, and with shares summing to one it is at most their sum, with
+  equality only when the mix is the one the shares describe. Production, trade
+  and the balances are in physical units throughout; it is only the composite
+  that is an index. The `scale` of an [`Armington`](@ref) specification
+  multiplies the composite, and [`armington_calibration`](@ref) sets it so
+  that the composite equals the physical sum at the base year: base-year data
+  in m³ then balance exactly, and the composite is priced at the average
+  delivered unit value. Away from the base year the composite drifts from the
+  sum again, to either side, as any CES does; the results report both — see
+  [Physical accounts](@ref).
 
 ### Shares and elasticity answer different questions
 
@@ -899,6 +901,63 @@ of prices or of final demand.
 **Prices come from a continuous relaxation.** All quantities are continuous, so
 the model knows nothing of indivisible investments, minimum efficient scale or
 shutdown decisions.
+
+## Physical accounts
+
+Every quantity the model solves for is physical — what each region produced,
+what it shipped to every other, what its households consumed, what its plants
+took in — and every balance between them is an equality. Two kinds of
+quantity are not sums, though, but CES aggregates:
+
+* the **composite** a region uses of an [`Armington`](@ref) product, made of
+  the varieties of every origin;
+* the **bundle** a process uses from a [`ces`](@ref) nest, made of several
+  inputs.
+
+A CES aggregate equals the sum of its members only at the mix it was
+calibrated at. Away from it, a mixed bundle counts for more, or less, than
+the physical quantity in it: a region's households and plants can draw a
+composite of 100 out of 104 m³ delivered, or a mill can turn 2.47 m³ of wood
+into a tonne of pellets where its recipe says 2.39. That is not an error of
+the solver but what a CES is — a production or preference function, with a
+gain from mixing built in — and it is the price of the smooth, scale-free
+substitution it gives.
+
+The results therefore keep two accounts side by side:
+
+* in **composite units**, the quantities the demand curves, the recipes and
+  the prices refer to. This account is exact in *value*: the composite times
+  the price its users pay is what was spent on the varieties, delivered.
+* in **physical units**, the quantities that moved. The varieties a region
+  received are its `received`, in `Results.composites`, and every use of the
+  region's composite — final demand and each plant — is credited with the
+  same physical content per unit, the `ratio` received / composite. That
+  assumes every user in a region gets the same mix of origins, the one
+  assumption the account makes. Final consumption has a `physical` column,
+  process inputs are in `Results.inputs`, and `Results.recipes` sets the
+  physical inputs of each nest against what its recipe requires: the `gap`
+  is the quantity the aggregation used up or made up.
+
+With them the physical account closes: production equals shipments, shipments
+equal receipts, receipts equal the physical uses, and a plant's physical
+inputs equal its recipe plus the gap. In the
+[forest examples](@ref "The forest sector: calibrating with partial data") the
+gaps come to a few hundredths of a per cent of the world's wood, and up to a
+few per cent for one product in one region under a large shock — small, but
+worth reporting wherever the model feeds a physical balance, such as carbon or
+resource use.
+
+Where a physical identity has to hold exactly, there are exact aggregators:
+`sigma = 0` (fixed proportions) and `sigma = Inf` (perfect substitutes, a
+plain sum), and, for inputs, a choice between alternative fixed recipes
+written as separate processes. A formulation that kept imperfect substitution
+and made the composite a plain sum does exist — shares as a logit of the
+delivered prices, with a variety term in the objective — but it moves the
+inconsistency rather than removing it: with quantities that add up, values no
+longer do (users pay more per unit than was spent per unit), and substitution
+depends on absolute price gaps rather than on ratios, so scaling every price
+changes the shares. Imperfect substitution cannot have both quantity and value
+add up; CES keeps the values.
 
 ## Calibration
 

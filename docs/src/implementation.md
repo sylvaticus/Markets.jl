@@ -504,6 +504,10 @@ equilibrium:
   without shipping; [`ces_calibration`](@ref)'s `scale` prices a bundle at the
   average unit price, and a `vacost` given by region gives zero profit at each
   region's own cost;
+* physical accounts: a region's composite is set against the varieties it
+  received, every use of it is credited with their ratio so that the uses add
+  up to what was received, homogeneous products need no correction, and each
+  nest's physical inputs are set against its recipe;
 * trade imputation: [`impute_flows`](@ref) meets production, use and known
   totals (single flows and group totals), keeps the gravity pattern up to one
   factor per origin and one per destination, scales uses to production, and
