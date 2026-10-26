@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Complete data, and what calibration changes · Markets.jl</title><meta name="title" content="Complete data, and what calibration changes · Markets.jl"/><meta property="og:title" content="Complete data, and what calibration changes · Markets.jl"/><meta property="twitter:title" content="Complete data, and what calibration changes · Markets.jl"/><meta name="description" content="Documentation for Markets.jl."/><meta property="og:description" content="Documentation for Markets.jl."/><meta property="twitter:description" content="Documentation for Markets.jl."/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.63.2/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">Markets.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><a class="tocitem" href="../../usage/">Using the module</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="../minimal_market/">Two regions and a dairy (minimal)</a></li><li><input class="collapse-toggle" id="menuitem-3-2" type="checkbox" checked/><label class="tocitem" for="menuitem-3-2"><span class="docs-label">Forest sector economics (advanced)</span><i class="docs-chevron"></i></label><ul class="collapsed"><li><a class="tocitem" href="../forest_market/">Writing the model</a></li><li><a class="tocitem" href="../forest_calibration/">Calibrating with partial data</a></li><li class="is-active"><a class="tocitem" href>Complete data, and what calibration changes</a><ul class="internal"><li><a class="tocitem" href="#Everything-there-is-to-know"><span>Everything there is to know</span></a></li><li><a class="tocitem" href="#The-same-calibration,-without-the-gaps"><span>The same calibration, without the gaps</span></a></li><li><a class="tocitem" href="#The-data,-returned"><span>The data, returned</span></a></li><li><a class="tocitem" href="#Three-reference-runs,-two-scenarios"><span>Three reference runs, two scenarios</span></a></li></ul></li></ul></li></ul></li><li><a class="tocitem" href="../../modelling/">Modelling choices</a></li><li><span class="tocitem">Code implementation</span><ul><li><a class="tocitem" href="../../implementation/">Code implementation</a></li><li><a class="tocitem" href="../../api/">API reference</a></li></ul></li><li><a class="tocitem" href="../../references/">References</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Examples</a></li><li><a class="is-disabled">Forest sector economics (advanced)</a></li><li class="is-active"><a href>Complete data, and what calibration changes</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Complete data, and what calibration changes</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/sylvaticus/Markets.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/sylvaticus/Markets.jl/blob/main/examples/forest/forest_full_data.jl" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="The-forest-sector:-complete-data,-and-what-calibration-changes"><a class="docs-heading-anchor" href="#The-forest-sector:-complete-data,-and-what-calibration-changes">The forest sector: complete data, and what calibration changes</a><a id="The-forest-sector:-complete-data,-and-what-calibration-changes-1"></a><a class="docs-heading-anchor-permalink" href="#The-forest-sector:-complete-data,-and-what-calibration-changes" title="Permalink"></a></h1><p>The <a href="../forest_market/#The-forest-sector:-France-in-the-world">first page</a> built the model from the numbers at hand before any calibration, and the <a href="../forest_calibration/#The-forest-sector:-calibrating-with-partial-data">second</a> from incomplete, rounded statistics. This page builds it from <strong>complete and consistent</strong> data — perfect information, which no real application has — and then asks the question the three pages exist for: how much do the scenarios depend on which of the three you start from?</p><div class="admonition is-warning" id="For-illustrative-purposes-only-b4826e5533abcd62"><header class="admonition-header">For illustrative purposes only<a class="admonition-anchor" href="#For-illustrative-purposes-only-b4826e5533abcd62" title="Permalink"></a></header><div class="admonition-body"><p>The data are plausible, but they are not statistics: complete, consistent data are never observed. They are a base year built to be an equilibrium, so that this page can show what a calibration on perfect information gives.</p></div></div><pre><code class="language-julia hljs">using Markets, DataFrames, DelimitedFiles
+
+france  = [&quot;SEF&quot;, &quot;SWF&quot;, &quot;GEF&quot;, &quot;OF&quot;]
+blocs   = [&quot;EU&quot;, &quot;NA&quot;, &quot;AS&quot;, &quot;RW&quot;]
+regions = [france; blocs]
+products = [&quot;swr&quot;, &quot;hwr&quot;, &quot;smallwood&quot;, &quot;chips&quot;, &quot;pulp&quot;,
+            &quot;sawn_sw&quot;, &quot;sawn_hw&quot;, &quot;panel&quot;, &quot;plywood&quot;, &quot;paper&quot;, &quot;pellets&quot;]
+
+data        = pkgdir(Markets, &quot;examples&quot;, &quot;forest&quot;, &quot;data&quot;)
+results_dir = pkgdir(Markets, &quot;examples&quot;, &quot;forest&quot;, &quot;results&quot;)
+
+function read_table(path)
+    cells, header = readdlm(path, &#39;,&#39;, header = true)
+    cell(c) = c isa AbstractString ? (isempty(c) ? missing : String(c)) : c
+    return DataFrame([String(h) =&gt; identity.(cell.(cells[:, j]))
+                      for (j, h) in enumerate(vec(header))])
+end
+lookup(table, value, keys...) =
+    Dict(Tuple(row[k] for k in keys) =&gt; row[value] for row in eachrow(table))</code></pre><h2 id="Everything-there-is-to-know"><a class="docs-heading-anchor" href="#Everything-there-is-to-know">Everything there is to know</a><a id="Everything-there-is-to-know-1"></a><a class="docs-heading-anchor-permalink" href="#Everything-there-is-to-know" title="Permalink"></a></h2><p>Complete data differ from the partial ones in one thing above all: <strong>trade</strong>. Customs report what crosses a border; complete data give every flow between every pair of regions, French regions included. Everything else is the same kind of observation, only exact:</p><pre><code class="language-julia hljs">production      = read_table(joinpath(data, &quot;full&quot;, &quot;production.csv&quot;))
+producer_prices = read_table(joinpath(data, &quot;full&quot;, &quot;producer_prices.csv&quot;))
+consumption     = read_table(joinpath(data, &quot;full&quot;, &quot;consumption.csv&quot;))
+trade           = read_table(joinpath(data, &quot;full&quot;, &quot;trade.csv&quot;))
+input_mix       = read_table(joinpath(data, &quot;full&quot;, &quot;input_mix.csv&quot;))
+capacities      = read_table(joinpath(data, &quot;full&quot;, &quot;capacity.csv&quot;))
+freight         = read_table(joinpath(data, &quot;freight.csv&quot;))
+distances       = read_table(joinpath(data, &quot;distance.csv&quot;))
+first(trade[in.(trade.from, Ref(france)) .&amp; in.(trade.to, Ref(france)), :], 6)</code></pre><div><div style = "float: left;"><span>6×4 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">product</th><th style = "text-align: left;">from</th><th style = "text-align: left;">to</th><th style = "text-align: left;">quantity</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "Float64" style = "text-align: left;">Float64</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">swr</td><td style = "text-align: left;">SEF</td><td style = "text-align: left;">SWF</td><td style = "text-align: right;">0.145893</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">swr</td><td style = "text-align: left;">SEF</td><td style = "text-align: left;">GEF</td><td style = "text-align: right;">0.05081</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: left;">swr</td><td style = "text-align: left;">SEF</td><td style = "text-align: left;">OF</td><td style = "text-align: right;">0.108489</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: left;">swr</td><td style = "text-align: left;">SWF</td><td style = "text-align: left;">SEF</td><td style = "text-align: right;">0.161769</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">5</td><td style = "text-align: left;">swr</td><td style = "text-align: left;">SWF</td><td style = "text-align: left;">GEF</td><td style = "text-align: right;">0.105979</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">6</td><td style = "text-align: left;">swr</td><td style = "text-align: left;">SWF</td><td style = "text-align: left;">OF</td><td style = "text-align: right;">0.279521</td></tr></tbody></table></div><p>Counted observation by observation, the three pages work from:</p><table><tr><th style="text-align: left">data</th><th style="text-align: right">first page</th><th style="text-align: right">second page</th><th style="text-align: right">this page</th></tr><tr><td style="text-align: left">harvest and roadside price, by region</td><td style="text-align: right">48</td><td style="text-align: right">48</td><td style="text-align: right">48</td></tr><tr><td style="text-align: left">output of the mills, by region</td><td style="text-align: right">—</td><td style="text-align: right">62</td><td style="text-align: right">62</td></tr><tr><td style="text-align: left">producer prices of the mills&#39; products, by region</td><td style="text-align: right">—</td><td style="text-align: right">62</td><td style="text-align: right">62</td></tr><tr><td style="text-align: left">consumer prices</td><td style="text-align: right">7, one per product</td><td style="text-align: right">derived</td><td style="text-align: right">derived</td></tr><tr><td style="text-align: left">consumption, by region</td><td style="text-align: right">56</td><td style="text-align: right">56</td><td style="text-align: right">56</td></tr><tr><td style="text-align: left">use, by region</td><td style="text-align: right">—</td><td style="text-align: right">88</td><td style="text-align: right">implied</td></tr><tr><td style="text-align: left">trade</td><td style="text-align: right">a gravity rule</td><td style="text-align: right">220 customs flows</td><td style="text-align: right">595 flows</td></tr><tr><td style="text-align: left">the mix of wood in the mills</td><td style="text-align: right">guessed</td><td style="text-align: right">14</td><td style="text-align: right">14</td></tr><tr><td style="text-align: left">the cost of the mills</td><td style="text-align: right">guessed</td><td style="text-align: right">derived</td><td style="text-align: right">derived</td></tr><tr><td style="text-align: left">capacities, freight, distances</td><td style="text-align: right">47</td><td style="text-align: right">47</td><td style="text-align: right">47</td></tr></table><p>The second page is the realistic one; this one is the limit it tends to.</p><h2 id="The-same-calibration,-without-the-gaps"><a class="docs-heading-anchor" href="#The-same-calibration,-without-the-gaps">The same calibration, without the gaps</a><a id="The-same-calibration,-without-the-gaps-1"></a><a class="docs-heading-anchor-permalink" href="#The-same-calibration,-without-the-gaps" title="Permalink"></a></h2><p>The steps are those of the <a href="../forest_calibration/#The-forest-sector:-calibrating-with-partial-data">second page</a>, explained there, with one fewer: nothing needs imputing. What a region keeps of its own production is still not a trade flow, and is still production less exports.</p><pre><code class="language-julia hljs">dist = lookup(distances, :distance, :from, :to)
+distance(a, b) = a == b ? 0.0 : get(dist, (a, b), get(dist, (b, a), 0.0))
+rate = Dict(zip(freight.product, freight.cost))
+transport_costs = Dict((p, a, b) =&gt; rate[p] * distance(a, b)
+                       for p in products, a in regions, b in regions if a != b)
+
+log_duty = 0.25
+taxes = [Tax(name = &quot;rw_log_duty&quot;, on = &quot;trade&quot;, product = [&quot;swr&quot;, &quot;hwr&quot;], from = &quot;RW&quot;,
+             rate = log_duty, relative = true)]
+duty(p, from) = from == &quot;RW&quot; &amp;&amp; p in (&quot;swr&quot;, &quot;hwr&quot;) ? log_duty : 0.0
+trade_limits = [TradeLimit(name = &quot;landes_evacuation&quot;, products = [&quot;swr&quot;, &quot;smallwood&quot;],
+                           from = &quot;SWF&quot;, capacity = 18.0)]
+gas_reference = 30.0
+
+made     = lookup(production, :quantity, :region, :product)
+πˢ       = lookup(producer_prices, :price, :region, :product)
+consumed = lookup(consumption, :quantity, :region, :product)
+
+flows = lookup(trade, :quantity, :product, :from, :to)
+exported(r, p) = sum(x for ((q, o, _), x) in flows if q == p &amp;&amp; o == r; init = 0.0)
+for ((r, p), q) in made
+    flows[(p, r, r)] = q - exported(r, p)
+end
+
+delivered(p, o, r) = o == r ? πˢ[(o, p)] :
+                     πˢ[(o, p)] * (1 + duty(p, o)) + transport_costs[(p, o, r)]
+πᶜ = Dict{Tuple{String,String},Float64}()
+for r in regions, p in products
+    bought = [(o, x) for ((q, o, d), x) in flows if q == p &amp;&amp; d == r &amp;&amp; x &gt; 0]
+    isempty(bought) &amp;&amp; continue
+    πᶜ[(r, p)] = sum(x * delivered(p, o, r) for (o, x) in bought) / sum(last, bought)
+end</code></pre><p>The behaviour, chosen as on the other pages:</p><pre><code class="language-julia hljs">supply_elasticity = Dict(
+    &quot;swr&quot;       =&gt; Dict(&quot;SEF&quot; =&gt; 0.40, &quot;SWF&quot; =&gt; 0.45, &quot;GEF&quot; =&gt; 0.40, &quot;OF&quot; =&gt; 0.40,
+                        &quot;EU&quot;  =&gt; 0.60, &quot;NA&quot;  =&gt; 0.60, &quot;AS&quot;  =&gt; 0.55, &quot;RW&quot; =&gt; 0.55),
+    &quot;hwr&quot;       =&gt; Dict(&quot;SEF&quot; =&gt; 0.35, &quot;SWF&quot; =&gt; 0.35, &quot;GEF&quot; =&gt; 0.35, &quot;OF&quot; =&gt; 0.35,
+                        &quot;EU&quot;  =&gt; 0.50, &quot;NA&quot;  =&gt; 0.50, &quot;AS&quot;  =&gt; 0.50, &quot;RW&quot; =&gt; 0.50),
+    &quot;smallwood&quot; =&gt; Dict(&quot;SEF&quot; =&gt; 0.50, &quot;SWF&quot; =&gt; 0.55, &quot;GEF&quot; =&gt; 0.50, &quot;OF&quot; =&gt; 0.50,
+                        &quot;EU&quot;  =&gt; 0.60, &quot;NA&quot;  =&gt; 0.60, &quot;AS&quot;  =&gt; 0.55, &quot;RW&quot; =&gt; 0.55))
+η_construction, η_fuel, η_paper = 0.45, 0.35, 0.30
+σ_lumber, σ_construction, σ_fuel = 5.0, 1.6, 3.0
+lumber = [&quot;sawn_sw&quot;, &quot;panel&quot;, &quot;plywood&quot;]
+fuels  = [&quot;smallwood&quot;, &quot;pellets&quot;]
+gas_cross_elasticity = 0.35
+σ_mills = Dict(&quot;plymill&quot; =&gt; 1.8, &quot;panelmill&quot; =&gt; 2.5, &quot;pulpmill&quot; =&gt; 1.8, &quot;pelletmill&quot; =&gt; 3.0)
+σ_blocs = Dict(&quot;swr&quot; =&gt; 6.0, &quot;hwr&quot; =&gt; 6.0, &quot;smallwood&quot; =&gt; 7.0, &quot;chips&quot; =&gt; 7.0,
+               &quot;pulp&quot; =&gt; 5.0, &quot;sawn_sw&quot; =&gt; 3.5, &quot;sawn_hw&quot; =&gt; 3.0, &quot;panel&quot; =&gt; 3.0,
+               &quot;plywood&quot; =&gt; 2.5, &quot;paper&quot; =&gt; 4.0, &quot;pellets&quot; =&gt; 6.0)
+σ_europe = Dict(p =&gt; 3σ for (p, σ) in σ_blocs)
+σ_france = 30.0
+europe(p) = OriginNest(sigma = σ_europe[p], origins = [&quot;EU&quot;],
+                       nests = [OriginNest(sigma = σ_france, origins = france)])</code></pre><p>Trade shares, supply and demand curves:</p><pre><code class="language-julia hljs">armington = [armington_calibration(
+                 product = p, sigma = σ_blocs[p], nests = [europe(p)],
+                 flows   = Dict((o, r) =&gt; x for ((q, o, r), x) in flows if q == p),
+                 prices  = Dict((o, r) =&gt; delivered(p, o, r)
+                                for o in regions, r in regions if haskey(πˢ, (o, p))))
+             for p in products]
+
+supply = [SupplySpec(product = p, region = r, p0 = πˢ[(r, p)], q0 = made[(r, p)],
+                     elasticity = supply_elasticity[p][r])
+          for p in keys(supply_elasticity) for r in regions]
+
+function construction_demand(r)
+    inner = ces_calibration(quantities = [consumed[(r, p)] for p in lumber],
+                            prices     = [πᶜ[(r, p)] for p in lumber], sigma = σ_lumber)
+    outer = ces_calibration(quantities = [consumed[(r, &quot;sawn_hw&quot;)], inner.quantity],
+                            prices     = [πᶜ[(r, &quot;sawn_hw&quot;)], inner.price],
+                            sigma = σ_construction)
+    return DemandSpec(region = r, p0 = outer.price, q0 = outer.quantity,
+        elasticity = η_construction,
+        product = DemandNest(sigma = σ_construction,
+            products = [&quot;sawn_hw&quot;], shares = [outer.shares[1]],
+            nests = [DemandNest(sigma = σ_lumber, share = outer.shares[2],
+                                products = lumber, shares = inner.shares)]))
+end
+function fuel_demand(r, gas = gas_reference)
+    fuel = ces_calibration(quantities = [consumed[(r, p)] for p in fuels],
+                           prices     = [πᶜ[(r, p)] for p in fuels], sigma = σ_fuel)
+    return DemandSpec(region = r, p0 = fuel.price, q0 = fuel.quantity, elasticity = η_fuel,
+        shift = exogenous_shift(gas = (level = gas, reference = gas_reference,
+                                       elasticity = gas_cross_elasticity)),
+        product = DemandNest(sigma = σ_fuel, products = fuels, shares = fuel.shares))
+end
+build_demand(gas = gas_reference) =
+    [[construction_demand(r) for r in regions];
+     [fuel_demand(r, gas) for r in regions];
+     [DemandSpec(product = &quot;paper&quot;, region = r, p0 = πᶜ[(r, &quot;paper&quot;)],
+                 q0 = consumed[(r, &quot;paper&quot;)], elasticity = η_paper) for r in regions]]
+demand = build_demand()</code></pre><p>and the mills, their bundles from the observed mix and their costs from their margins:</p><pre><code class="language-julia hljs">function bundle(process)
+    mix = input_mix[input_mix.process .== process, :]
+    c = ces_calibration(quantities = mix.quantity,
+                        prices = [πᶜ[(r, p)] for (r, p) in zip(mix.region, mix.product)],
+                        sigma = σ_mills[process])
+    return ces(composite = sum(mix.quantity), products = mix.product, shares = c.shares,
+               sigma = σ_mills[process], phi = c.scale)
+end
+technology = [
+    (&quot;sawmill_sw&quot;, [leontief(product = &quot;swr&quot;, coeff = 1.0)], [&quot;sawn_sw&quot; =&gt; 0.50, &quot;chips&quot; =&gt; 0.35]),
+    (&quot;sawmill_hw&quot;, [leontief(product = &quot;hwr&quot;, coeff = 1.0)], [&quot;sawn_hw&quot; =&gt; 0.45, &quot;chips&quot; =&gt; 0.35]),
+    (&quot;plymill&quot;,    [bundle(&quot;plymill&quot;)],                      [&quot;plywood&quot; =&gt; 1.0,  &quot;chips&quot; =&gt; 0.8]),
+    (&quot;panelmill&quot;,  [bundle(&quot;panelmill&quot;)],                    [&quot;panel&quot;   =&gt; 1.0]),
+    (&quot;pulpmill&quot;,   [bundle(&quot;pulpmill&quot;)],                     [&quot;pulp&quot;    =&gt; 1.0]),
+    (&quot;papermill&quot;,  [leontief(product = &quot;pulp&quot;, coeff = 1.10)], [&quot;paper&quot; =&gt; 1.0]),
+    (&quot;pelletmill&quot;, [bundle(&quot;pelletmill&quot;)],                   [&quot;pellets&quot; =&gt; 1.0]),
+]
+price_index(δ, p, σ) = sum(δ .* p .^ (1 - σ))^(1 / (1 - σ))
+input_cost(n::Nest, r) = length(n.products) == 1 ?
+    n.composite * πᶜ[(r, only(n.products))] :
+    n.composite * price_index(n.shares, [πᶜ[(r, p)] for p in n.products], n.sigma) / n.phi
+margin(inputs, outputs, r) = sum(y * πˢ[(r, k)] for (k, y) in outputs) -
+                             sum(input_cost(n, r) for n in inputs)
+operating(outputs) = [r for r in regions if get(made, (r, first(first(outputs))), 0.0) &gt; 0]
+capacity = Dict(name =&gt; Dict(row.region =&gt; row.capacity
+                             for row in eachrow(capacities) if row.process == name)
+                for name in unique(capacities.process))
+processes = [Process(name = name, inputs = inputs, outputs = outputs,
+                     regions  = operating(outputs),
+                     vacost   = Dict(r =&gt; margin(inputs, outputs, r) for r in operating(outputs)),
+                     capacity = get(capacity, name, Inf))
+             for (name, inputs, outputs) in technology]
+
+complete = MarketData(; regions, products, demand, supply, processes,
+                        transport_costs, armington, trade_limits, taxes)
+res = solve_market(complete; solver_options = (tol = 1e-10,), tol = 1e-9)</code></pre><p>The solver&#39;s tolerance is tighter than the default, and so is the one below which the result tables leave a flow out, only so that the comparison that follows is sharp.</p><h2 id="The-data,-returned"><a class="docs-heading-anchor" href="#The-data,-returned">The data, returned</a><a id="The-data,-returned-1"></a><a class="docs-heading-anchor-permalink" href="#The-data,-returned" title="Permalink"></a></h2><p>Consistent data are an equilibrium of the calibrated model, and a convex program has only one: the model must give them back, to the precision of the solver. That is <em>benchmark replication</em>, the standard test that the data and the structure agree:</p><pre><code class="language-julia hljs">modelled(table, value, keys...) = lookup(table, value, keys...)
+relative_gaps(model, observed) = sort([abs(get(model, k, 0.0) / v - 1) for (k, v) in observed])
+shipped = Dict(k =&gt; x for (k, x) in flows if k[2] != k[3])
+
+DataFrame((observed = name, entries = length(observed),
+           largest_gap = last(relative_gaps(model, observed)))
+          for (name, model, observed) in (
+              (&quot;producer prices&quot;, modelled(res.prices, :producer_price, :region, :product), πˢ),
+              (&quot;consumer prices&quot;, modelled(res.prices, :price, :region, :product), πᶜ),
+              (&quot;production&quot;,  modelled(res.production, :quantity, :region, :product), made),
+              (&quot;consumption&quot;, modelled(res.consumption, :quantity, :region, :product), consumed),
+              (&quot;trade&quot;,       modelled(res.trade, :quantity, :product, :from, :to), shipped)))</code></pre><div><div style = "float: left;"><span>5×3 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">observed</th><th style = "text-align: left;">entries</th><th style = "text-align: left;">largest_gap</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "String" style = "text-align: left;">String</th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Float64" style = "text-align: left;">Float64</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">producer prices</td><td style = "text-align: right;">86</td><td style = "text-align: right;">2.56482e-9</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">consumer prices</td><td style = "text-align: right;">88</td><td style = "text-align: right;">2.01923e-9</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: left;">production</td><td style = "text-align: right;">86</td><td style = "text-align: right;">6.05251e-8</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: left;">consumption</td><td style = "text-align: right;">56</td><td style = "text-align: right;">5.26678e-9</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">5</td><td style = "text-align: left;">trade</td><td style = "text-align: right;">602</td><td style = "text-align: right;">7.36551e-7</td></tr></tbody></table></div><p>Every price, quantity and flow comes back. The model knew none of them: it was given curves, shares and costs, and found the base year as the point where they balance.</p><h2 id="Three-reference-runs,-two-scenarios"><a class="docs-heading-anchor" href="#Three-reference-runs,-two-scenarios">Three reference runs, two scenarios</a><a id="Three-reference-runs,-two-scenarios-1"></a><a class="docs-heading-anchor-permalink" href="#Three-reference-runs,-two-scenarios" title="Permalink"></a></h2><p>The storm in the Landes and the dearer gas, once more:</p><pre><code class="language-julia hljs">reconfigure(d; kwargs...) =
+    MarketData(; (f =&gt; get(kwargs, f, getfield(d, f)) for f in fieldnames(MarketData))...)
+salvage = [s.region == &quot;SWF&quot; &amp;&amp; s.product == &quot;swr&quot; ?
+               SupplySpec(product = &quot;swr&quot;, region = &quot;SWF&quot;, p0 = s.p0, q0 = s.q0,
+                          elasticity = s.elasticity, shift = 3.0) : s
+           for s in supply]
+storm = solve_market(reconfigure(complete, supply = salvage))
+gas   = solve_market(reconfigure(complete, demand = build_demand(60.0)))</code></pre><p>The other two pages saved their reference runs and scenarios. Put side by side with this one, in the same shape:</p><pre><code class="language-julia hljs">function outcome(result, scenario)
+    t = outerjoin(select(result.prices, :region, :product, :price, :producer_price),
+                  rename(result.production, :quantity =&gt; :production),
+                  rename(result.consumption, :quantity =&gt; :consumption),
+                  on = [:region, :product])
+    return insertcols!(t, 1, :scenario =&gt; scenario)
+end
+
+cases = [&quot;uncalibrated (first page)&quot;  =&gt; read_table(joinpath(results_dir, &quot;uncalibrated.csv&quot;)),
+         &quot;partial data (second page)&quot; =&gt; read_table(joinpath(results_dir, &quot;partial.csv&quot;)),
+         &quot;complete data (this page)&quot;  =&gt; vcat(outcome(res, &quot;reference&quot;), outcome(storm, &quot;storm&quot;),
+                                              outcome(gas, &quot;gas&quot;))]</code></pre><p>For each, how far its reference run sits from the complete data, and what the two scenarios do to it:</p><pre><code class="language-julia hljs">value(t, scenario, r, p, column) =
+    (rows = t[(t.scenario .== scenario) .&amp; (t.region .== r) .&amp; (t.product .== p), column];
+     isempty(rows) ? missing : only(rows))
+change(t, scenario, r, p, column) =
+    100 * (value(t, scenario, r, p, column) / value(t, &quot;reference&quot;, r, p, column) - 1)
+median_and_largest(gaps) = (round(100 * gaps[cld(end, 2)]; digits = 1),
+                            round(100 * last(gaps); digits = 1))
+span(xs) = string(round(minimum(xs); digits = 1), &quot; to &quot;, round(maximum(xs); digits = 1))
+
+comparison = DataFrame(
+    (case = name,
+     producer_prices_gap = median_and_largest(relative_gaps(
+         Dict((r, p) =&gt; value(t, &quot;reference&quot;, r, p, :producer_price) for (r, p) in keys(πˢ)), πˢ)),
+     production_gap = median_and_largest(relative_gaps(
+         Dict((r, p) =&gt; coalesce(value(t, &quot;reference&quot;, r, p, :production), 0.0)
+              for (r, p) in keys(made)), made)),
+     storm_SWF = round(change(t, &quot;storm&quot;, &quot;SWF&quot;, &quot;swr&quot;, :price); digits = 1),
+     storm_elsewhere = span(change(t, &quot;storm&quot;, r, &quot;swr&quot;, :price) for r in regions if r != &quot;SWF&quot;),
+     gas_pellets  = span(change(t, &quot;gas&quot;, r, &quot;pellets&quot;, :consumption) for r in regions),
+     gas_firewood = span(change(t, &quot;gas&quot;, r, &quot;smallwood&quot;, :consumption) for r in regions))
+    for (name, t) in cases)</code></pre><div><div style = "float: left;"><span>3×7 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">case</th><th style = "text-align: left;">producer_prices_gap</th><th style = "text-align: left;">production_gap</th><th style = "text-align: left;">storm_SWF</th><th style = "text-align: left;">storm_elsewhere</th><th style = "text-align: left;">gas_pellets</th><th style = "text-align: left;">gas_firewood</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "String" style = "text-align: left;">String</th><th title = "Tuple{Float64, Float64}" style = "text-align: left;">Tuple…</th><th title = "Tuple{Float64, Float64}" style = "text-align: left;">Tuple…</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th><th title = "String" style = "text-align: left;">String</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">uncalibrated (first page)</td><td style = "text-align: left;">(5.4, 24.7)</td><td style = "text-align: left;">(8.5, 117.0)</td><td style = "text-align: right;">-12.2</td><td style = "text-align: left;">-1.8 to -0.6</td><td style = "text-align: left;">9.6 to 16.4</td><td style = "text-align: left;">24.9 to 43.5</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">partial data (second page)</td><td style = "text-align: left;">(0.1, 0.7)</td><td style = "text-align: left;">(0.1, 0.5)</td><td style = "text-align: right;">-5.4</td><td style = "text-align: left;">-1.9 to -0.6</td><td style = "text-align: left;">4.4 to 18.2</td><td style = "text-align: left;">26.4 to 36.0</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: left;">complete data (this page)</td><td style = "text-align: left;">(0.0, 0.0)</td><td style = "text-align: left;">(0.0, 0.0)</td><td style = "text-align: right;">-5.3</td><td style = "text-align: left;">-2.0 to -0.6</td><td style = "text-align: left;">4.5 to 18.3</td><td style = "text-align: left;">26.4 to 35.8</td></tr></tbody></table></div><p>The gaps are percentages, median and largest; the scenarios are percentage changes from each case&#39;s own reference run: the log price in <code>SWF</code> and in the other regions under the storm, and the pellets and firewood consumed under the dearer gas.</p><p>The partial data give practically the results of perfect information. Their reference run sits within a per cent of the complete data — the rounding — and the scenarios agree to a tenth or two of a point, although every flow touching a French region was imputed rather than observed. Detail that is missing costs little as long as the totals around it are right.</p><p>The uncalibrated reference run is another matter. Its prices are 5% off in the median and a quarter at worst, and the output of some mills is off by double — the French ones, whose costs and recipes were guessed. Where a scenario runs into those errors, its result changes with them:</p><ul><li>the storm takes the softwood price in <code>SWF</code> down by 12% instead of 5%, because the uncalibrated run already ships about 13 of the 18 Mm³ the Landes roads allow, against about 10 in the data, so the limit binds sooner and the salvage has nowhere to go;</li><li>the dearer gas moves pellets and firewood by different amounts, because the guessed mills have different margins and different room in their plants.</li></ul><p>Where the scenario runs into nothing of the kind, the uncalibrated run gets it about right: the storm&#39;s effect outside <code>SWF</code> agrees within a few tenths of a point, because constant-elasticity curves give the same percentage response wherever they are evaluated.</p><p>So calibration matters, but not everywhere equally, and perfect data are not what it takes: a reference run in the right place — on the right totals, at the right prices, at the right distance from the limits that matter — is enough to get the scenarios right.</p><p>The general lessons — what a scenario is robust to, what it is not, and where to spend the effort on data — are drawn in <a href="../../modelling/#Calibrating-with-partial-data">Calibrating with partial data</a>.</p><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../forest_calibration/">« Calibrating with partial data</a><a class="docs-footer-nextpage" href="../../modelling/">Modelling choices »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Monday 26 October 2026 11:46">Monday 26 October 2026</span>. Using Julia version 1.13.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
