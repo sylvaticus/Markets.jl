@@ -83,6 +83,15 @@ Engineering and economic applications of complementarity problems.
 > takes; see
 > [Why processes, and not supply and demand per transformation](@ref).
 
+#### [Gerlagh, R., Lorang, E., Pommeret, A. & Pottier, A. (2026)](@id glpp2026)
+
+Source taxes versus end-of-chain taxes in general equilibrium. Working paper,
+July 2026.
+
+> When taxing an externality where it arises and taxing it as embodied in
+> final goods are equivalent, and why the second needs prices that depend on
+> each good's content. See [Where along the chain to tax](@ref).
+
 #### [Howitt, R. E. (1995)](@id howitt1995)
 
 Positive mathematical programming.
@@ -102,6 +111,17 @@ of the forest sector. *Journal of Forest Economics* 19(4), 350–360.
 
 > What the forest-sector partial-equilibrium literature contains and how its
 > models are built, which is the lineage this package's example belongs to.
+
+#### [Lorang, E. & Gerlagh, R. (2026)](@id lorang2026)
+
+Resource extraction taxes versus waste taxes in general equilibrium. Working
+paper, April 2026.
+
+> Material balances kept jointly with market balances by letting the material
+> intensity of every good follow from the allocation, which is what
+> [`material_accounts`](@ref) does after the solve; and the efficiency gap
+> between taxing material at extraction and at disposal. See
+> [Material accounts](@ref) and [Where along the chain to tax](@ref).
 
 #### [Lubin, M., Dowson, O., Garcia, J., Huchette, J. & Legat, B. (2023)](@id jump2023)
 
@@ -178,6 +198,16 @@ Equilibrium among spatially separated markets: a reformulation.
 > The quadratic-programming formulation of the spatial equilibrium, and the
 > standard reference for solving it numerically. Extended in their 1971 book
 > *Spatial and Temporal Price and Allocation Models* (North-Holland).
+
+#### [van der Mensbrugghe, D. & Peters, J. C. (2016)](@id vdmp2016)
+
+Volume preserving CES and CET formulations. Paper presented at the 19th
+Annual Conference on Global Economic Analysis, Washington DC, June 2016.
+Center for Global Trade Analysis, Purdue University.
+
+> The additive CES and CET, which keep imperfect substitution and make the
+> aggregate a plain sum, and how far the standard forms drift from one. See
+> [What it would take to make the composites add up](@ref).
 
 #### [van Tongeren, F., van Meijl, H. & Surry, Y. (2001)](@id vantongeren2001)
 

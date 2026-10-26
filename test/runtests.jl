@@ -1058,6 +1058,69 @@ end
     @test nrow(for_region(res, :A).composites) == 1
 end
 
+@testset "Material accounts" begin
+    # logs, an Armington product harvested in both regions, are sawn into
+    # boards and chips in A, and chips and logs pulped there; boards and pulp
+    # are homogeneous and traded
+    economy = MarketData(
+        regions = [:A, :B], products = [:logs, :chips, :board, :pulp],
+        demand  = [DemandSpec(product = p, region = r, p0 = p0, q0 = q0, elasticity = 1.0)
+                   for (p, p0, q0) in ((:board, 300, 4), (:pulp, 500, 2)) for r in (:A, :B)],
+        supply  = [SupplySpec(product = :logs, region = :A, p0 = 40, q0 = 20, elasticity = 1.0),
+                   SupplySpec(product = :logs, region = :B, p0 = 45, q0 = 12, elasticity = 1.0)],
+        processes = [Process(name = :sawmill, regions = [:A], vacost = 30,
+                             inputs = [leontief(product = :logs, coeff = 1.0)],
+                             outputs = [:board => 0.5, :chips => 0.3]),
+                     Process(name = :pulpmill, regions = [:A], vacost = 60,
+                             inputs = [ces(composite = 2.0, products = [:chips, :logs],
+                                           shares = [0.5, 0.5], sigma = 2.0)],
+                             outputs = [:pulp => 1.0])],
+        transport_costs = Dict((p, o, r) => 5.0 for p in (:logs, :chips, :board, :pulp),
+                               o in (:A, :B), r in (:A, :B) if o != r),
+        armington = [Armington(product = :logs, sigma = 4.0,
+                               shares = Dict((:A, :A) => 0.7, (:B, :A) => 0.3,
+                                             (:B, :B) => 0.7, (:A, :B) => 0.3))])
+    res = solve_market(economy)
+    @test solved(res)
+    carbon = Material(name = :carbon, content = Dict(:logs => 0.5, (:B, :logs) => 0.6),
+                      losses = Dict(:sawmill => 0.2, :pulpmill => 0.5),
+                      allocation = Dict(:sawmill => Dict(:board => 1.0, :chips => 2.0)))
+    acc = material_accounts(res, carbon)
+    intensity(r, p, col) = only(acc.intensities[(acc.intensities.region .== S(r)) .&
+                                                (acc.intensities.product .== S(p)), col])
+
+    # every row balances, and so does the world: what was extracted was
+    # consumed or lost
+    b = acc.balances
+    @test b.extracted .+ b.made .+ b.imported .- b.exported ≈ b.consumed .+ b.processed
+    @test sum(b.extracted) ≈ sum(b.consumed) + sum(acc.processes.lost) rtol = 1e-10
+    @test all(acc.processes.output .≈ acc.processes.input .- acc.processes.lost)
+    # the content of primary supply is the one given, region by region, and
+    # what a region uses is a mix of what it received
+    @test intensity(:A, :logs, :produced) ≈ 0.5
+    @test intensity(:B, :logs, :produced) ≈ 0.6
+    @test 0.5 < intensity(:A, :logs, :used) < 0.6
+    @test sum(b[(b.region .== "A") .& (b.product .== "logs"), :extracted]) ≈
+          0.5 * only(res.supply[res.supply.region .== "A", :quantity])
+    # the sawmill keeps four fifths of what enters, and gives a unit of chips
+    # twice the content of a unit of board
+    @test intensity(:A, :chips, :produced) ≈ 2 * intensity(:A, :board, :produced) rtol = 1e-8
+    saw = only(acc.processes[acc.processes.process .== "sawmill", :])
+    @test saw.lost ≈ 0.2 * saw.input
+    # homogeneous boards carry the content of where they were made
+    @test intensity(:B, :board, :used) ≈ intensity(:A, :board, :produced) rtol = 1e-8
+
+    # what it refuses
+    @test_throws ArgumentError Material(name = :c, content = Dict(:logs => -1.0))
+    @test_throws ArgumentError Material(name = :c, content = Dict(:logs => 1.0),
+                                        losses = Dict(:sawmill => 1.5))
+    @test_throws ArgumentError material_accounts(res, Material(name = :c,
+                                                 content = Dict(:wood => 1.0)))
+    @test_throws ArgumentError material_accounts(res, Material(name = :c,
+                                                 content = Dict(:logs => 1.0),
+                                                 allocation = Dict(:sawmill => Dict(:pulp => 1.0))))
+end
+
 @testset "Imputing a trade matrix" begin
     regions = ["A", "B", "C"]
     pos = Dict("A" => 0.0, "B" => 1.0, "C" => 2.5)
@@ -1870,6 +1933,13 @@ end
                                   (res.inputs.product .== c.product), :physical]; init = 0.0)
             @test used ≈ c.received rtol = 1e-5
         end
+        # the carbon accounts close, and the storm moves the content of pellets
+        acc = ex.accounts
+        @test sum(acc.balances.extracted) ≈ sum(acc.balances.consumed) +
+                                            sum(acc.processes.lost) rtol = 1e-10
+        pellets(a) = only(a.intensities[(a.intensities.region .== "SWF") .&
+                                        (a.intensities.product .== "pellets"), :produced])
+        @test pellets(ex.storm_accounts) > pellets(acc)
         # zero profit at each region's own cost
         papermill = only(p for p in ex.processes if p.name == "papermill")
         for r in papermill.regions

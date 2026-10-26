@@ -534,3 +534,68 @@ function save_outcomes(file, runs)
 end
 
 save_outcomes("partial.csv", ["reference" => res, "storm" => storm, "gas" => gas])
+
+# ## What the wood is made of
+#
+# The model counts m³ and tonnes of products. What those products are made of
+# — the carbon in them, say — can be traced through the same solution with
+# [`material_accounts`](@ref), which neither needs nor changes anything in the
+# equilibrium; see [Material accounts](@ref).
+#
+# A [`Material`](@ref) needs three things. Its content per unit of primary
+# supply: about a quarter of a tonne of carbon in a m³ of wood, a little more
+# in hardwood, which is denser. What each mill loses of what enters it: the
+# sawdust and bark a sawmill does not turn into lumber or chips, the half of
+# the wood a pulp mill burns for energy. And, for a mill with several outputs,
+# how it divides the rest; by default every unit of output gets the same
+# content, which suits a sawmill whose lumber and chips are both m³ of the
+# same wood. The figures are illustrative.
+
+carbon = Material(name = "carbon",
+                  content = Dict("swr" => 0.23, "hwr" => 0.29, "smallwood" => 0.25),
+                  losses  = Dict("sawmill_sw" => 0.15, "sawmill_hw" => 0.20,
+                                 "plymill" => 0.10, "panelmill" => 0.05,
+                                 "pulpmill" => 0.50, "papermill" => 0.05,
+                                 "pelletmill" => 0.10))
+accounts = material_accounts(res, carbon)
+nothing # hide
+
+# The accounts close for every region and product, and for the world: the
+# carbon harvested is the carbon in what was consumed, plus what the mills
+# lost on the way, in million tonnes:
+
+(harvested = sum(accounts.balances.extracted),
+ consumed  = sum(accounts.balances.consumed),
+ lost      = sum(accounts.processes.lost))
+
+# The content of a manufactured product is not given but follows from the
+# solution — from what each mill took in, and where that came from. A tonne of
+# pellets carries a different amount of carbon in each region, because each
+# region's pellet mills use a different mix of chips, smallwood and logs:
+
+carbon_in(acc, product, column) =
+    DataFrame((region = r, content = only(acc.intensities[(acc.intensities.region .== r) .&
+                                                           (acc.intensities.product .== product),
+                                                           column]))
+              for r in regions)
+carbon_in(accounts, "pellets", :produced)
+
+# And the `consumed` column is each region's footprint, the carbon embodied in
+# its final consumption of wood products:
+
+combine(groupby(accounts.balances, :region), :consumed => sum => :footprint)
+
+# Run on a scenario, the same accounts say how the content of the products
+# moves with the economy. After the storm, a tonne of the Landes pellets
+# carries more carbon:
+
+storm_accounts = material_accounts(storm, carbon)
+leftjoin(rename(carbon_in(accounts, "pellets", :produced), :content => :reference),
+         rename(carbon_in(storm_accounts, "pellets", :produced), :content => :storm),
+         on = :region)
+
+# The carbon follows the wood. The Landes pellet mills now take in 2.47 m³ of
+# wood per tonne, against 2.40 before: their CES bundle, and the composites of
+# the region they draw on, stand for more physical wood once the mix moves —
+# the gap of the [Physical accounts](@ref) — and in these accounts that wood
+# and its carbon are carried into the pellets rather than left unexplained.

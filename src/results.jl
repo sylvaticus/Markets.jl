@@ -97,6 +97,18 @@ Base.@kwdef struct Results
     something only where the products of a nest share a physical unit
     """
     recipes::DataFrame
+    """
+    Every solved quantity, unrounded and unfiltered, as dictionaries keyed as in
+    the model: `supply` and `consumption` by `(region, product)`, `activity` by
+    `(region, process)`, `flows` by `(product, from, to)` — a region's own
+    deliveries of an Armington product included — `drawn` by
+    `(region, process, nest, product)`, and `composite` and `ratio` by
+    `(region, product)`: each region's composite of an Armington product, and
+    the physical content of a unit of it. The tables above are built from these
+    with small quantities left out; accounts that must close exactly, such as
+    [`material_accounts`](@ref), start from them instead
+    """
+    solution::NamedTuple
     "Bilateral trade flows, positive ones only: `product`, `from`, `to`, `quantity`"
     trade::DataFrame
     "Trade by region: `region`, `product`, `exports`, `imports`, `net` (= exports − imports)"
@@ -357,6 +369,15 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
         push!(taxes, (t.name, t.on, revenue))
     end
 
+    solution = (supply      = Dict(k => val(v) for (k, v) in S),
+                consumption = Dict(k => val(v) for (k, v) in D),
+                activity    = Dict(k => val(v) for (k, v) in z),
+                flows       = Dict{Tuple{String,String,String},Float64}(
+                                  k => val(v) for (k, v) in merge(Dict{Tuple{String,String,String},Any}(T), X)),
+                drawn       = Dict(k => val(e) for (k, e) in drawn),
+                composite   = Dict((r, p) => val(a) for ((p, r), a) in A),
+                ratio       = ratio)
+
     objective = has_values(m) ? objective_value(m) : NaN
     iterations = something(solver_attribute(m, MOI.BarrierIterations(), nothing),
                            solver_attribute(m, MOI.SimplexIterations(), nothing),
@@ -368,7 +389,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, trade_limit
                    objective = objective, welfare = objective + sum(taxes.revenue; init = 0.0),
                    supply = supply, production = production,
                    consumption = consumption, composites = composites, inputs = inputs,
-                   recipes = recipes, trade = trade, net_trade = net,
+                   recipes = recipes, solution = solution, trade = trade, net_trade = net,
                    prices = prices, activity = activity, limits = limits, taxes = taxes)
 end
 

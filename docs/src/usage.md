@@ -502,6 +502,30 @@ or made up; see [Physical accounts](@ref).
 [`for_region`](@ref) slices all tables for one region at once. The input data
 and the underlying JuMP model are kept in `res.data` and `res.model`.
 
+### Tracing a material
+
+What the goods are made of — carbon, dry matter, a metal — is traced through a
+solved economy by [`material_accounts`](@ref), given a [`Material`](@ref): its
+content per unit of each primary product, the share each process loses, and,
+for a process with several outputs, how it divides the rest among them.
+
+```julia
+carbon = Material(name = "carbon",
+                  content = Dict("logs" => 0.25),                  # per m³ harvested
+                  losses  = Dict("sawmill" => 0.15, "pulpmill" => 0.5),
+                  allocation = Dict("sawmill" => Dict("lumber" => 1.0, "chips" => 1.0)))
+acc = material_accounts(res, carbon)
+acc.intensities   # content per unit of each region's production, and of what it uses
+acc.balances      # extracted, made, imported, exported, consumed, processed
+acc.processes     # what enters each process, what it loses, what it passes on
+```
+
+The content of a manufactured good is not given but follows from the
+solution, so the accounts close exactly, region by region and for the world:
+what was extracted was consumed or lost. The `consumed` column is each
+region's footprint. The accounts describe the equilibrium and do not change
+it; see [Material accounts](@ref).
+
 ## Worked examples
 
 [Two regions and a dairy](@ref) is the smallest complete model — two products,

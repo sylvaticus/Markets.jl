@@ -659,6 +659,30 @@ price gap on a used route is freight plus the rate times the origin price,
 which is what a tariff means — and everything else in the model is still solved
 exactly, in one pass.
 
+### Where along the chain to tax
+
+An externality carried by the goods — the carbon in wood, the material that
+ends up as waste — can be taxed where it arises, at the **source**, or where
+it ends up, embodied in what is consumed, at the **end of the chain**.
+[Gerlagh, Lorang, Pommeret & Pottier (2026)](@ref glpp2026) show that the two
+are equivalent only if the prices of goods can depend on their embodied
+content, so that a buyer facing the end-of-chain tax pays less for a cleaner
+unit of the same product and the producer is rewarded for making it. Where
+buyers see only the average content of a product group, the end-of-chain tax
+falls on that average, producers have no reason to change their recipes, and
+the source tax is the more efficient instrument — by a factor of ten for iron,
+in the calibrated world model of [Lorang & Gerlagh (2026)](@ref lorang2026).
+
+In this package a [`Tax`](@ref) is levied per unit, or as a fraction of the
+value, of a product: a tax on primary supply (`on = "supply"`) is a source
+tax, and behaves as the efficient one; a tax on consumption (`on = "demand"`)
+taxes the product and not its content, which is the group-average case. Where
+recipes are fixed the two coincide, as the content per unit of every good is
+fixed too; where processes choose their inputs from a [`ces`](@ref) nest, or
+users their origins from an [`Armington`](@ref) composite, they do not. A
+consumption tax is then a second-best proxy for pricing the content, and the
+model will show it as such.
+
 ## Trade between regions
 
 Regions trade the *same physical product* at a cost per unit of quantity
@@ -947,17 +971,58 @@ few per cent for one product in one region under a large shock — small, but
 worth reporting wherever the model feeds a physical balance, such as carbon or
 resource use.
 
+### What it would take to make the composites add up
+
 Where a physical identity has to hold exactly, there are exact aggregators:
 `sigma = 0` (fixed proportions) and `sigma = Inf` (perfect substitutes, a
 plain sum), and, for inputs, a choice between alternative fixed recipes
-written as separate processes. A formulation that kept imperfect substitution
-and made the composite a plain sum does exist — shares as a logit of the
-delivered prices, with a variety term in the objective — but it moves the
-inconsistency rather than removing it: with quantities that add up, values no
-longer do (users pay more per unit than was spent per unit), and substitution
-depends on absolute price gaps rather than on ratios, so scaling every price
-changes the shares. Imperfect substitution cannot have both quantity and value
-add up; CES keeps the values.
+written as separate processes. Keeping imperfect substitution *and* an
+aggregate that is a plain sum is possible too, but each way of doing it gives
+up something else, and there are three properties to choose from:
+
+| | one convex program, prices as duals | substitution depends on price ratios only | the aggregate is a plain sum |
+|:---|:---:|:---:|:---:|
+| CES, as here | ✓ | ✓ | |
+| logit shares, with a variety term in the objective | ✓ | | ✓ |
+| additive CES ([van der Mensbrugghe & Peters, 2016](@ref vdmp2016)) | | ✓ | ✓ |
+
+The logit keeps the program and the plain sum, but its shares respond to price
+*differences*: doubling every price moves them, and users pay more per unit of
+the aggregate than was spent per unit. The additive CES keeps the plain sum and
+the ratios — its shares follow the usual CES rule, and the aggregate is priced
+at the average unit value — but it chooses its mix as if minimising the cost
+of a CES aggregate while counting the result as a sum, which no objective in
+the quantities alone describes; it belongs in an equilibrium model posed as a
+complementarity problem, the paradigm this package does not take. Its results
+also depend on how base-year values are split into prices and volumes, which
+those of the CES do not. Van der Mensbrugghe & Peters find the deviations of
+the standard form, for land in a global model, of 3.5% in the world and over
+8% in some countries — the same order as here.
+
+### Material accounts
+
+What the goods are made of — carbon, dry matter, a metal — can be traced
+through the same solution with [`material_accounts`](@ref), following
+[Lorang & Gerlagh (2026)](@ref lorang2026). A [`Material`](@ref) enters with
+primary supply at a given content per unit; it travels with the goods, each
+region's production carrying the content of what made it and its users the
+average content of what they received; and in a process it is either lost —
+burnt, emitted, discarded, at a given share — or carried into the outputs.
+How much of it a unit of a manufactured good carries is therefore not given
+but follows from the solution: a mill that changes its mix changes the
+content of what it makes, and the gap of the physical account becomes, in
+these terms, a change in the material intensity of the output rather than
+a quantity left unexplained.
+
+These accounts close exactly — every region's material balance, and the
+world's: what was extracted was consumed or lost — and the `consumed` column
+is each region's footprint, the material embodied in its final consumption.
+They describe the solution and do not change it, as long as nothing in the
+model depends on the content of the goods. A tax per tonne of embodied
+material, or a cap on it, would make the intensities part of the equilibrium;
+that is not implemented.
+
+
 
 ## Calibration
 
