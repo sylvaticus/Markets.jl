@@ -14,6 +14,15 @@ const EXAMPLES = [joinpath(@__DIR__, "..", "examples", "minimal", "minimal_marke
 const GENERATED = joinpath(@__DIR__, "src", "generated")
 
 rm(GENERATED; recursive = true, force = true)
+
+# The logos and the favicon live in assets/imgs/logos, beside the README that
+# shows them too; Documenter finds them under the names it looks for in
+# docs/src/assets (logo.svg, logo-dark.svg for the dark themes).
+const LOGOS = joinpath(@__DIR__, "..", "assets", "imgs", "logos")
+for (from, to) in ("markets-jl-logo.svg" => "logo.svg", "markets-jl-logo-dark.svg" => "logo-dark.svg",
+                   "favicon.ico" => "favicon.ico")
+    cp(joinpath(LOGOS, from), joinpath(@__DIR__, "src", "assets", to); force = true)
+end
 for example in EXAMPLES
     Literate.markdown(example, GENERATED; documenter = true,
                       repo_root_url = "https://github.com/sylvaticus/Markets.jl/blob/main")
@@ -41,9 +50,11 @@ makedocs(
         ],
         "References"          => "references.md",
     ],
-    # numbered section headings, page by page (see the stylesheet)
+    # numbered section headings, page by page (see the stylesheet); the logo
+    # already carries the name, so the sidebar does not repeat it
     format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true",
-                             assets = ["assets/numbering.css"]),
+                             assets = ["assets/numbering.css", "assets/favicon.ico"],
+                             sidebar_sitename = false),
 )
 
 # Deploy to gh-pages (only acts when run on CI).

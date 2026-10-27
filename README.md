@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/imgs/logos/markets-jl-logo-dark.svg">
+  <img alt="Markets.jl – Economic Sector Modelling" src="assets/imgs/logos/markets-jl-logo.svg" width="460">
+</picture>
+
 # Markets.jl
 
 A flexible framework for in-depth modelling of an economic sector when the feedbacks from a Computable General Equilibrium Model are not required.
