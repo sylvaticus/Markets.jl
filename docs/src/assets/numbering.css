@@ -1,0 +1,22 @@
+/* Numbered section headings, page by page: 1, 1.1, 1.2, 2, ...
+ *
+ * Only the headings of the page itself are numbered: those placed directly in
+ * the page body. The page title is not numbered, nor are deeper levels (the
+ * entries of the references, minor sub-points) or the headings inside
+ * docstrings. The numbers come from CSS counters, so the headings and the
+ * links to them are unchanged in the sources.
+ */
+#documenter-page {
+    counter-reset: section;
+}
+#documenter-page > h2 {
+    counter-reset: subsection;
+}
+#documenter-page > h2::before {
+    counter-increment: section;
+    content: counter(section) ". ";
+}
+#documenter-page > h3::before {
+    counter-increment: subsection;
+    content: counter(section) "." counter(subsection) " ";
+}

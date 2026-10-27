@@ -118,7 +118,7 @@ there are, how many people live in the region and what they earn. Those are exog
 model and have to enter it somehow. There are three standard devices, and they
 are not interchangeable.
 
-### 1. A multiplicative shifter — the workhorse
+### A multiplicative shifter — the workhorse
 
 Scale the whole curve by a factor built from the drivers and the elasticity of
 the curve with respect to each:
@@ -164,7 +164,7 @@ resource each period and must not touch the fitted curve.
     every volume. What matters is only that the elasticity you apply is the one
     your ``\gamma`` was estimated against.
 
-### 2. A ceiling — for a limit that binds
+### A ceiling — for a limit that binds
 
 A shifter scales a curve; it never stops it. When the constraint is a genuine
 limit — a fishing quota, a mining licence, the capacity of the rigs, boats
@@ -194,7 +194,7 @@ zero whenever the ceiling does not bind.
 A ceiling set above what would have been produced anyway changes nothing, so it
 is safe to carry one on every curve that has a known physical limit.
 
-### 3. A structural supply — when the factors are the point
+### A structural supply — when the factors are the point
 
 The two devices above are reduced-form: the curve is estimated, and the drivers
 move it. The alternative is to derive supply from the technology instead, by

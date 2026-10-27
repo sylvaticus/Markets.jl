@@ -41,7 +41,9 @@ makedocs(
         ],
         "References"          => "references.md",
     ],
-    format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true"),
+    # numbered section headings, page by page (see the stylesheet)
+    format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true",
+                             assets = ["assets/numbering.css"]),
 )
 
 # Deploy to gh-pages (only acts when run on CI).
