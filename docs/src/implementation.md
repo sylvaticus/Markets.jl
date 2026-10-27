@@ -49,7 +49,8 @@ in dense arrays.
 | ``P^A \subseteq P`` | products with a finite Armington elasticity; ``P^H = P \setminus P^A`` the homogeneous ones |
 | ``O_{p,r} \subseteq R`` | origins destination ``r`` buys ``p \in P^A`` from: itself, plus every origin with a route into ``r`` and a positive share |
 | ``p_0, q_0, \eta, \varepsilon`` | reference price, reference quantity, demand and supply elasticities |
-| ``m_{r,p}, \bar S_{r,p}`` | the `shift` scaling a curve and the `capacity` bounding a supply one |
+| ``m_{r,p}`` | the `shift` scaling a curve |
+| ``\underline L_l, \overline L_l, w_{l,v}`` | the bounds of limit ``l`` and the coefficient of variable ``v`` in its expression |
 | ``y_{k,p}`` | yield of output ``p`` per unit of activity of ``k`` |
 | ``\bar a_n, \delta_{n,i}, \sigma_n, \phi_n`` | composite requirement, shares, elasticity of substitution and scale of nest ``n`` |
 | ``\delta_{p,o,r}`` | value share of origin ``o`` in destination ``r`` (normalised over ``O_{p,r}``) |
@@ -62,8 +63,8 @@ in dense arrays.
 | Variable | Domain | Meaning |
 |:---------|:-------|:--------|
 | ``D_{r,p} \ge q_{min}`` | ``(r,p) \in \mathcal{D}`` | final demand |
-| ``0 \le S_{r,p} \le \bar S_{r,p}`` | ``(r,p) \in \mathcal{S}`` | primary supply, bounded by its capacity |
-| ``0 \le z_{r,k} \le \bar z_{r,k}`` | ``k \in K, r \in R_k`` | process activity, bounded by its capacity |
+| ``S_{r,p} \ge 0`` | ``(r,p) \in \mathcal{S}`` | primary supply |
+| ``z_{r,k} \ge 0`` | ``k \in K, r \in R_k`` | process activity |
 | ``C_{s}`` | demand curves `s` over a group | the composite of a group of substitutes, whose members are the ``D`` of each |
 | ``x_{r,k,n,i} \ge q_{min}`` | CES nests ``n``, ``i \in I_n`` | quantity of input ``i`` used in nest ``n``; bounded by 0 instead when ``\sigma_n = 0`` |
 | ``T_{p,r,r'} \ge 0`` | ``(p,r,r') \in \mathcal{T}``, ``p \in P^H`` | trade flow from ``r`` to ``r'`` |
@@ -211,26 +212,36 @@ normalised among siblings — so the data stay a plain bilateral matrix and the
 nesting only says how they are read.
 
 The specification applied to a (product, destination) pair is the one whose
-`destination` names it, or the `"all"` one otherwise, which is what lets the
+`destination` names it, or the one for every destination (`:`) otherwise,
+which is what lets the
 elasticity, the groups and the shares differ between importing markets.
 
-### Ceilings
+### Limits
 
-A [`Process`](@ref)'s `capacity` is an upper bound on ``z_{r,k}``, and a
-[`SupplySpec`](@ref)'s on ``S_{r,p}``; both are bounds on variables, so the
-quasi-rent of a binding one is the multiplier of the bound, which is the
-variable's reduced cost while the variable is off zero. A
-[`TradeLimit`](@ref) is a constraint instead, since it spans several flows:
+Every ceiling, floor and fixed sum of the economy is a [`Limit`](@ref): a
+linear expression in the model's variables between two bounds,
 
 ```math
-\sum_{(p,o,r) \,\in\, \text{covered}} w_p\, F_{p,o,r} \;\le\; \bar F
+\underline L_l \;\le\; \sum_{v} w_{l,v}\, v \;\le\; \overline L_l,
 ```
 
-with ``F`` standing for the trade variable of a homogeneous product or the
-cross-border variety of an Armington one, and ``w_p`` the weight that converts
-quantities into the unit the ceiling is written in. Its dual is the congestion
-rent, and on a route it throttles, the price gap becomes transport plus that
-rent rather than transport alone.
+where ``v`` runs over the supplies ``S``, final demands ``D``, activities
+``z``, CES inputs ``x`` and cross-border flows — the trade variables ``T`` of
+a homogeneous product and the varieties ``X_{p,o,r}``, ``o \ne r``, of an
+Armington one. Production is ``S`` plus yields times ``z``, and what a
+fixed-coefficient nest draws is its coefficient times ``z``, so both expand
+into these. A limit that is only an upper bound on one variable with a
+positive coefficient is set as a bound on that variable, ``v \le
+\overline L_l / w_{l,v}``; any other is one constraint per finite bound, or an
+equality where the two coincide.
+
+The rent of a limit is ``\partial W / \partial L``, the change in the
+objective from moving the bound that binds: minus the dual of its constraint,
+or of the variable bound divided by ``w_{l,v}``. It is reported only where the
+expression actually sits on the bound — complementary slackness, which an
+interior-point solver satisfies only to its tolerance. The rent per unit a
+variable carries is ``\sum_l w_{l,v}\,\text{rent}_l`` over the limits it
+appears in, and its capacity the tightest bound a limit on it alone implies.
 
 ### Substitutes in final demand
 
@@ -310,7 +321,8 @@ checked once, up front, against the declared sets.
 
 The same pass rejects two economies that have no finite answer to give: one
 with no regions or no products, and one containing a process with no inputs, no
-value-added cost and no capacity, which is a free source of its own output.
+value-added cost and no limit on its activity, which is a free source of its own
+output.
 
 ## From the solution to prices
 
@@ -365,7 +377,7 @@ it returns, and [`jump_model`](@ref) hands it to the user unsolved. Every
 variable and every constraint is named — the balances `balance[r,p]` and
 `origin_balance[r,p]`, the CES aggregators `input_nest[r,k]`,
 `demand_group[r]`, `origin_group[p,r]` and `armington[p,r]`, and
-`trade_limit[name]` — so `print(jump_model(d))` can be read against the
+`limit[name]` for a limit that is a constraint — so `print(jump_model(d))` can be read against the
 formulation above. A per-unit demand tax of zero is left out of the objective
 rather than written as a term that is zero, which would only make the printed
 model harder to read.
@@ -430,8 +442,8 @@ be recovered from `res.model`.
   tonnes or in million tonnes, and never hides a flow that matters for the smallest
   product.
 * **Starting point.** ``D`` and ``S`` start at ``m\,q_0``, their shifted
-  reference quantities, capped by any capacity; ``z`` at 1 or its capacity,
-  whichever is smaller; CES inputs at ``\bar a_n``; and trade flows at 0.
+  reference quantities; ``z`` at 1; CES inputs at ``\bar a_n``; and trade
+  flows at 0. The solver moves a start that violates a bound back inside it.
 * **The unit-elastic case.** At ``\eta = 1`` the exponent ``1 - 1/\eta`` is
   zero and the power form of the benefit term is undefined; the code switches
   to ``a \log D`` when ``|1 - 1/\eta| < 10^{-8}``, which also avoids the
@@ -469,7 +481,7 @@ equilibrium:
 * origin groups: a group as substitutable as its parent changes nothing, the
   composite price matches the two-level CES index, a tightening group pulls its
   members' prices together, structures and elasticities differ by destination
-  as specified, the `"all"` entry serves as the fallback, and inconsistent
+  as specified, the `:` specification serves as the fallback, and inconsistent
   groupings are rejected;
 * demand elasticities on both sides of 1: the equilibrium price equals the
   inverse demand for ``\eta`` from 0.3 to 3, the unit-elastic case matches the
@@ -515,7 +527,13 @@ equilibrium:
   change in the objective when the cap moves, a minimum's rent is negative,
   the macro and the explicit constructor give the same equilibrium, a group's
   exports leave the group, and unknown names, quantities that do not exist,
-  duplicate names and anything not linear are refused;
+  duplicate names and anything not linear are refused; a limit on one variable
+  becomes a bound on it, the supply, activity and trade tables carry the rents
+  of the limits their quantities are part of, `Markets.scope` names the same
+  regions and variables before the solve as `Results.limits` after it, a
+  family from `@limits` has one member per combination of its indices, named
+  after them, and the colon selects every region or product while `"all"` is a
+  name like any other;
 * material accounts: every region's material balance closes, and the world's
   — extraction equals consumption plus losses; the content of primary supply
   is the one given, region by region, what a region uses is the mix of what it

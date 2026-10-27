@@ -36,75 +36,75 @@ end
 LimitExpression(q::QuantityRef) = LimitExpression([q => 1.0], 0.0)
 
 # --- the term builders --------------------------------------------------------
-# Every selector is a name, a vector of names or "all", as in the rest of the
-# package. They are not exported: their names are those a user would give to
+# Every selector is a name, a vector of names or `:` for every one, as in the
+# rest of the package. They are not exported: their names are those a user would give to
 # his own variables, and `@limit` finds them anyway.
 
 ref(kind; selection...) = LimitExpression(QuantityRef(kind, map(selector, NamedTuple(selection))))
 
 """
-    Markets.supply(; region = "all", product = "all")
+    Markets.supply(; region = :, product = :)
 
 Primary supply of the selected products in the selected regions, summed.
 """
-supply(; region = "all", product = "all") = ref(:supply; region, product)
+supply(; region = (:), product = (:)) = ref(:supply; region, product)
 
 """
-    Markets.consumption(; region = "all", product = "all")
+    Markets.consumption(; region = :, product = :)
 
 Final demand of the selected products in the selected regions, summed. For an
 [`Armington`](@ref) product it is measured, as the demand curves measure it, in
 units of the region's composite.
 """
-consumption(; region = "all", product = "all") = ref(:consumption; region, product)
+consumption(; region = (:), product = (:)) = ref(:consumption; region, product)
 
 """
-    Markets.production(; region = "all", product = "all")
+    Markets.production(; region = :, product = :)
 
 Primary supply plus the output of every process, of the selected products in
 the selected regions, summed.
 """
-production(; region = "all", product = "all") = ref(:production; region, product)
+production(; region = (:), product = (:)) = ref(:production; region, product)
 
 """
-    Markets.activity(; region = "all", process = "all")
+    Markets.activity(; region = :, process = :)
 
 Activity level of the selected processes in the selected regions, summed.
 """
-activity(; region = "all", process = "all") = ref(:activity; region, process)
+activity(; region = (:), process = (:)) = ref(:activity; region, process)
 
 """
-    Markets.inputs(; region = "all", process = "all", product = "all")
+    Markets.inputs(; region = :, process = :, product = :)
 
 What the selected processes draw of the selected products in the selected
 regions, summed — for an [`Armington`](@ref) product, in units of the region's
 composite.
 """
-inputs(; region = "all", process = "all", product = "all") = ref(:inputs; region, process, product)
+inputs(; region = (:), process = (:), product = (:)) = ref(:inputs; region, process, product)
 
 """
-    Markets.flow(; product = "all", from = "all", to = "all")
+    Markets.flow(; product = :, from = :, to = :)
 
 Shipments of the selected products between the selected regions, summed. A
 region's deliveries to itself are not flows.
 """
-flow(; product = "all", from = "all", to = "all") = ref(:flow; product, from, to)
+flow(; product = (:), from = (:), to = (:)) = ref(:flow; product, from, to)
 
 """
-    Markets.exports(; region = "all", product = "all")
+    Markets.exports(; region = :, product = :)
 
 Shipments of the selected products leaving the selected regions, summed. For a
 group of regions, only what leaves the group counts.
 """
-exports(; region = "all", product = "all") = ref(:exports; region, product)
+exports(; region = (:), product = (:)) = ref(:exports; region, product)
 
 """
-    Markets.imports(; region = "all", product = "all")
+    Markets.imports(; region = :, product = :)
 
 Shipments of the selected products entering the selected regions, summed. For
 a group of regions, only what enters the group counts.
 """
-imports(; region = "all", product = "all") = ref(:imports; region, product)
+imports(; region = (:), product = (:)) = ref(:imports; region, product)
 
 const QUANTITY_BUILDERS = (:supply, :consumption, :production, :activity, :inputs,
                            :flow, :exports, :imports)
@@ -181,8 +181,20 @@ qualified as `Markets.supply` and so on outside the macro.
 # Fields
 $(TYPEDFIELDS)
 
+Every ceiling of the model is one: the capacity of a plant, an allowable cut,
+what a port can ship. A limit that only caps one variable — one supply, one
+activity, one flow — is set as a bound on it, which costs the solver nothing;
+any other is a constraint of the model.
+
 # Example
 ```julia
+## an allowable cut, and the capacity of the mills, region by region
+@limit "cut SEF" supply(region = "SEF", product = "logs") <= 3.5
+[@limit("mill \$r", activity(region = r, process = "sawmill") <= cap[r]) for r in keys(cap)]
+
+## a port that ships at most 6 thousand containers, counted by product
+@limit "port CN" sum(w * exports(region = "CN", product = p) for (p, w) in containers) <= 6.0
+
 ## two products harvested from the same stands cannot take more than they hold
 Limit(name = "SEF stands",
       expression = Markets.supply(region = "SEF", product = ["swr", "smallwood"]),
@@ -275,11 +287,74 @@ macro limit(name, ex)
                         "`@limit \"cap\" supply(product = \"logs\") <= 10`, got $(repr(ex))"))
 end
 
+"""
+    @limits name [i in I, j in J, ...] lhs <= rhs
+    @limits name [i in I, j in J; condition] lhs <= rhs
+
+A family of [`Limit`](@ref)s, one for every combination of the indices, as a
+constraint family of JuMP or an indexed equation of GAMS: the same inequality,
+written as for [`@limit`](@ref), with the indices free in it. Each member is
+named after the family and its indices — `cut[SEF]`, `stands[SEF, swr]` — and
+the result is a plain vector of limits. An index may be written `i in I`,
+`i ∈ I` or `i = I`, and a condition after a semicolon keeps only the
+combinations that meet it.
+
+To read a family back from the results, select its members by name:
+`res.limits[startswith.(res.limits.limit, "cut["), :]`.
+
+# Example
+```julia
+@limits "cut" [r in france] supply(region = r, product = "swr") <= cap[r]
+
+## one limit per region and product, leaving out the products a region lacks
+@limits "stands" [r in regions, p in primary; haskey(stock, (r, p))] supply(region = r, product = p) <= stock[(r, p)]
+```
+"""
+macro limits(name, indices, ex)
+    fail() = throw(ArgumentError("@limits takes a name, indices such as `[r in regions]` " *
+                                 "or `[r in regions, p in products; condition]`, and an " *
+                                 "inequality, got $(repr(indices))"))
+    indices isa Expr || fail()
+    condition = nothing
+    if indices.head == :vcat && length(indices.args) == 2      # [i in I; condition]
+        ranges, condition = Any[indices.args[1]], indices.args[2]
+    elseif indices.head == :vect
+        ranges = Any[a for a in indices.args if !(a isa Expr && a.head == :parameters)]
+        params = [a for a in indices.args if a isa Expr && a.head == :parameters]
+        isempty(params) || (condition = only(only(params).args))
+    else
+        fail()
+    end
+    loops = map(ranges) do r
+        r isa Expr || fail()
+        if r.head == :call && length(r.args) == 3 && r.args[1] in (:in, :∈)
+            r.args[2], r.args[3]
+        elseif r.head == :(=) && length(r.args) == 2
+            r.args[1], r.args[2]
+        else
+            fail()
+        end
+    end
+    vars = first.(loops)
+    label = :(string($name, "[", join(string.(($(vars...),)), ", "), "]"))
+    member = Expr(:macrocall, GlobalRef(@__MODULE__, Symbol("@limit")), __source__, label, ex)
+    # the last index varies fastest, as in nested loops written in that order
+    iteration = Expr(:block, (Expr(:(=), v, collection) for (v, collection) in reverse(loops))...)
+    generator = condition === nothing ?
+        Expr(:generator, member, iteration.args...) :
+        Expr(:generator, member, Expr(:filter, condition, iteration.args...))
+    # several indices make a product, collected as an array of their shape and
+    # handed back flat
+    return esc(Expr(:call, GlobalRef(Base, :vec),
+                    Expr(:call, GlobalRef(Base, :collect), GlobalRef(@__MODULE__, :Limit),
+                         generator)))
+end
+
 # --- display ------------------------------------------------------------------
 
 function Base.show(io::IO, q::QuantityRef)
     shown = [string(k, " = ", v isa AbstractString ? v : join(v, "|"))
-             for (k, v) in pairs(q.selection) if v != "all"]
+             for (k, v) in pairs(q.selection) if v != (:)]
     print(io, q.kind, "(", join(shown, ", "), ")")
 end
 

@@ -55,8 +55,10 @@ Base.@kwdef struct Results
     "Primary supply + manufactured output: `region`, `product`, `quantity`"
     production::DataFrame
     """
-    Primary supply alone: `region`, `product`, `quantity`, the `capacity`
-    bounding it and the scarcity `rent` a binding capacity earns per unit
+    Primary supply alone: `region`, `product`, `quantity`, the `capacity` — the
+    tightest [`Limit`](@ref) on this supply alone, `Inf` if there is none — and
+    the `rent`, what the limits it is part of charge per unit of it: the
+    scarcity rent of a binding capacity, or its share of a shared limit's
     """
     supply::DataFrame
     """
@@ -109,7 +111,12 @@ Base.@kwdef struct Results
     [`material_accounts`](@ref), start from them instead
     """
     solution::NamedTuple
-    "Bilateral trade flows, positive ones only: `product`, `from`, `to`, `quantity`"
+    """
+    Bilateral trade flows, positive ones only: `product`, `from`, `to`,
+    `quantity`, and the `capacity` and `rent` the limits put on each, as for
+    `supply`: a ceiling on a port or a corridor charges its congestion rent on
+    every flow it covers
+    """
     trade::DataFrame
     "Trade by region: `region`, `product`, `exports`, `imports`, `net` (= exports − imports)"
     net_trade::DataFrame
@@ -121,18 +128,21 @@ Base.@kwdef struct Results
     """
     prices::DataFrame
     """
-    Process activity levels: `region`, `process`, `level`, the `capacity`
-    bounding it and the quasi-`rent` a binding capacity earns per unit of
-    activity
+    Process activity levels: `region`, `process`, `level`, and the `capacity`
+    and `rent` the limits put on it, as for `supply`: the installed capacity
+    of the plants, and the quasi-rent it earns per unit of activity when it
+    binds
     """
     activity::DataFrame
     """
-    Every [`Limit`](@ref) and [`TradeLimit`](@ref): `limit`, its `lower` and
-    `upper` bounds (`-Inf` and `Inf` where it has none), the `value` its
-    expression takes, and its `rent` — the gain in the objective from relaxing
-    the bound that binds by one unit: positive for an upper bound, like a
-    congestion rent or a quota price, negative for a lower one, the subsidy
-    that would get agents to meet it unaided. Empty when there are none
+    Every [`Limit`](@ref): `limit`, its `lower` and `upper` bounds (`-Inf` and
+    `Inf` where it has none), the `value` its expression takes, its `rent` —
+    the gain in the objective from relaxing the bound that binds by one unit,
+    positive for an upper bound, like a congestion rent or a quota price,
+    negative for a lower one, the subsidy that would get agents to meet it
+    unaided, and zero for a limit that does not bind — and the `regions` and
+    model `variables` it applies to, as `Markets.scope` gives them. Empty when
+    there are none
     """
     limits::DataFrame
     """
@@ -200,21 +210,48 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
         q > tol && push!(production, (r, p, q))
     end
 
-    # primary supply on its own, with the ceiling and what a binding one earns
+    # the limits: the value of each expression, and what relaxing the bound
+    # that binds would be worth — in a maximisation, minus its dual, scaled
+    # from the variable to the expression where the limit is a variable bound
+    limits = DataFrame(limit = String[], lower = Float64[], upper = Float64[],
+                       value = Float64[], rent = Float64[],
+                       regions = Vector{String}[], variables = Vector{String}[])
+    # what the limits charge per unit of each variable they involve, and the
+    # tightest ceiling a limit puts on a variable alone
+    wedge    = Dict{Tuple,Float64}()
+    ceilings = Dict{Tuple,Float64}()
+    order    = Dict(r => i for (i, r) in enumerate(d.regions))
+    for L in limits_built
+        value = val(L.expression)
+        # complementary slackness: a bound that is not reached earns nothing,
+        # whatever numerical dust its dual carries
+        reached(bound) = abs(value - bound) <= 1e-6 * max(1.0, abs(bound))
+        rent = has_duals(m) ?
+            denoise(sum((-dual(ref) * scale for (bound, ref, scale) in L.duals if reached(bound));
+                        init = 0.0)) : 0.0
+        keys_l = sort(collect(keys(L.terms)); by = describe_key)
+        regions_l = regions_in_order(keys_l, d, order)
+        push!(limits, (L.limit.name, L.limit.lower, L.limit.upper, value, rent,
+                       regions_l, describe_key.(keys_l)))
+        for (key, w) in L.terms
+            wedge[key] = get(wedge, key, 0.0) + rent * w
+        end
+        if length(L.terms) == 1
+            key, w = only(L.terms)
+            c = w > 0 ? L.limit.upper / w : L.limit.lower / w
+            ceilings[key] = min(get(ceilings, key, Inf), c)
+        end
+    end
+    ceiling(key) = get(ceilings, key, Inf)
+    charge(key) = denoise(get(wedge, key, 0.0))
+
+    # primary supply on its own, with what the limits charge on it
     supply = DataFrame(region = String[], product = String[], quantity = Float64[],
                        capacity = Float64[], rent = Float64[])
     for spec in d.supply
-        v = S[(spec.region, spec.product)]
-        q = val(v)
-        # the rent is the gap the ceiling opens between the producer price and
-        # the taxed marginal cost on the curve, i.e. the multiplier of the
-        # ceiling itself. Taking it from the bound rather than recomputing it
-        # from the curve keeps out the tax wedge and, for an Armington product,
-        # the gap between what users pay and what producers get. (For a `<=`
-        # constraint JuMP's dual is non-positive whatever the sense.)
-        rent = has_duals(m) && isfinite(spec.capacity) ?
-               denoise(-dual(UpperBoundRef(v))) : 0.0
-        push!(supply, (spec.region, spec.product, q, spec.capacity, rent))
+        key = (:supply, spec.region, spec.product)
+        push!(supply, (spec.region, spec.product, val(S[(spec.region, spec.product)]),
+                       ceiling(key), charge(key)))
     end
     sort!(supply, [:region, :product])
 
@@ -265,10 +302,12 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
     end
     sort!(recipes, [:region, :process])
 
-    trade = DataFrame(product = String[], from = String[], to = String[], quantity = Float64[])
+    trade = DataFrame(product = String[], from = String[], to = String[], quantity = Float64[],
+                      capacity = Float64[], rent = Float64[])
     for ((p, from, to), v) in flows
         q = val(v)
-        q > tol && push!(trade, (p, from, to, q))
+        key = (:flow, p, from, to)
+        q > tol && push!(trade, (p, from, to, q, ceiling(key), charge(key)))
     end
     sort!(trade, [:product, :from, :to])
 
@@ -313,27 +352,8 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
     for proc in d.processes, r in regions_of(proc, d)
         lvl = val(z[(r, proc.name)])
         lvl > tol || continue
-        cap  = capacity_of(proc, r)
-        # a capacity that binds earns a quasi-rent per unit of activity: what
-        # the process would pay for one more unit of itself. The value is taken
-        # as the solver gives it — only numerical dust around zero is swept
-        # away, so that a wrong sign would show rather than be clipped to 0
-        rent = has_duals(m) && isfinite(cap) ? denoise(reduced_cost(z[(r, proc.name)])) : 0.0
-        push!(activity, (r, proc.name, lvl, cap, rent))
-    end
-
-    # the value of each limit's expression, and what relaxing the bound that
-    # binds would be worth: in a maximisation, minus the dual of the constraint
-    limits = DataFrame(limit = String[], lower = Float64[], upper = Float64[],
-                       value = Float64[], rent = Float64[])
-    for L in limits_built
-        value = val(L.expression)
-        # complementary slackness: a bound that is not reached earns nothing,
-        # whatever numerical dust its dual carries
-        reached(bound) = abs(value - bound) <= 1e-6 * max(1.0, abs(bound))
-        rent = has_duals(m) ?
-            sum((-dual(c) for c in L.constraints if reached(normalized_rhs(c))); init = 0.0) : 0.0
-        push!(limits, (L.limit.name, L.limit.lower, L.limit.upper, value, denoise(rent)))
+        key = (:activity, r, proc.name)
+        push!(activity, (r, proc.name, lvl, ceiling(key), charge(key)))
     end
 
     # what each tax raises, so that the transfer the objective treats as a
@@ -406,9 +426,9 @@ outgoing flows).
 
 Returns a `NamedTuple`
 `(; production, supply, consumption, composites, inputs, recipes, prices,
-net_trade, activity, trade)`.
-The `limits` and `taxes` tables are not among them: a trade ceiling spans
-routes and a tax may span regions, so neither belongs to one region.
+net_trade, activity, limits, trade)`, `limits` holding those that apply to the
+region, alone or with others. The `taxes` table is not among them: a tax may
+span regions, and does not belong to one.
 """
 function for_region(res::Results, region::Name)
     region = string(region)
@@ -422,5 +442,6 @@ function for_region(res::Results, region::Name)
      prices      = f(res.prices, :region),
      net_trade   = f(res.net_trade, :region),
      activity    = f(res.activity, :region),
+     limits      = res.limits[[region in rs for rs in res.limits.regions], :],
      trade       = res.trade[(res.trade.from .== region) .| (res.trade.to .== region), :])
 end

@@ -31,10 +31,10 @@ using JuMP, Ipopt, DataFrames
 using DocStringExtensions: TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 
 export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
-       TradeLimit, DemandNest, Tax,
+       DemandNest, Tax,
        leontief, ces, disposal, armington_shares, armington_calibration, ces_calibration,
        impute_flows, exogenous_shift, Material, material_accounts,
-       Limit, LimitExpression, @limit,
+       Limit, LimitExpression, @limit, @limits,
        validate, solve_market, jump_model, Results, for_region
 
 # re-exported from JuMP, so that a model from `jump_model` can be typeset

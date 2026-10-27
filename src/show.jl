@@ -108,12 +108,12 @@ function route_labels(d::MarketData, product::String)
     return labels, costs
 end
 
-# The `from` and `to` selectors of a tax or a trade limit as text: `A → B`,
-# `from A` or `to B`, and empty when both are `"all"`.
+# The `from` and `to` selectors of a tax as text: `A → B`, `from A` or `to B`,
+# and empty when both select every region.
 function direction(from, to)
-    from == "all" && to == "all" && return ""
-    from == "all" && return "to " * listing(to)
-    to == "all" && return "from " * listing(from)
+    from isa Colon && to isa Colon && return ""
+    from isa Colon && return "to " * listing(to)
+    to isa Colon && return "from " * listing(from)
     return string(listing(from), " → ", listing(to))
 end
 
@@ -125,12 +125,12 @@ function tax_row(t::Tax)
     rate = t.relative ? string(fmt(100 * abs(t.rate)), "% ", TAX_BASE[t.on]) :
                         string(fmt(abs(t.rate)), " per unit")
     scope = if t.on == "trade"
-        join(filter(!isempty, [t.product == "all" ? "" : listing(t.product),
+        join(filter(!isempty, [t.product isa Colon ? "" : listing(t.product),
                                direction(t.from, t.to)]), " ")
     else
         what = t.on == "process" ? t.process : t.product
-        join(filter(!isempty, [what == "all" ? "" : listing(what),
-                               t.region == "all" ? "" : "in " * listing(t.region)]), " ")
+        join(filter(!isempty, [what isa Colon ? "" : listing(what),
+                               t.region isa Colon ? "" : "in " * listing(t.region)]), " ")
     end
     return [t.name, string(kind, " on ", t.on), rate, isempty(scope) ? "everywhere" : scope]
 end
@@ -157,7 +157,7 @@ function Base.show(io::IO, d::MarketData)
     limit = get(io, :limit, false) || io isa Base.TTY
     width = limit ? displaysize(io)[2] : typemax(Int)
     line(s) = println(io, clip(s, width))
-    regions_in(rs) = rs == "all" || Set(rs) == Set(d.regions) ? "every region" : listing(rs)
+    regions_in(rs) = rs isa Colon || Set(rs) == Set(d.regions) ? "every region" : listing(rs)
     by_region(dict) = sort(collect(dict);
         by = ((r, _),) -> (something(findfirst(==(r), d.regions), length(d.regions) + 1), r))
     heading(s) = (println(io); printstyled(io, clip(s, width); bold = true); println(io))
@@ -224,11 +224,7 @@ function Base.show(io::IO, d::MarketData)
             else
                 p.vacost == 0 || push!(note, "cost " * fmt(p.vacost))
             end
-            p.capacity isa Dict ?
-                push!(note, "cap " * join((string(r, " ", fmt(c))
-                                           for (r, c) in by_region(p.capacity)), ", ")) :
-                isfinite(p.capacity) && push!(note, "cap " * fmt(p.capacity))
-            p.regions == "all" || push!(note, "in " * regions_in(p.regions))
+            p.regions isa Colon || push!(note, "in " * regions_in(p.regions))
             push!(notes, join(note, " · "))
             out = isempty(p.outputs) ? "(disposed of)" :
                   join((amount(y, q) for (q, y) in p.outputs), " + ")
@@ -277,21 +273,11 @@ function Base.show(io::IO, d::MarketData)
     if !isempty(d.armington)
         heading("Imperfect substitutes (Armington)")
         foreach(line, columns([[a.product, "σ " * fmt(a.sigma),
-                                a.destination == "all" ? "everywhere" : "in " * listing(a.destination),
+                                a.destination isa Colon ? "everywhere" : "in " * listing(a.destination),
                                 join(filter(!isempty,
                                      [isempty(a.nests) ? "" : "groups " * join(group_label.(a.nests), ", "),
                                       isempty(a.shares) ? "" : "calibrated shares"]), " · ")]
                                for a in d.armington]))
-    end
-    if !isempty(d.trade_limits)
-        heading("Trade limits")
-        foreach(line, columns([[l.name, "≤ " * fmt(l.capacity),
-                                l.products == "all" ? "all products" : listing(l.products),
-                                let dir = direction(l.from, l.to)
-                                    isempty(dir) ? "on every route" : dir
-                                end,
-                                isempty(l.weights) ? "" : "weighted"]
-                               for l in d.trade_limits]))
     end
 
     if !isempty(d.limits)

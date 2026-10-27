@@ -43,9 +43,11 @@ GitHub: [https://github.com/sylvaticus/Markets.jl](https://github.com/sylvaticus
   substitutes: regions cross-haul and every region's price responds to supply
   and demand everywhere. An infinite elasticity, the default, is the
   homogeneous case above.
-* **Bounds where they belong.** Plant capacities, port and pipeline ceilings,
-  quotas and licences truncate the model where a real limit exists, and a binding
-  one reports its rent.
+* **Limits, in one API.** Plant capacities, port and pipeline ceilings,
+  quotas, licences, resources shared between products, minimum shares: any
+  linear constraint on the model's quantities is a [`Limit`](@ref), written
+  with [`@limit`](@ref) as the inequality it stands for, and a binding one
+  reports its rent — on the limit, and on every quantity it charges.
 * **Substitution in final demand.** Products that compete for the same use are
   grouped in a nest, so one product's price moves another's demand — and
   substitutes outside the model enter as curve shifters.

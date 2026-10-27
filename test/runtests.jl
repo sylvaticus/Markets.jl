@@ -43,7 +43,7 @@ solved(res)      = res.status in (Markets.MOI.LOCALLY_SOLVED, Markets.MOI.OPTIMA
     @test_throws UndefKeywordError Nest(composite = 1.0, products = [:a])
     p = Process(name = :mill, inputs = [leontief(product = :a, coeff = 1)],
                 outputs = [:b => 1, :c => 0.5], vacost = 10)
-    @test p.outputs == ["b" => 1.0, "c" => 0.5] && p.regions == "all" && p.vacost == 10.0
+    @test p.outputs == ["b" => 1.0, "c" => 0.5] && p.regions isa Colon && p.vacost == 10.0
     @test_throws UndefKeywordError Process(name = :mill, inputs = Nest[])
     d = MarketData(regions = [:A], products = [:x])
     @test isempty(d.demand) && isempty(d.supply) && isempty(d.processes) &&
@@ -132,13 +132,14 @@ end
                    for r in (:A, :B)]],
         processes = [Process(name = :sawmill, inputs = [leontief(product = :log, coeff = 2)],
                              outputs = [:board => 1.0, :chips => 0.6], vacost = 30),
-                     Process(name = :panelmill, regions = :B, capacity = Dict(:B => 4.0),
+                     Process(name = :panelmill, regions = :B,
                              inputs = [ces(composite = 1.2, products = [:chips, :log], sigma = 2)],
                              outputs = [:panel => 1.0], vacost = 20),
                      disposal(product = :chips)],
         transport_costs = Dict((:board, :A, :C) => 5.0, (:board, :C, :A) => 5.0,
                                (:board, :B, :C) => 7.0, (:panel, :B, :A) => 4.0),
-        trade_limits = [TradeLimit(name = :ferry, from = :B, capacity = 2.0)],
+        limits = [@limit("panels B", activity(region = :B, process = :panelmill) <= 4.0),
+                  @limit("ferry", exports(region = :B) <= 2.0)],
         taxes = [Tax(name = :mill_aid, on = :process, process = :panelmill, rate = -3.0),
                  Tax(name = :duty, on = :trade, product = :board, to = :C, rate = 0.1,
                      relative = true)])
@@ -149,7 +150,10 @@ end
         @test termination_status(m) == Markets.MOI.OPTIMIZE_NOT_CALLED
         # balances and limits are named, so the printed model can be read
         @test JuMP.constraint_by_name(m, "balance[A,board]") isa JuMP.ConstraintRef
-        @test JuMP.constraint_by_name(m, "trade_limit[ferry]") isa JuMP.ConstraintRef
+        @test JuMP.constraint_by_name(m, "limit[ferry]") isa JuMP.ConstraintRef
+        # a limit on one variable is a bound on it, not a constraint
+        @test JuMP.constraint_by_name(m, "limit[panels B]") === nothing
+        @test JuMP.upper_bound(JuMP.variable_by_name(m, "z[B,panelmill]")) == 4.0
         @test occursin("balance[C,panel]", sprint(print, m))
         # the ad valorem duty is found by iteration, so it is not in the model;
         # without it the model is exactly the first of solve_market's solves
@@ -175,12 +179,13 @@ end
         @test startswith(text, "MarketData: 3 regions, 4 products, 3 processes, 4 trade routes, 2 taxes")
         # processes in the order they chain, with recipe, cost, bound and place
         @test occursin(r"1  sawmill\s+2 log ─+→ board \+ 0.6 chips", text)
-        @test occursin(r"2  panelmill\s+1.2 CES\(chips, log; σ 2\) ─+→ panel\s+cost 20 · cap B 4 · in B", text)
+        @test occursin(r"2  panelmill\s+1.2 CES\(chips, log; σ 2\) ─+→ panel\s+cost 20 · in B", text)
         @test occursin(r"2  dispose_chips\s+chips ─+→ \(disposed of\)", text)
         # a route priced the same both ways is shown once
         @test occursin("board  A⇄C 5, B→C 7", text)
         @test occursin("panel  B→A 4", text)
-        @test occursin(r"ferry\s+≤ 2\s+all products\s+from B", text)
+        @test occursin(r"panels B\s+≤ 4\s+activity\(region = B, process = panelmill\)", text)
+        @test occursin(r"ferry\s+≤ 2\s+exports\(region = B\)", text)
         @test occursin(r"mill_aid\s+subsidy on process\s+3 per unit\s+panelmill", text)
         @test occursin(r"duty\s+tax on trade\s+10% of the origin price\s+board to C", text)
         # in a narrow terminal, a long route list becomes a count and a range
@@ -301,12 +306,13 @@ end
 end
 
 @testset "Exogenous drivers of the curves" begin
-    economy(; supply_kw = (), demand_kw = ()) = MarketData(
+    economy(; supply_kw = (), demand_kw = (), limits = Limit[]) = MarketData(
         regions = [:A], products = [:x],
         demand  = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10,
                               elasticity = 1.5; demand_kw...)],
         supply  = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 20,
-                              elasticity = 0.8; supply_kw...)])
+                              elasticity = 0.8; supply_kw...)],
+        limits  = limits)
     on_curve(s, S) = s.p0 * (S / (s.shift * s.q0))^(1 / s.elasticity)
 
     @testset "a shifter moves the curve, not its elasticity" begin
@@ -340,20 +346,24 @@ end
     @testset "a ceiling truncates the curve and earns a rent" begin
         free = solve_market(economy())
         cap  = 0.6 * getq(free.production, :A, :x)
-        res  = solve_market(economy(supply_kw = (capacity = cap,)))
+        ceiling(c) = economy(limits = [@limit "cut" supply(region = :A, product = :x) <= c])
+        res  = solve_market(ceiling(cap))
         @test solved(res)
         S = getq(res.production, :A, :x)
         @test S ≈ cap rtol = 1e-6                       # the bound binds
         @test price(res, :A, :x) > price(free, :A, :x)  # scarcity raises the price
         # the price now exceeds the marginal cost on the curve: that gap is the
-        # scarcity rent of the resource
-        @test price(res, :A, :x) > on_curve(economy(supply_kw = (capacity = cap,)).supply[1], S)
-        @test only(res.supply.rent) ≈
-              price(res, :A, :x) - on_curve(economy(supply_kw = (capacity = cap,)).supply[1], S) rtol = 1e-5
+        # scarcity rent of the resource, reported on the supply and the limit alike
+        @test price(res, :A, :x) > on_curve(economy().supply[1], S)
+        @test only(res.supply.rent) ≈ price(res, :A, :x) - on_curve(economy().supply[1], S) rtol = 1e-5
+        @test only(res.supply.capacity) == cap
+        @test only(res.limits.rent) ≈ only(res.supply.rent) rtol = 1e-10
+        @test only(res.limits.regions) == ["A"] && only(res.limits.variables) == ["supply[A, x]"]
         # a ceiling above what would be produced anyway changes nothing
-        loose = solve_market(economy(supply_kw = (capacity = 10 * cap,)))
+        loose = solve_market(ceiling(10 * cap))
         @test getq(loose.production, :A, :x) ≈ getq(free.production, :A, :x) rtol = 1e-6
         @test only(loose.supply.rent) == 0
+        @test only(loose.limits.rent) == 0
     end
 
     @testset "shifters from drivers" begin
@@ -370,8 +380,6 @@ end
                                                         elasticity = 1.0))
         @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1,
                                               elasticity = 1, shift = 0)
-        @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1,
-                                              elasticity = 1, capacity = -1)
         @test_throws ArgumentError DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1,
                                               elasticity = 2, shift = -0.5)
     end
@@ -452,10 +460,10 @@ end
             taxes = [Tax(on = :supply, product = :nope, rate = 10.0)]))
         @test_throws ArgumentError solve_market(good(
             taxes = [Tax(on = :process, process = :nomill, rate = 10.0)]))
-        @test_throws ArgumentError solve_market(good(trade_limits =
-            [TradeLimit(name = :l, products = :nope, capacity = 1.0)]))
-        @test_throws ArgumentError solve_market(good(trade_limits =
-            [TradeLimit(name = :l, from = :Mars, capacity = 1.0)]))
+        @test_throws ArgumentError solve_market(good(limits =
+            [@limit "l" flow(product = :nope) <= 1.0]))
+        @test_throws ArgumentError solve_market(good(limits =
+            [@limit "l" exports(region = :Mars) <= 1.0]))
     end
 
     @testset "economies with no finite answer" begin
@@ -476,7 +484,8 @@ end
             demand = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
                                  elasticity = 1.2)],
             processes = [Process(name = :windfall, vacost = 0.0, inputs = Nest[],
-                                 capacity = 4.0, outputs = [:g => 1.0])])))
+                                 outputs = [:g => 1.0])],
+            limits = [@limit "plant" activity(process = :windfall) <= 4.0])))
         @test_throws ArgumentError solve_market(MarketData(regions = Symbol[],
             products = [:g]))
         @test_throws ArgumentError solve_market(MarketData(regions = [:A],
@@ -499,18 +508,18 @@ end
 end
 
 @testset "Bounds on transformation and on trade" begin
-    economy(; cap = Inf, limits = TradeLimit[]) = MarketData(
+    economy(; limits = Limit[]) = MarketData(
         regions   = [:A, :B], products = [:w, :g],
         demand    = [DemandSpec(product = :g, region = r, p0 = 300, q0 = 10, elasticity = 1.2)
                      for r in (:A, :B)],
         supply    = [SupplySpec(product = :w, region = :A, p0 = 40, q0 = 40, elasticity = 0.8),
                      SupplySpec(product = :w, region = :B, p0 = 90, q0 = 5,  elasticity = 0.8)],
-        processes = [Process(name = :mill, vacost = 50, capacity = cap,
+        processes = [Process(name = :mill, vacost = 50,
                              inputs  = [leontief(product = :w, coeff = 2.0)],
                              outputs = [:g => 1.0])],
         transport_costs = Dict((p, o, r) => (p === :w ? 6.0 : 10.0)
                          for p in (:w, :g), o in (:A, :B), r in (:A, :B) if o != r),
-        trade_limits = limits)
+        limits = limits)
     level(res, r) = only(res.activity[res.activity.region .== S(r), :level])
 
     @testset "a capacity holds a process back" begin
@@ -518,17 +527,17 @@ end
         @test solved(free)
         @test all(isinf, free.activity.capacity) && all(iszero, free.activity.rent)
         cap = 0.6 * level(free, :A)
-        res = solve_market(economy(cap = cap))
+        res = solve_market(economy(limits = [@limit "plant A" activity(region = :A, process = :mill) <= cap]))
         @test solved(res)
         @test level(res, :A) ≈ cap rtol = 1e-5          # the bound binds in A ...
         @test level(res, :B) > level(free, :B)          # ... and work moves to B
-        @test only(res.activity[res.activity.region .== "A", :rent]) > 0   # a quasi-rent
-        # a per-region dictionary bounds only the regions it names
-        split = solve_market(economy(cap = Dict(:A => cap)))
-        @test level(split, :A) ≈ cap rtol = 1e-5
-        @test isinf(only(split.activity[split.activity.region .== "B", :capacity]))
-        @test_throws ArgumentError Process(name = :p, inputs = Nest[], outputs = [:g => 1.0],
-                                           capacity = 0.0)
+        row = only(res.activity[res.activity.region .== "A", :])
+        @test row.rent > 0 && row.capacity == cap      # a quasi-rent, on the activity ...
+        @test row.rent ≈ only(res.limits.rent) rtol = 1e-10   # ... and on the limit
+        @test only(res.limits.variables) == ["activity[A, mill]"]
+        # a limit in one region bounds that region only
+        @test isinf(only(res.activity[res.activity.region .== "B", :capacity]))
+        @test iszero(only(res.activity[res.activity.region .== "B", :rent]))
     end
 
     @testset "a value-added cost may differ by region" begin
@@ -564,9 +573,7 @@ end
         free = solve_market(economy())
         supplied(res, r) = only(res.supply[res.supply.region .== S(r), :quantity])
         cap = 0.8 * supplied(free, :A)
-        capped(c) = solve_market(economy(limits = TradeLimit[]) |>
-            d -> MarketData(; (f => getfield(d, f) for f in fieldnames(MarketData))...,
-                              limits = [@limit "stands" supply(region = :A, product = :w) <= c]))
+        capped(c) = solve_market(economy(limits = [@limit "stands" supply(region = :A, product = :w) <= c]))
         res = capped(cap)
         @test solved(res)
         row = only(eachrow(res.limits))
@@ -578,13 +585,11 @@ end
         @test row.rent > 0
         @test row.rent ≈ (capped(cap + δ).objective - res.objective) / δ rtol = 1e-2
         # built without the macro, the same limit gives the same equilibrium
-        same = solve_market(MarketData(; (f => getfield(economy(), f) for f in fieldnames(MarketData))...,
-            limits = [Limit(name = "stands", upper = cap,
-                            expression = Markets.supply(region = :A, product = :w))]))
+        same = solve_market(economy(limits = [Limit(name = "stands", upper = cap,
+                                    expression = Markets.supply(region = :A, product = :w))]))
         @test same.objective ≈ res.objective rtol = 1e-8
 
-        with(limits...) = solve_market(MarketData(; (f => getfield(economy(), f) for f in fieldnames(MarketData))...,
-                                                    limits = collect(Limit, limits)))
+        with(limits...) = solve_market(economy(limits = collect(Limit, limits)))
         # a minimum is met at a cost, and its rent is negative: a subsidy
         floor = 1.5 * supplied(free, :B)
         res = with(@limit "harvest B" supply(region = :B, product = :w) >= floor)
@@ -605,11 +610,30 @@ end
         @test 2.0 - 1e-6 <= supplied(res, :B) <= 3.0 + 1e-6
         band = only(res.limits[res.limits.limit .== "band", :])
         @test band.lower == 2.0 && band.upper == 3.0
+        # a family is one limit per combination of its indices, named after them
+        regions_, goods = [:A, :B], [:w]
+        fam = @limits "cut" [r in regions_, p in goods] supply(region = r, product = p) <= 30
+        @test getfield.(fam, :name) == ["cut[A, w]", "cut[B, w]"]
+        @test getfield.(@limits("only", [r ∈ regions_; r == :B], supply(region = r) <= 1), :name) == ["only[B]"]
+        @test getfield.(@limits("eq", [r = regions_], supply(region = r) <= 1), :name) == ["eq[A]", "eq[B]"]
+        res = with(fam...)
+        @test solved(res) && nrow(res.limits[startswith.(res.limits.limit, "cut["), :]) == 2
+        # every region or product is `:`, and leaving a selector out means the same
+        @test Markets.scope(@limit("w", supply(region = :, product = :w) <= 99), economy()).variables ==
+              Markets.scope(@limit("w", supply(product = :w) <= 99), economy()).variables ==
+              ["supply[A, w]", "supply[B, w]"]
+        # what a limit applies to is known before solving, and reported after
+        shared = @limit("shared", activity(region = :A, process = :mill) +
+                                  production(region = :B, product = :w) <= 30)
+        sc = Markets.scope(shared, economy())
+        @test sc.regions == ["A", "B"]
+        @test sc.variables == ["activity[A, mill]", "supply[B, w]"]
+        res = with(shared)
+        @test only(res.limits.regions) == sc.regions && only(res.limits.variables) == sc.variables
         # a group exports only what leaves it
         @test_throws ArgumentError with(@limit "inside" exports(region = [:A, :B], product = :g) <= 1)
         # it is part of the economy's summary
-        @test occursin("Limits", sprint(print, MarketData(; (f => getfield(economy(), f) for f in fieldnames(MarketData))...,
-                                                          limits = [@limit "stands" supply(region = :A) <= 1])))
+        @test occursin("Limits", sprint(print, economy(limits = [@limit "stands" supply(region = :A) <= 1])))
 
         # what it refuses: names the economy does not have, quantities that
         # do not exist, two limits of one name, and anything not linear
@@ -629,8 +653,7 @@ end
         free  = solve_market(economy())
         moved = only(free.trade[free.trade.product .== S(:g), :quantity])
         quota = 0.55 * moved
-        res = solve_market(economy(limits = [TradeLimit(name = :quota, products = :g,
-                                             from = :A, to = :B, capacity = quota)]))
+        res = solve_market(economy(limits = [@limit "quota" flow(product = :g, from = :A, to = :B) <= quota]))
         @test solved(res)
         @test flow(res, :g, :A, :B) ≈ quota rtol = 1e-4
         row = only(eachrow(res.limits))
@@ -638,24 +661,34 @@ end
         @test row.value ≈ quota rtol = 1e-4
         @test row.upper == quota && row.lower == -Inf
         @test row.rent > 0
-        # with the ceiling binding, the price gap is transport *plus* the rent
+        # with the ceiling binding, the price gap is transport *plus* the rent,
+        # which the flow itself reports
         @test price(res, :B, :g) - price(res, :A, :g) ≈ 10.0 + row.rent rtol = 1e-4
+        moved_g = only(res.trade[res.trade.product .== "g", :])
+        @test moved_g.rent ≈ row.rent rtol = 1e-10
+        @test moved_g.capacity == quota
+        @test row.regions == ["A", "B"] && row.variables == ["flow[g, A, B]"]
     end
 
     @testset "a ceiling over several products uses its weights" begin
-        res = solve_market(economy(limits = [TradeLimit(name = :port, products = [:w, :g],
-                                             from = :A, capacity = 6.0,
-                                             weights = Dict(:w => 0.5, :g => 1.0))]))
+        res = solve_market(economy(limits = [@limit "port" 0.5 * exports(region = :A, product = :w) +
+                                                           exports(region = :A, product = :g) <= 6.0]))
         @test solved(res)
         used = 0.5 * flow(res, :w, :A, :B) + flow(res, :g, :A, :B)
         @test only(res.limits.value) ≈ used rtol = 1e-5
         @test used ≈ 6.0 rtol = 1e-4
+        # each flow it covers is charged the rent times its weight — the boards
+        # that cross carry all of it — and none has a ceiling of its own
+        rent = only(res.limits.rent)
+        @test only(res.trade[res.trade.product .== "g", :rent]) ≈ rent rtol = 1e-8
+        @test only(res.limits.variables) == ["flow[g, A, B]", "flow[w, A, B]"]
+        @test all(isinf, res.trade.capacity)
+        # and the region's slice holds it
+        @test nrow(for_region(res, :A).limits) == 1
         # a loose ceiling changes nothing
-        loose = solve_market(economy(limits = [TradeLimit(name = :port, from = :A,
-                                                          capacity = 1e4)]))
+        loose = solve_market(economy(limits = [@limit "port" exports(region = :A) <= 1e4]))
         @test flow(loose, :g, :A, :B) ≈ flow(solve_market(economy()), :g, :A, :B) rtol = 1e-5
-        @test only(loose.limits.rent) < 1e-6
-        @test_throws ArgumentError TradeLimit(capacity = -1.0)
+        @test only(loose.limits.rent) == 0
     end
 end
 
@@ -753,8 +786,7 @@ end
         q0  = getq(base.production, :A, :x)
         mc(q) = 50 * (q / 30)^(1 / 0.8)
         with_cap(taxes, cap) = (e = economy(taxes);
-            e.supply[1] = SupplySpec(product = :x, region = :A, p0 = 50, q0 = 30,
-                                     elasticity = 0.8, capacity = cap); e)
+            push!(e.limits, @limit("cut", supply(region = :A, product = :x) <= cap)); e)
         for (tax, taxed) in ((Tax(on = :supply, region = :A, rate = 6.0), q -> mc(q) + 6.0),
                              (Tax(on = :supply, region = :A, rate = 0.2, relative = true),
                               q -> 1.2 * mc(q)))
@@ -1493,8 +1525,7 @@ end
 
     @testset "the scarcity rent is read off the producer price" begin
         with_cap(cap) = (e = economy([Armington(product = :x, sigma = 3)]);
-            e.supply[1] = SupplySpec(product = :x, region = :A, p0 = 50, q0 = 30,
-                                     elasticity = 1.0, capacity = cap); e)
+            isfinite(cap) && push!(e.limits, @limit("cut", supply(region = :A, product = :x) <= cap)); e)
         q0 = getq(solve_market(with_cap(Inf)).supply, :A, :x)
         # slack: users pay more than producers get, and that gap is no rent
         slack = solve_market(with_cap(3 * q0))
@@ -1581,7 +1612,7 @@ end
               sum(shares[(o, :AS)] * q(o, :AS)^(1 - 8) for o in regions)^(1 / (1 - 8)) rtol = 1e-6
     end
 
-    @testset "an :all specification is the fallback for the other destinations" begin
+    @testset "a `:` specification is the fallback for the other destinations" begin
         res = solve_market(economy([
             Armington(product = :x, destination = :EU, sigma = 1.8, shares = shares),
             Armington(product = :x, sigma = 5, shares = shares)]))
@@ -1835,10 +1866,9 @@ end
                                 elasticity = 1.2)],
         processes = [Process(name = n("mill"), vacost = 20, regions = [n("A"), n("B")],
                              inputs = [leontief(product = n("logs"), coeff = 2)],
-                             outputs = [n("board") => 1.0],
-                             capacity = Dict(n("A") => 40.0))],
-        trade_limits = [TradeLimit(name = n("port"), products = n("board"), from = n("A"),
-                                   capacity = 50.0, weights = Dict(n("board") => 1.0))],
+                             outputs = [n("board") => 1.0])],
+        limits    = [@limit("mill A", activity(region = n("A"), process = n("mill")) <= 40.0),
+                     @limit("port", exports(region = n("A"), product = n("board")) <= 50.0)],
         taxes     = [Tax(name = n("duty"), on = n("trade"), product = n("logs"),
                          from = n("A"), rate = 1.5)],
         transport_costs = Dict((n("logs"), n("A"), n("B")) => 5.0,
@@ -1853,7 +1883,8 @@ end
     end
     @test strung.regions isa Vector{String} && symbolic.regions isa Vector{String}
     @test symbolic.processes[1].name === "mill" && symbolic.taxes[1].on == "trade"
-    @test symbolic.processes[1].capacity == Dict("A" => 40.0)
+    @test symbolic.limits[1].expression.terms[1].first.selection ==
+          (region = "A", process = "mill")
     # a field read back compares to the string that built it, which is the whole
     # reason names are not stored as symbols
     @test symbolic.supply[1].region == "A" && symbolic.supply[1].product == "logs"
@@ -1881,10 +1912,14 @@ end
     @test nrow(for_region(a, "A").prices) == nrow(for_region(a, :A).prices)
     @test solve_market(strung; on_failure = :warn).objective ≈ a.objective rtol = 1e-10
 
-    # "all" and :all are the same sentinel
-    @test Tax(name = "t", on = "supply", rate = 1.0).product == "all"
+    # every one is the colon, and "all" is a name like any other
+    @test Tax(name = "t", on = "supply", rate = 1.0).product isa Colon
+    @test Process(name = "p", inputs = [leontief(product = "x", coeff = 1)],
+                  outputs = ["y" => 1.0], vacost = 1, regions = :).regions isa Colon
     @test Process(name = "p", inputs = [leontief(product = "x", coeff = 1)],
                   outputs = ["y" => 1.0], vacost = 1, regions = :all).regions == "all"
+    @test Markets.matches(Markets.selector(:), "anything")
+    @test !Markets.matches(Markets.selector("all"), "anything")
     # anything that is not a name is refused where a name is wanted
     @test_throws ArgumentError SupplySpec(product = 7, region = "A", p0 = 1, q0 = 1,
                                           elasticity = 1)
@@ -1971,7 +2006,8 @@ end
         @test all(drop(r, ex) > 0 for r in d.regions)
         # the shared stands bound every combination of the primary products:
         # slack in a normal year, binding once a third of France is set aside
-        @test nrow(res.limits) == 1 + 7 * length(d.regions)
+        # every ceiling is a limit: the stands, the pellet plants and the Landes roads
+        @test nrow(res.limits) == 7 * length(d.regions) + length(d.regions) + 1
         @test all(iszero, res.limits.rent)
         bound = ex.aside.limits[ex.aside.limits.rent .> 0, :]
         @test sort(bound.limit) == sort(["$r: swr + hwr + smallwood" for r in france])

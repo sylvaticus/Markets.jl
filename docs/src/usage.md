@@ -122,22 +122,20 @@ field, ore from a mine, fish from the sea, crops from land:
 SupplySpec(product = "crude", region = "US", p0 = 550, q0 = 600, elasticity = 0.4)
 ```
 
-Two further fields carry the conditions of production:
-
-* `shift` scales the curve, exactly as for demand. The size of the resource, the
-  roads and ports, the workers and machines available all belong here, and
-  [`exogenous_shift`](@ref) turns driver levels and their elasticities into the
-  multiplier.
-* `capacity` is a hard ceiling that no price can pass — a fishing quota, a
-  mining licence, an exhausted resource. Whereas a shifter scales the curve, this
-  truncates it, and the price then rises above the marginal cost on the curve
-  by the **scarcity rent** of the resource.
+A further field, `shift`, carries the conditions of production: it scales the
+curve, exactly as for demand. The size of the resource, the roads and ports,
+the workers and machines available all belong here, and
+[`exogenous_shift`](@ref) turns driver levels and their elasticities into the
+multiplier. A hard ceiling that no price can pass — a fishing quota, a mining
+licence, an exhausted resource — is a [`Limit`](@ref) on the supply instead:
+it truncates the curve rather than scaling it, and the price then rises above
+the marginal cost on the curve by the **scarcity rent** of the resource.
 
 ```julia
-SupplySpec(product = "cod", region = "EU", p0 = 3000, q0 = 300, elasticity = 0.40,
-           shift    = exogenous_shift(stock = (level = 118.0, reference = 100.0,
-                                               elasticity = 0.6)),
-           capacity = 350)                      # the fishing quota
+supply = [SupplySpec(product = "cod", region = "EU", p0 = 3000, q0 = 300, elasticity = 0.40,
+                     shift = exogenous_shift(stock = (level = 118.0, reference = 100.0,
+                                                      elasticity = 0.6)))]
+limits = [@limit "cod quota" supply(region = "EU", product = "cod") <= 350]
 ```
 
 Which of the two to use for which driver, and when to model the factors
@@ -158,11 +156,19 @@ chosen by the model. It has:
   modelled as an explicit input (labour, energy, capital, ...) — a single number
   for every region, or a `region => cost` dictionary covering each region the
   process operates in.
-* optionally the `regions` where it may operate (default: all), and a
-  `capacity` bounding its activity — a single number for every region, or a
-  `region => bound` dictionary. Without one, a process with constant returns
-  concentrates wherever production is cheapest; with one, the bound binds and
-  earns a quasi-rent reported in `Results.activity`.
+* optionally the `regions` where it may operate (default: all).
+
+The installed capacity of the plants is a [`Limit`](@ref) on the activity,
+region by region:
+
+```julia
+limits = [@limit("steel plants $r", activity(region = r, process = "steel_mill") <= cap)
+          for (r, cap) in installed]
+```
+
+Without one, a process with constant returns concentrates wherever production
+is cheapest; with one, the bound binds and earns a quasi-rent, reported in
+`Results.activity` as well as in `Results.limits`.
 
 There are two kinds of nest:
 
@@ -222,22 +228,20 @@ transport_costs = Dict(("crude", "US", "EU") => 25.0, ("crude", "EU", "US") => 2
 
 A free route is written `=> 0.0`, not omitted.
 
-A [`TradeLimit`](@ref) caps what may actually move: the capacity of a port or a
-corridor, or a quota. It applies to the **sum** of the flows it covers, so one
-entry can cap a single product on a single route or everything crossing a
-border, and `weights` converts the quantities into whatever unit the ceiling is
-written in:
+What may actually move is capped by a [`Limit`](@ref) on the flows: the
+capacity of a port or a corridor, or a quota. It can cap a single product on a
+single route or everything crossing a border, and weights convert the
+quantities into whatever unit the ceiling is written in:
 
 ```julia
-trade_limits = [TradeLimit(name = "steel_quota", products = "steel", from = "CN", to = "EU",
-                           capacity = 8.0),
-                TradeLimit(name = "container_port", from = "CN", capacity = 6.0,
-                           weights = Dict("cars" => 2.0, "wine" => 0.04))]
+limits = [@limit("steel quota", flow(product = "steel", from = "CN", to = "EU") <= 8.0),
+          @limit("container port", 2.0 * exports(region = "CN", product = "cars") +
+                                   0.04 * exports(region = "CN", product = "wine") <= 6.0)]
 ```
 
-A binding ceiling shows up in `Results.limits` with its congestion rent, and
-the price gap across the route it throttles becomes transport **plus** that
-rent.
+A binding ceiling shows up in `Results.limits` with its congestion rent, which
+every flow it covers carries in `Results.trade`, and the price gap across the
+route it throttles becomes transport **plus** that rent.
 
 By default a traded product is **homogeneous**: the same good wherever it comes
 from. Regional prices then differ by at most the transport cost and no region
@@ -327,7 +331,8 @@ the reverse, which would be inconsistent.
 
 Standards and non-tariff measures are set by the importer, so they are
 asymmetric. Give a specification a `destination` to apply it to those markets
-only, and keep an `"all"` entry as the fallback:
+only, and keep one with `destination = :` (every destination, the default) as
+the fallback:
 
 ```julia
 armington = [
@@ -378,7 +383,8 @@ taxes = [Tax(name = "oil_royalty",  on = "supply",  product = "crude", region = 
              relative = true)]
 ```
 
-Selectors left at `"all"` match everything, and several taxes may fall on one
+Selectors left at `:` — the colon, the default — match everything, and several
+taxes may fall on one
 base. `Results.taxes` reports what each raises — which matters, because a taxed
 objective counts the revenue as a cost rather than a transfer and so is no
 longer welfare. See [Taxes, subsidies and other wedges](@ref).
@@ -404,8 +410,8 @@ market = MarketData(; regions, products, demand, supply, processes, transport_co
 ```
 
 The quantities are named by eight term builders, each summing over the
-regions, products and processes it selects — a name, a vector of names, or
-`"all"`, the default:
+regions, products and processes it selects — a name, a vector of names, or the
+colon `:` for every one, which is also what a selector left out means:
 
 | Builder | Sums |
 |:--------|:-----|
@@ -426,6 +432,50 @@ a denominator, a power, `sqrt` — is refused when the limit is written,
 because it would no longer be linear: a linear limit keeps the problem convex,
 so the equilibrium is still the solution of one optimisation and its rent has
 a clear meaning.
+
+A selector is the same everywhere in the package — in a [`Tax`](@ref), in a
+[`Process`](@ref)'s `regions`, in an [`Armington`](@ref) `destination` — and no
+name in it is special: a region or a product may be called `all` and is then
+selected by that name. Every one is `:`, as in indexing an array:
+
+```julia
+@limit "world softwood" supply(region = :, product = "swr") <= 900
+```
+
+A group of regions or products is a vector you build yourself — `france =
+["SEF", "SWF", "GEF", "OF"]` — and `supply(region = france, product = "swr")`
+sums over its members. For a group, `exports` and `imports` count only what
+crosses its border, while `flow` counts every flow between the regions
+selected.
+
+#### Families of limits
+
+Where GAMS has indexed equations and JuMP families of constraints,
+[`@limits`](@ref) writes one limit per combination of its indices, each named
+after them:
+
+```julia
+@limits "cut" [r in france] supply(region = r, product = "swr") <= cap[r]
+## cut[SEF], cut[SWF], cut[GEF], cut[OF]
+
+@limits "stands" [r in regions, p in primary; haskey(stock, (r, p))] supply(region = r, product = p) <= stock[(r, p)]
+## stands[SEF, swr], stands[SEF, hwr], …, only for the pairs with a stock
+```
+
+An index is written `i in I`, `i ∈ I` or `i = I`; a condition after a
+semicolon keeps the combinations that meet it, and the last index varies
+fastest. The result is a plain vector of limits, so it is concatenated with
+others like any vector. A comprehension does the same with names of your
+choosing:
+
+```julia
+[@limit("cut $r", supply(region = r, product = "swr") <= cap[r]) for r in france]
+```
+
+To read a family back from the results, select its members by name:
+`res.limits[startswith.(res.limits.limit, "cut["), :]`.
+
+#### Writing limits by hand
 
 Inside `@limit` the builders are those of Markets.jl, so a variable of your own
 called `supply` is not in the way; outside it, write them `Markets.supply(…)`
@@ -456,10 +506,22 @@ limits = [@limit("$r: " * join(C, " + "),
           for r in regions for C in combinations(primary)]
 ```
 
-`Results.limits` reports each limit — the [`TradeLimit`](@ref)s among them —
-with its bounds, the `value` its expression takes, and its `rent`: the gain in
-the objective from relaxing the bound that binds by one unit, positive for an
-upper bound and negative for a lower one, zero for a limit that does not bind.
+`Results.limits` reports each limit with its bounds, the `value` its
+expression takes, its `rent` — the gain in the objective from relaxing the
+bound that binds by one unit, positive for an upper bound and negative for a
+lower one, zero for a limit that does not bind — and the `regions` and model
+`variables` it applies to, which `Markets.scope(limit, economy)` also gives
+before anything is solved. The rent reaches the quantities too: the `supply`,
+`activity` and `trade` tables give each row the `rent` the limits it is part
+of charge per unit of it — the whole rent for a ceiling on that quantity
+alone, the rent times its weight for a share of a wider one — and the
+`capacity` of the tightest limit on that quantity alone. And
+[`for_region`](@ref) slices `Results.limits` too, keeping the limits that apply
+to the region, alone or with others.
+
+A limit that bounds one variable from above — a single supply, activity or
+flow — is set as a bound on that variable rather than as a constraint, which
+costs the solver nothing; any other limit is a constraint of the model.
 The [forest example](@ref "What the forest holds") uses it for its stands.
 
 ## Looking at an economy
@@ -504,7 +566,7 @@ prints the LaTeX source.
 
 Its variables and constraints are named after what they stand for —
 `D[EU,steel]`, `S[US,crude]`, `z[EU,steel_mill]`, `balance[EU,steel]`,
-`trade_limit[steel_quota]` — and it takes the same `solver`,
+`limit[container port]` — and it takes the same `solver`,
 `solver_options`, `silent` and `qfloor` keywords as `solve_market`, so it can
 be modified and solved with JuMP directly. An ad valorem tax on trade is the
 one thing missing from it: `solve_market` finds its money equivalent by
@@ -551,16 +613,16 @@ counted as the transfer it is, and twelve `DataFrame`s:
 | Field | Columns | Content |
 |:------|:--------|:--------|
 | `production`  | region, product, quantity | primary supply + manufactured output |
-| `supply`      | region, product, quantity, capacity, rent | primary supply alone, with its ceiling and the scarcity rent a binding one earns |
+| `supply`      | region, product, quantity, capacity, rent | primary supply alone, with the ceiling a limit puts on it and the rent the limits charge on it |
 | `consumption` | region, product, quantity, physical | final demand, in the units of the demand curves and in physical units |
 | `composites`  | region, product, received, composite, ratio | the composite each region uses of an Armington product, against the physical sum of the varieties it received |
 | `inputs`      | region, process, product, composite, physical | what each process draws of each input |
 | `recipes`     | region, process, inputs, recipe, physical, gap | each input nest's physical inputs against its recipe |
-| `trade`       | product, from, to, quantity | bilateral flows (positive only) |
+| `trade`       | product, from, to, quantity, capacity, rent | bilateral flows (positive only), with their ceiling and rent as for `supply` |
 | `net_trade`   | region, product, exports, imports, net | net = exports − imports |
 | `prices`      | region, product, price, producer\_price | what local users pay, and what local producers get |
-| `activity`    | region, process, level, capacity, rent | process activity, its bound, and the quasi-rent a binding bound earns |
-| `limits`      | limit, lower, upper, value, rent | every [`Limit`](@ref) and [`TradeLimit`](@ref), and the rent of the bound that binds |
+| `activity`    | region, process, level, capacity, rent | process activity, with its capacity and the quasi-rent it earns, as for `supply` |
+| `limits`      | limit, lower, upper, value, rent, regions, variables | every [`Limit`](@ref), the rent of the bound that binds, and what it applies to |
 | `taxes`       | tax, on, revenue | what each instrument raises |
 
 Either price column is `missing` where it has no meaning: a region that cannot

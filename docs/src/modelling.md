@@ -145,8 +145,8 @@ can drive supply negative and destroys the constant-elasticity reading of
 fixed quantity regardless of price — a stockpile released by a government,
 scrap collected under a recycling mandate, a quota of imports from outside the
 model. In this
-package that is a separate inelastic [`SupplySpec`](@ref) with a `capacity`,
-not a shifter.
+package that is a separate [`SupplySpec`](@ref) held to that quantity by a
+[`Limit`](@ref), not a shifter.
 
 It **separates calibration from scenario**. `p0` and `q0` keep holding the
 base-year point the curve was fitted to; the scenario lives in `shift`. Rewrite
@@ -174,7 +174,13 @@ and crews that exist this year — the right device is a bound:
 S \le \bar S(Z)
 ```
 
-which is [`SupplySpec`](@ref)'s `capacity`. The difference is not cosmetic. At
+which is a [`Limit`](@ref) on the supply:
+
+```julia
+@limit "cod quota" supply(region = "EU", product = "cod") <= 350
+```
+
+The difference is not cosmetic. At
 a binding ceiling the price parts company with the marginal cost on the curve,
 and the gap is the **scarcity rent** of the resource — the economically
 interesting quantity, and the one a pure shifter cannot produce. Doubling a
@@ -188,8 +194,8 @@ cost, taxes on production included:
 rent = producer_price - ((1 + t_rel) * s.p0 * (S / (s.shift * s.q0))^(1 / s.elasticity) + t_abs)
 ```
 
-which is the multiplier of the ceiling, and is how `Results.supply` reports it:
-zero whenever the ceiling does not bind.
+which is the multiplier of the ceiling, and is how `Results.supply` and
+`Results.limits` report it: zero whenever the ceiling does not bind.
 
 A ceiling set above what would have been produced anyway changes nothing, so it
 is safe to carry one on every curve that has a known physical limit.
@@ -202,7 +208,7 @@ making the resource a product and its extraction a process. In a fishery
 model, for example:
 
 * the fish stock becomes a product with its own curve or endowment, bounded by
-  `capacity`;
+  a [`Limit`](@ref);
 * fishing becomes a [`Process`](@ref) that consumes the stock, fuel and
   whatever else the model prices, and yields landed fish;
 * labour, boats and access then enter as priced inputs or as bounds, and
@@ -487,8 +493,9 @@ programming](@ref howitt1995), the standard answer in agricultural sector
 models, and it would sit comfortably in this package — the objective term would
 take the same shape as the supply curves already do, the problem would stay
 convex, and an infinite elasticity would recover today's behaviour exactly.
-Between that limit and `Process`'s `capacity`, which is the opposite limit of a
-perfectly inelastic process, the parameter would simply interpolate.
+Between that limit and a [`Limit`](@ref) on the activity, which is the
+opposite limit of a perfectly inelastic process, the parameter would simply
+interpolate.
 
 It is not implemented because of what it would need as data, not because of
 what it would need as code. Per process and per region it asks for a reference
@@ -867,8 +874,9 @@ Two consequences worth knowing:
 Technical standards and non-tariff measures are set by the **importer**, so
 they are asymmetric: the EU may treat Chinese cars as a distant substitute
 while Chinese buyers treat European cars as a close one. A specification
-therefore applies to the destinations given in its `destination` field, with an
-`"all"` entry as the fallback, and the elasticity, the groups and the shares may
+therefore applies to the destinations given in its `destination` field, with
+one for every destination (`:`) as the fallback, and the elasticity, the groups
+and the shares may
 all differ between importing markets.
 
 A product is nonetheless either homogeneous everywhere or imperfectly
@@ -915,10 +923,10 @@ and above it the whole industry moves at once.
 this and explains where it bites — chiefly on products left homogeneous, since
 an [`Armington`](@ref) specification on the output restores a smooth response.
 
-Otherwise the remedy is to say what capacity exists. [`Process`](@ref)'s
-`capacity` bounds the activity level, region by region if need be, and a
-binding bound earns a quasi-rent reported in `Results.activity` — what another
-unit of plant capacity would be worth there. Without such a bound, and without Armington
+Otherwise the remedy is to say what capacity exists. A [`Limit`](@ref) on the
+activity of a process bounds it, region by region if need be, and a binding
+bound earns a quasi-rent reported in `Results.activity` and `Results.limits` —
+what another unit of plant capacity would be worth there. Without such a bound, and without Armington
 on its output, read the geography of *processing* far more cautiously than that
 of prices or of final demand.
 
@@ -1188,7 +1196,7 @@ reached, its errors compound, and the elasticity you estimated is no longer
 anchored at the level you estimated it for.
 
 `p0` and `q0` stay at the calibration point for the whole run. Everything that
-moves between periods moves through `shift` and `capacity`, computed from state
+moves between periods moves through `shift` and the limits, computed from state
 and from exogenous drivers. The discipline in one sentence:
 
 > Use model output to update **physical state**, never **behavioural
@@ -1227,7 +1235,7 @@ from the previous period's solution:
 Demand and supply remain *level* functions of price in every period,
 e.g. ``D_t(P) = \alpha_t P^{-\eta}``, with the shifters of
 [Everything other than the price](@ref) carrying ``\alpha_t``. That is the
-intended seam: the loop updates `shift` and `capacity` between periods and
+intended seam: the loop updates `shift` and the limits between periods and
 never touches the fitted curves.
 
 This deliberately avoids the form used in some recursive models, where

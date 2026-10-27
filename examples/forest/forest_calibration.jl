@@ -127,8 +127,8 @@ log_duty = 0.25
 taxes = [Tax(name = "rw_log_duty", on = "trade", product = ["swr", "hwr"], from = "RW",
              rate = log_duty, relative = true)]
 duty(p, from) = from == "RW" && p in ("swr", "hwr") ? log_duty : 0.0
-trade_limits = [TradeLimit(name = "landes_evacuation", products = ["swr", "smallwood"],
-                           from = "SWF", capacity = 18.0)]
+evacuation = @limit("landes_evacuation",
+                    exports(region = "SWF", product = ["swr", "smallwood"]) <= 18.0)
 gas_reference = 30.0
 nothing # hide
 
@@ -417,23 +417,23 @@ DataFrame((; region = r,
 # say a mill ran at a loss, and the model would close it. A mill running flat
 # out could have earned a rent on top of its costs, which one year cannot tell
 # apart from them; that is why the capacities in the data are those of plants
-# with room to spare.
+# with room to spare. Each becomes a limit on the activity of its plants:
 
-capacity = Dict(name => Dict(row.region => row.capacity
-                             for row in eachrow(capacities) if row.process == name)
-                for name in unique(capacities.process))
+plant_limits = [@limit("$(row.process) plant $(row.region)",
+                       activity(region = row.region, process = row.process) <= row.capacity)
+                for row in eachrow(capacities)]
 
 processes = [Process(name = name, inputs = inputs, outputs = outputs,
                      regions  = operating(outputs),
-                     vacost   = Dict(r => margin(inputs, outputs, r) for r in operating(outputs)),
-                     capacity = get(capacity, name, Inf))
+                     vacost   = Dict(r => margin(inputs, outputs, r) for r in operating(outputs)))
              for (name, inputs, outputs) in technology]
 nothing # hide
 
 # ## The calibrated reference run
 
 calibrated = MarketData(; regions, products, demand, supply, processes,
-                          transport_costs, armington, trade_limits, taxes)
+                          transport_costs, armington, taxes,
+                          limits = [plant_limits; evacuation])
 res = solve_market(calibrated)
 nothing # hide
 

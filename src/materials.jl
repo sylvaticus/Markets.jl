@@ -42,7 +42,7 @@ Base.@kwdef struct Material
     region — or by `(region, product)` where it differs, the more specific key
     taking precedence. A supplied product not listed carries none
     """
-    content::Dict{Tuple{String,String},Float64}
+    content::Dict{Union{String,Tuple{String,String}},Float64}
     """
     Share of the material entering each process that leaves it other than in
     its outputs, keyed by process name; 0 for a process not listed. A process
@@ -57,8 +57,8 @@ Base.@kwdef struct Material
     allocation::Dict{String,Dict{String,Float64}} = Dict{String,Dict{String,Float64}}()
 
     function Material(name, content, losses, allocation)
-        key(k) = k isa Tuple ? (nm(k[1]), nm(k[2])) : ("all", nm(k))
-        c = Dict{Tuple{String,String},Float64}(key(k) => float(v) for (k, v) in content)
+        key(k) = k isa Tuple ? (nm(k[1]), nm(k[2])) : nm(k)
+        c = Dict{Union{String,Tuple{String,String}},Float64}(key(k) => float(v) for (k, v) in content)
         all(>=(0), values(c)) || throw(ArgumentError(
             "the content of $name must not be negative"))
         l = namekeys(losses)
@@ -72,7 +72,7 @@ Base.@kwdef struct Material
 end
 
 content_of(m::Material, r::String, p::String) =
-    get(m.content, (r, p), get(m.content, ("all", p), 0.0))
+    get(m.content, (r, p), get(m.content, p, 0.0))
 
 """
 $(TYPEDSIGNATURES)
@@ -106,8 +106,9 @@ change the equilibrium: they describe it.
 function material_accounts(res::Results, material::Material; tol::Real = 1e-12,
                            maxiter::Integer = 100_000)
     d, sol = res.data, res.solution
-    for ((r, p), _) in material.content
-        r == "all" || r in d.regions || throw(ArgumentError(
+    for (k, _) in material.content
+        r, p = k isa Tuple ? k : (nothing, k)
+        r === nothing || r in d.regions || throw(ArgumentError(
             "the content of $(material.name) names the region $r, which the economy does not declare"))
         p in d.products || throw(ArgumentError(
             "the content of $(material.name) names the product $p, which the economy does not declare"))

@@ -39,22 +39,27 @@ nms(xs) = String[nm(x) for x in xs]
 """
 $(TYPEDSIGNATURES)
 
-A selector: one name, several names in a vector, or `"all"` — the default of
-every selector field — for every one.
+A selector: one name, several names in a vector, or the colon `:` — the default
+of every selector field — for every one, as it means every index of an array.
 
-`"all"` is a sentinel, so a region or product genuinely called `all` cannot be
-singled out by naming it; select it as the one-element vector `["all"]`, or
-rename it.
+No name has a special meaning, so a region or product may be called `all`,
+`every` or anything else and still be singled out by naming it.
 """
+selector(::Colon)            = (:)
 selector(x::Name)            = nm(x)
 selector(xs::AbstractVector) = nms(xs)
 selector(xs::Tuple)          = nms(collect(xs))
 selector(x) = throw(ArgumentError(
-    "a selector must be a name, a vector of names, or \"all\", got " *
+    "a selector must be a name, a vector of names, or `:` for every one, got " *
     "$(repr(x))::$(typeof(x))"))
 
+"What a selector field can hold: every one, one name, or several."
+const Selector = Union{Colon,String,Vector{String}}
+
 "Whether a selector field matches a single name."
-matches(field, x) = field == "all" || (field isa AbstractString ? field == x : x in field)
+matches(::Colon, x)                 = true
+matches(field::AbstractString, x)   = field == x
+matches(field::AbstractVector, x)   = x in field
 
 "A `name => number` dictionary, keyed by strings."
 namekeys(d::AbstractDict) = Dict{String,Float64}(nm(k) => float(v) for (k, v) in d)

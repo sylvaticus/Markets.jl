@@ -114,17 +114,17 @@ Products absent from it are homogeneous.
 
 A product is Armington in every destination or in none, so a specification with
 a finite elasticity for some destinations must be matched either by one for
-each of the others or by an `"all"` fallback.
+each of the others or by a `:` fallback.
 """
 function armington_of(d::MarketData)
     specs    = Dict{Tuple{String,String},Armington}()   # (product, destination)
-    fallback = Dict{String,Armington}()                 # product, from `"all"`
+    fallback = Dict{String,Armington}()                 # product, from `:`
     products = String[]
     for a in d.armington
         a.product in d.products ||
             throw(ArgumentError("Armington specification for unknown product $(a.product)"))
         isfinite(a.sigma) && push!(products, a.product)
-        if a.destination == "all"
+        if a.destination isa Colon
             haskey(fallback, a.product) && throw(ArgumentError(
                 "duplicate Armington specification for $(a.product)"))
             fallback[a.product] = a
@@ -144,7 +144,7 @@ function armington_of(d::MarketData)
         a = get(specs, (p, r), get(fallback, p, nothing))
         a === nothing && throw(ArgumentError(
             "$p is an Armington product but region $r has no specification for " *
-            "it: give one for every region, or one with destination = \"all\""))
+            "it: give one for every region, or one with destination = :"))
         isfinite(a.sigma) || throw(ArgumentError(
             "$p is an Armington product in some regions but homogeneous in $r: " *
             "a product is either homogeneous everywhere or imperfectly " *
@@ -320,59 +320,148 @@ end
 """
 $(TYPEDSIGNATURES)
 
-A [`TradeLimit`](@ref) as the [`Limit`](@ref) it is: the weighted sum of the
-flows of the products it covers, between the regions it covers, at most its
-capacity.
+The quantities of the economy `d` that a [`Limit`](@ref) can name, as the model
+will have them: the `(region, product)` of every supply curve and of every
+product consumed, the `(region, process)` of every activity, the
+`(region, process, nest, product)` of every input, and the
+`(product, from, to)` of every flow between two regions — the routes of a
+homogeneous product, and the origins of an Armington one that a destination
+buys from.
 """
-function as_limit(l::TradeLimit, d::MarketData)
-    covered = [p for p in d.products if matches(l.products, p)]
-    expression = sum((get(l.weights, p, 1.0) * flow(product = p, from = l.from, to = l.to)
-                      for p in covered); init = zero(LimitExpression))
-    return Limit(name = l.name, expression = expression, upper = l.capacity)
+function model_catalogue(d::MarketData)
+    arm = armington_of(d)
+    arm_products = Set(p for (p, _) in keys(arm))
+    can, uses = producible(d), consumed(d)
+    flows = [k for k in keys(d.transport_costs) if !(k[1] in arm_products)]
+    for ((p, r), a) in arm
+        (p, r) in uses || continue
+        _, origins, _ = armington_tree(d, a, r, can)
+        append!(flows, [(p, o, r) for o in origins if o != r])
+    end
+    supply      = [(s.region, s.product) for s in d.supply]
+    consumption = [(s.region, p) for s in d.demand for p in nest_products(s.product)]
+    processes   = [(r, proc) for proc in d.processes for r in regions_of(proc, d)]
+    # the same, indexed by region, so that a limit naming one region does not
+    # scan the whole economy
+    by(f, xs) = (index = Dict{String,Vector{eltype(xs)}}();
+                 foreach(x -> push!(get!(index, f(x), eltype(xs)[]), x), xs); index)
+    return (supply = supply, consumption = consumption, processes = processes, flows = flows,
+            supply_in = by(first, supply), consumption_in = by(first, consumption),
+            processes_in = by(first, processes),
+            flows_from = by(f -> f[2], flows), flows_to = by(f -> f[3], flows),
+            order = Dict(r => i for (i, r) in enumerate(d.regions)))
+end
+
+# The entries of `all` worth looking at for the selector `sel`: those of its
+# region only, through `index`, when it names a single region.
+candidates(all, index, sel) =
+    sel isa AbstractString ? get(index, sel, eltype(all)[]) : all
+
+"""
+$(TYPEDSIGNATURES)
+
+The model variables that the quantity reference `q` selects, each with its
+coefficient, keyed as `(:supply, region, product)`,
+`(:consumption, region, product)`, `(:activity, region, process)`,
+`(:input, region, process, nest, product)` or `(:flow, product, from, to)`.
+Production is supply plus each process's activity times its yield; what a
+fixed-coefficient (Leontief) input draws is its coefficient times the
+activity, while a CES input has a variable of its own.
+"""
+function quantity_keys(q::QuantityRef, d::MarketData, cat)
+    sel = q.selection
+    is(f, x) = matches(getfield(sel, f), x)
+    keys = Pair{Tuple,Float64}[]
+    if q.kind == :supply || q.kind == :production
+        for (r, p) in candidates(cat.supply, cat.supply_in, sel.region)
+            is(:region, r) && is(:product, p) && push!(keys, (:supply, r, p) => 1.0)
+        end
+        q.kind == :production &&
+            for (r, proc) in candidates(cat.processes, cat.processes_in, sel.region),
+                (p, y) in proc.outputs
+                is(:region, r) && is(:product, p) && push!(keys, (:activity, r, proc.name) => y)
+            end
+    elseif q.kind == :consumption
+        for (r, p) in candidates(cat.consumption, cat.consumption_in, sel.region)
+            is(:region, r) && is(:product, p) && push!(keys, (:consumption, r, p) => 1.0)
+        end
+    elseif q.kind == :activity
+        for (r, proc) in candidates(cat.processes, cat.processes_in, sel.region)
+            is(:region, r) && is(:process, proc.name) &&
+                push!(keys, (:activity, r, proc.name) => 1.0)
+        end
+    elseif q.kind == :inputs
+        for (r, proc) in candidates(cat.processes, cat.processes_in, sel.region),
+            (k, nest) in enumerate(proc.inputs), p in nest.products
+            is(:region, r) && is(:process, proc.name) && is(:product, p) || continue
+            push!(keys, length(nest.products) == 1 ?
+                        (:activity, r, proc.name) => nest.composite :
+                        (:input, r, proc.name, k, p) => 1.0)
+        end
+    else
+        pool = q.kind == :flow    ? candidates(cat.flows, cat.flows_from, sel.from) :
+               q.kind == :exports ? candidates(cat.flows, cat.flows_from, sel.region) :
+                                    candidates(cat.flows, cat.flows_to, sel.region)
+        q.kind == :flow && pool === cat.flows && (pool = candidates(cat.flows, cat.flows_to, sel.to))
+        for (p, o, r) in pool
+            is(:product, p) || continue
+            keep = q.kind == :flow    ? is(:from, o) && is(:to, r) :
+                   q.kind == :exports ? is(:region, o) && !is(:region, r) :
+                                        !is(:region, o) && is(:region, r)     # imports
+            keep && push!(keys, (:flow, p, o, r) => 1.0)
+        end
+    end
+    return keys
 end
 
 """
 $(TYPEDSIGNATURES)
 
-The variables and expressions of the model that the quantity reference `q`
-selects, to be summed: `vars` holds the model's supply `S`, final demand `D`,
-activity `z`, cross-border `flows` and process inputs `drawn`.
+The model variables of `limit`, each with its coefficient in the limit's
+expression, the terms that select the same variable added up. A term that
+selects nothing in the economy is an error.
 """
-function quantity_terms(q::QuantityRef, d::MarketData, vars)
-    sel = q.selection
-    is(f, x) = matches(getfield(sel, f), x)
-    terms = Any[]
-    if q.kind == :supply || q.kind == :production
-        for ((r, p), v) in vars.S
-            is(:region, r) && is(:product, p) && push!(terms, v)
-        end
-        if q.kind == :production
-            for proc in d.processes, r in regions_of(proc, d), (p, y) in proc.outputs
-                is(:region, r) && is(:product, p) && push!(terms, y * vars.z[(r, proc.name)])
-            end
-        end
-    elseif q.kind == :consumption
-        for ((r, p), v) in vars.D
-            is(:region, r) && is(:product, p) && push!(terms, v)
-        end
-    elseif q.kind == :activity
-        for ((r, k), v) in vars.z
-            is(:region, r) && is(:process, k) && push!(terms, v)
-        end
-    elseif q.kind == :inputs
-        for ((r, k, _, p), v) in vars.drawn
-            is(:region, r) && is(:process, k) && is(:product, p) && push!(terms, v)
-        end
-    else
-        for ((p, o, r), v) in vars.flows
-            is(:product, p) || continue
-            keep = q.kind == :flow    ? is(:from, o) && is(:to, r) :
-                   q.kind == :exports ? is(:region, o) && !is(:region, r) :
-                                        !is(:region, o) && is(:region, r)     # imports
-            keep && push!(terms, v)
+function limit_terms(limit::Limit, d::MarketData, cat = model_catalogue(d))
+    terms = Dict{Tuple,Float64}()
+    for (q, w) in limit.expression.terms
+        keys = quantity_keys(q, d, cat)
+        isempty(keys) && throw(ArgumentError(
+            "limit $(limit.name): $q matches no quantity of this economy"))
+        for (key, c) in keys
+            terms[key] = get(terms, key, 0.0) + w * c
         end
     end
+    filter!(t -> !iszero(last(t)), terms)
     return terms
+end
+
+describe_key(key::Tuple) =
+    key[1] == :input ? "inputs[$(key[2]), $(key[3]), $(key[5])]" :
+                       string(key[1], "[", join(key[2:end], ", "), "]")
+regions_of_key(key::Tuple) = key[1] == :flow ? [key[3], key[4]] : [key[2]]
+
+# The regions of the variables `keys`, once each, in the order the economy
+# declares them.
+function regions_in_order(keys, d::MarketData, order = Dict(r => i for (i, r) in enumerate(d.regions)))
+    found = unique(r for k in keys for r in regions_of_key(k))
+    return sort(found; by = r -> order[r])
+end
+
+"""
+    Markets.scope(limit, d)
+
+What `limit` applies to in the economy `d`: the `variables` of the model its
+expression involves — `supply[region, product]`, `consumption[region, product]`,
+`activity[region, process]`, `inputs[region, process, product]` and
+`flow[product, from, to]`, production and fixed-coefficient inputs being
+expressed through the activities — and the `regions` those variables belong
+to, in the order the economy declares them. It is what `Results.limits`
+reports for each limit.
+"""
+function scope(limit::Limit, d::MarketData)
+    terms = limit_terms(limit, d)
+    keys = sort(collect(Base.keys(terms)); by = describe_key)
+    return (regions = regions_in_order(keys, d), variables = describe_key.(keys))
 end
 
 """
@@ -473,17 +562,14 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     # so no floor is needed
     S = Dict{Tuple{String,String},VariableRef}()
     for s in d.supply
-        v = @variable(m, lower_bound = 0.0, start = min(s.shift * s.q0, s.capacity), base_name = "S[$(s.region),$(s.product)]")
-        isfinite(s.capacity) && set_upper_bound(v, s.capacity)
-        S[(s.region, s.product)] = v
+        S[(s.region, s.product)] = @variable(m, lower_bound = 0.0, start = s.shift * s.q0,
+                                             base_name = "S[$(s.region),$(s.product)]")
     end
     # process activity levels
     z = Dict{Tuple{String,String},VariableRef}()
     for proc in d.processes, r in regions_of(proc, d)
-        cap = capacity_of(proc, r)
-        v = @variable(m, lower_bound = 0.0, start = min(1.0, cap), base_name = "z[$r,$(proc.name)]")
-        isfinite(cap) && set_upper_bound(v, cap)
-        z[(r, proc.name)] = v
+        z[(r, proc.name)] = @variable(m, lower_bound = 0.0, start = 1.0,
+                                      base_name = "z[$r,$(proc.name)]")
     end
     # trade flows of the homogeneous products  T[(product, from, to)]
     arm = armington_of(d)
@@ -605,34 +691,46 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     end
 
     # --- limits: linear constraints on the quantities ------------------------
-    # The trade limits first, as the limits on flows they are, then the
-    # economy's own. Each becomes one constraint per finite bound, or one
-    # equality.
+    # A limit that is only an upper bound on one variable becomes a bound on it,
+    # which the solver handles at no cost; every other one is a constraint, one
+    # per finite bound, or an equality. Each keeps what is needed to report it:
+    # the value of its expression, and for every bound the dual giving its rent.
+    cat = model_catalogue(d)
     flow_vars = merge(Dict{Tuple{String,String,String},Any}(T),
                       Dict{Tuple{String,String,String},Any}(k => v for (k, v) in X if k[2] != k[3]))
-    vars = (S = S, D = D, z = z, flows = flow_vars, drawn = drawn)
+    variable(key) = key[1] == :supply      ? S[(key[2], key[3])] :
+                    key[1] == :consumption ? D[(key[2], key[3])] :
+                    key[1] == :activity    ? z[(key[2], key[3])] :
+                    key[1] == :input       ? drawn[(key[2], key[3], key[4], key[5])] :
+                                             flow_vars[(key[2], key[3], key[4])]
+    bounded = Set{Tuple}()
+    names = Set{String}()
     limits = NamedTuple[]
-    for (limit, strict) in [[(as_limit(l, d), false) for l in d.trade_limits];
-                            [(l, true) for l in d.limits]]
-        any(l -> l.limit.name == limit.name, limits) && throw(ArgumentError(
-            "duplicate limit named $(limit.name)"))
+    for limit in d.limits
+        limit.name in names && throw(ArgumentError("duplicate limit named $(limit.name)"))
+        push!(names, limit.name)
+        terms = limit_terms(limit, d, cat)
         e = AffExpr(0.0)
-        covered = 0
-        for (q, w) in limit.expression.terms
-            terms = quantity_terms(q, d, vars)
-            strict && isempty(terms) && throw(ArgumentError(
-                "limit $(limit.name): $q matches no quantity of this economy"))
-            covered += length(terms)
-            foreach(t -> add_to_expression!(e, w, t), terms)
+        for (key, w) in terms
+            add_to_expression!(e, w, variable(key))
         end
-        covered == 0 && @warn "limit $(limit.name) covers no quantity of this economy"
-        # a trade limit keeps the name it always had in the model
-        base = strict ? "limit[$(limit.name)]" : "trade_limit[$(limit.name)]"
-        constraints = limit.lower == limit.upper ? [@constraint(m, e == limit.upper, base_name = base)] :
-            ConstraintRef[c for c in (isfinite(limit.upper) ? @constraint(m, e <= limit.upper, base_name = base) : nothing,
-                                      isfinite(limit.lower) ? @constraint(m, e >= limit.lower, base_name = base) : nothing)
-                          if c !== nothing]
-        push!(limits, (limit = limit, expression = e, constraints = constraints))
+        base = "limit[$(limit.name)]"
+        if length(terms) == 1 && only(values(terms)) > 0 && isinf(limit.lower) &&
+           isfinite(limit.upper) && !(only(keys(terms)) in bounded)
+            key, w = only(terms)
+            set_upper_bound(variable(key), limit.upper / w)
+            push!(bounded, key)
+            duals = [(limit.upper, UpperBoundRef(variable(key)), 1 / w)]
+        elseif limit.lower == limit.upper
+            duals = [(limit.upper, @constraint(m, e == limit.upper, base_name = base), 1.0)]
+        else
+            duals = Tuple{Float64,Any,Float64}[]
+            isfinite(limit.upper) &&
+                push!(duals, (limit.upper, @constraint(m, e <= limit.upper, base_name = base), 1.0))
+            isfinite(limit.lower) &&
+                push!(duals, (limit.lower, @constraint(m, e >= limit.lower, base_name = base), 1.0))
+        end
+        push!(limits, (limit = limit, expression = e, duals = duals, terms = terms))
     end
 
     # --- objective: net social surplus --------------------------------------

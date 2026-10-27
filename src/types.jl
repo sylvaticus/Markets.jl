@@ -190,19 +190,13 @@ Base.@kwdef struct SupplySpec
     the exogenous conditions of production enter — the size of the resource,
     the roads and ports, the labour and machinery available — leaving `q0` to hold
     the calibration. [`exogenous_shift`](@ref) builds one from drivers and
-    their elasticities. The default, 1, is the calibrated curve itself
+    their elasticities. The default, 1, is the calibrated curve itself. A hard
+    ceiling on the quantity — an allowable cut, a quota, an exhausted resource
+    — is a [`Limit`](@ref) instead
     """
     shift::Float64 = 1.0
-    """
-    Hard ceiling on the quantity supplied, whatever the price: an allowable
-    cut, a licensed quota, an exhausted resource. Where a shifter scales the
-    curve, this truncates it, and the gap that opens between the price and the
-    marginal cost on the curve is the scarcity rent. `Inf` (the default) leaves
-    the curve unbounded
-    """
-    capacity::Float64 = Inf
 
-    function SupplySpec(product, region, p0, q0, elasticity, shift, capacity)
+    function SupplySpec(product, region, p0, q0, elasticity, shift)
         p0 > 0 && q0 > 0 || throw(ArgumentError(
             "the reference point of the supply of $product in $region must be " *
             "positive, got p0 = $p0, q0 = $q0"))
@@ -211,9 +205,7 @@ Base.@kwdef struct SupplySpec
             "got $elasticity"))
         shift > 0 || throw(ArgumentError(
             "the supply shifter of $product in $region must be positive, got $shift"))
-        capacity > 0 || throw(ArgumentError(
-            "the supply capacity of $product in $region must be positive, got $capacity"))
-        new(nm(product), nm(region), p0, q0, elasticity, shift, capacity)
+        new(nm(product), nm(region), p0, q0, elasticity, shift)
     end
 end
 
@@ -407,101 +399,27 @@ Base.@kwdef struct Process
     make a joint-production process (e.g. petrol *and* diesel from one refinery)
     """
     outputs::Vector{Pair{String,Float64}}
-    "Regions where the process may operate, or `\"all\"` for every region"
-    regions::Union{String,Vector{String}} = "all"
+    "Regions where the process may operate, or `:` (the default) for every region"
+    regions::Selector = (:)
     """
     Value-added cost per unit of activity: the cost of everything not modelled
     as an explicit input (labour, energy, capital, ...). A single number
     applies to every region the process operates in; a `region => cost`
     dictionary sets them one by one, and must then cover every such region.
     Wages, energy and capital do not cost the same everywhere, and a cost
-    calibrated on base-year margins differs from region to region
+    calibrated on base-year margins differs from region to region. The
+    installed capacity of the plants, which bounds the activity, is a
+    [`Limit`](@ref) on it
     """
     vacost::Union{Float64,Dict{String,Float64}} = 0.0
-    """
-    Upper bound on the activity level — the installed capacity of the plants
-    that exist. A single number applies to every region the process operates
-    in; a `region => bound` dictionary sets them one by one, and a region
-    absent from it is unbounded. `Inf` (the default) leaves the process
-    unconstrained, which lets it concentrate wherever production is cheapest
-    """
-    capacity::Union{Float64,Dict{String,Float64}} = Inf
 
-    function Process(name, inputs, outputs, regions, vacost, capacity)
-        caps = capacity isa Dict ? values(capacity) : (capacity,)
-        all(>(0), caps) || throw(ArgumentError(
-            "the capacity of process $name must be positive, got $capacity"))
-        new(nm(name), inputs, namepairs(outputs), selector(regions), namebound(vacost),
-            namebound(capacity))
+    function Process(name, inputs, outputs, regions, vacost)
+        new(nm(name), inputs, namepairs(outputs), selector(regions), namebound(vacost))
     end
 end
-
-"Upper bound on the activity of process `p` in region `r`, `Inf` if unbounded."
-capacity_of(p::Process, r::String) =
-    p.capacity isa Dict ? get(p.capacity, r, Inf) : p.capacity
 
 "Value-added cost per unit of activity of process `p` in region `r`."
 vacost_of(p::Process, r::String) = p.vacost isa Dict ? p.vacost[r] : p.vacost
-
-"""
-$(TYPEDEF)
-
-A ceiling on how much can be carried between regions: the capacity of a port,
-a corridor or a border crossing, or a quota.
-
-The limit applies to the **sum** of the flows it covers, so one entry can cap a
-single product on a single route, or everything crossing a border, or a set of
-products over a set of routes. Domestic use never counts against it: only flows
-that actually move between regions do.
-
-# Fields
-$(TYPEDFIELDS)
-
-# Example
-```julia
-## one product, one route
-TradeLimit(name = "steel_quota", products = "steel", from = "CN", to = "EU",
-           capacity = 12.0)
-
-## everything shipped out of CN, counted in containers through the weights
-TradeLimit(name = "container_port", from = "CN", capacity = 6.0,
-           weights = Dict("cars" => 2.0, "steel" => 0.05, "wine" => 0.04))
-```
-"""
-Base.@kwdef struct TradeLimit
-    "Name of the limit, used to report it"
-    name::String = "limit"
-    "Products it covers, or `\"all\"`"
-    products::Union{String,Vector{String}} = "all"
-    "Origins it covers, or `\"all\"`"
-    from::Union{String,Vector{String}} = "all"
-    "Destinations it covers, or `\"all\"`"
-    to::Union{String,Vector{String}} = "all"
-    "The ceiling itself, in the units the weighted sum is measured in"
-    capacity::Float64
-    """
-    Per-product weights converting quantities into the unit the ceiling is
-    expressed in — containers per tonne for a port limit in containers, say. Products
-    absent from it count with a weight of 1, which is what a limit covering a
-    single product, or products already in one unit, needs
-    """
-    weights::Dict{String,Float64} = Dict{String,Float64}()
-
-    function TradeLimit(name, products, from, to, capacity, weights)
-        capacity > 0 || throw(ArgumentError(
-            "the capacity of trade limit $name must be positive, got $capacity"))
-        all(>(0), values(weights)) || throw(ArgumentError(
-            "the weights of trade limit $name must be positive"))
-        new(nm(name), selector(products), selector(from), selector(to),
-            capacity, namekeys(weights))
-    end
-end
-
-"Whether `limit` covers a flow of `p` from `o` to `r`."
-function covers(limit::TradeLimit, p::String, o::String, r::String)
-    o == r && return false
-    return matches(limit.products, p) && matches(limit.from, o) && matches(limit.to, r)
-end
 
 """
 $(TYPEDEF)
@@ -585,7 +503,7 @@ processes = [refinery, steel_mill,
              disposal(product = "slag", cost = 12)]    # paid disposal
 ```
 """
-disposal(; product::Name, cost::Real = 0.0, regions = "all",
+disposal(; product::Name, cost::Real = 0.0, regions = (:),
            name::Name = string("dispose_", product)) =
     Process(name = name, inputs = [leontief(product = product, coeff = 1.0)],
             outputs = Pair{String,Float64}[], regions = regions, vacost = cost)
@@ -679,13 +597,13 @@ Base.@kwdef struct Armington
     """
     shares::Dict{Tuple{String,String},Float64} = Dict{Tuple{String,String},Float64}()
     """
-    Importing regions this specification applies to, or `"all"` (the default)
+    Importing regions this specification applies to, or `:` (the default)
     for every region without one of their own. A product may have one
-    specification per destination plus an `"all"` fallback, which is how the
+    specification per destination plus a `:` fallback, which is how the
     structure, the elasticity and the shares can differ between importing
     markets
     """
-    destination::Union{String,Vector{String}} = "all"
+    destination::Selector = (:)
     """
     Groups of origins that substitute for each other more closely than for the
     rest, as a vector of [`OriginNest`](@ref)s. Every available origin not
@@ -1145,7 +1063,7 @@ what one side of a transaction pays and what the other receives.
 unit of activity, per tonne shipped — and a fraction of it when `relative` is
 `true`: of the price received for `"supply"`, of the price paid for `"demand"`, of
 the value-added cost for `"process"`, of the price at the origin for `"trade"`.
-Selectors left at `"all"` match everything, and several taxes may fall on the
+Selectors left at `:` match everything, and several taxes may fall on the
 same base, in which case the absolute rates add and so do the relative ones.
 
 !!! warning "A taxed equilibrium is not a welfare maximum"
@@ -1184,16 +1102,16 @@ Base.@kwdef struct Tax
     rate::Float64
     "Whether `rate` is a fraction of the base rather than an amount per unit"
     relative::Bool = false
-    "Products it falls on, or `\"all\"`"
-    product::Union{String,Vector{String}} = "all"
-    "Regions it falls on, or `\"all\"` — the producing or consuming region"
-    region::Union{String,Vector{String}} = "all"
-    "Processes it falls on, or `\"all\"`"
-    process::Union{String,Vector{String}} = "all"
+    "Products it falls on, or `:` for every one"
+    product::Selector = (:)
+    "Regions it falls on, or `:` for every one — the producing or consuming region"
+    region::Selector = (:)
+    "Processes it falls on, or `:` for every one"
+    process::Selector = (:)
     "Origins, for a tax on trade"
-    from::Union{String,Vector{String}} = "all"
+    from::Selector = (:)
     "Destinations, for a tax on trade"
-    to::Union{String,Vector{String}} = "all"
+    to::Selector = (:)
 
     function Tax(name, on, rate, relative, product, region, process, from, to)
         base = nm(on)
@@ -1269,13 +1187,10 @@ Base.@kwdef struct MarketData
     """
     armington::Vector{Armington} = Armington[]
     """
-    Ceilings on what can be carried between regions, as a vector of
-    [`TradeLimit`](@ref)s. Each caps the weighted sum of the flows it covers
-    """
-    trade_limits::Vector{TradeLimit} = TradeLimit[]
-    """
     Linear constraints on any of the quantities of the model, as a vector of
-    [`Limit`](@ref)s: shared resources, quotas, minimum shares, fixed sums
+    [`Limit`](@ref)s: the capacity of a plant, an allowable cut, a ceiling on
+    what a port can ship, a resource several products share, a quota, a
+    minimum share, a fixed sum
     """
     limits::Vector{Limit} = Limit[]
     """
@@ -1294,12 +1209,12 @@ Base.@kwdef struct MarketData
         Dict{Tuple{String,String,String},Float64}()
 
     function MarketData(regions, products, demand, supply, processes, armington,
-                        trade_limits, limits, taxes, transport_costs)
+                        limits, taxes, transport_costs)
         new(nms(regions), nms(products), demand, supply, processes, armington,
-            trade_limits, limits, taxes, namekeys3(transport_costs))
+            limits, taxes, namekeys3(transport_costs))
     end
 end
 
 # a single region is stored as a bare string, which must not be iterated as one
-regions_of(p::Process, d::MarketData) = p.regions == "all" ? d.regions :
+regions_of(p::Process, d::MarketData) = p.regions isa Colon ? d.regions :
                                         p.regions isa String ? [p.regions] : p.regions

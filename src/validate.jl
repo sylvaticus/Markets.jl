@@ -20,12 +20,13 @@ be called directly.  The checks are:
 
 * `regions` and `products` are non-empty and free of duplicates;
 * every product and region named anywhere — in a curve, a process, a transport
-  route, an [`Armington`](@ref) specification, a [`TradeLimit`](@ref) or a
+  route, an [`Armington`](@ref) specification, a [`Limit`](@ref) or a
   [`Tax`](@ref) — is one of those declared;
 * no two [`SupplySpec`](@ref)s and no two [`DemandSpec`](@ref)s describe the
   same product in the same region, and no two [`Process`](@ref)es share a name;
 * a transport route goes between two different regions;
-* a selector of a tax or a trade limit matches something;
+* a selector of a tax or a limit names something the economy declares, and no
+  two limits share a name;
 * no process produces out of nothing at no cost, which would make the economy
   unbounded.
 """
@@ -46,7 +47,7 @@ function validate(d::MarketData)
     check_region(r, what) = r in regions ||
         fail("$what names the region $r, which the economy does not declare")
     check_selector(field, set, what, kind) =
-        field == "all" || for x in (field isa AbstractString ? [field] : field)
+        field isa Colon || for x in (field isa AbstractString ? [field] : field)
             x in set || fail("$what selects the $kind $x, which the economy does " *
                              "not declare")
         end
@@ -76,7 +77,7 @@ function validate(d::MarketData)
     allunique(names) || fail("these processes are declared more than once: " *
                              "$(join(duplicates(names), ", "))")
     for proc in d.processes
-        proc.regions == "all" || for r in regions_of(proc, d)
+        proc.regions isa Colon || for r in regions_of(proc, d)
             check_region(r, "process $(proc.name)")
         end
         for nest in proc.inputs, p in nest.products
@@ -84,9 +85,6 @@ function validate(d::MarketData)
         end
         for (p, _) in proc.outputs
             check_product(p, "an output of process $(proc.name)")
-        end
-        proc.capacity isa Dict && for r in keys(proc.capacity)
-            check_region(r, "the capacity of process $(proc.name)")
         end
         if proc.vacost isa Dict
             for r in keys(proc.vacost)
@@ -99,12 +97,14 @@ function validate(d::MarketData)
                 "$(join(missed, ", ")) but its value-added cost gives none there")
         end
         # a process with nothing to buy and nothing to pay is a free source of
-        # its outputs, and the economy around it has no finite optimum
-        isempty(proc.inputs) && maximum_vacost(proc) <= 0 &&
-            !isfinite(maximum_capacity(proc)) &&
+        # its outputs, and the economy around it has no finite optimum unless a
+        # limit holds its activity back
+        held = any(q.kind == :activity && matches(q.selection.process, proc.name)
+                   for l in d.limits for (q, _) in l.expression.terms)
+        isempty(proc.inputs) && maximum_vacost(proc) <= 0 && !held &&
             fail("process $(proc.name) has no inputs, no value-added cost and no " *
-                 "capacity, so it would produce without limit; give it an input, a " *
-                 "cost or a capacity")
+                 "limit on its activity, so it would produce without limit; give it " *
+                 "an input, a cost or a limit")
     end
 
     # --- trade --------------------------------------------------------------
@@ -133,7 +133,7 @@ function validate(d::MarketData)
     end
 
     # --- limits and taxes ---------------------------------------------------
-    limit_names = [[l.name for l in d.trade_limits]; [l.name for l in d.limits]]
+    limit_names = [l.name for l in d.limits]
     allunique(limit_names) || fail("these limits are declared more than once: " *
                                    "$(join(duplicates(limit_names), ", "))")
     fields = Dict(:region => (regions, "region"), :from => (regions, "region"),
@@ -143,20 +143,12 @@ function validate(d::MarketData)
         set, kind = fields[f]
         check_selector(value, set, "limit $(limit.name)", kind)
     end
-    for limit in d.trade_limits
-        check_selector(limit.products, products, "trade limit $(limit.name)", "product")
-        check_selector(limit.from, regions, "trade limit $(limit.name)", "region")
-        check_selector(limit.to, regions, "trade limit $(limit.name)", "region")
-        for p in keys(limit.weights)
-            check_product(p, "the weights of trade limit $(limit.name)")
-        end
-    end
     for t in d.taxes
         what = "tax $(t.name)"
         used, unused = tax_selectors(t.on)
         for (field, value) in ((:product, t.product), (:region, t.region),
                                (:process, t.process), (:from, t.from), (:to, t.to))
-            value == "all" && continue
+            value isa Colon && continue
             field in unused && fail("$what falls on $(t.on), which ignores the " *
                                     "`$field` selector; it would apply more widely " *
                                     "than it looks. Use $(join(used, ", ")) instead")
@@ -176,11 +168,6 @@ duplicates(xs) = unique(x for x in xs if count(==(x), xs) > 1)
 "The largest value-added cost a process pays anywhere."
 maximum_vacost(p::Process) =
     p.vacost isa Dict ? (isempty(p.vacost) ? 0.0 : maximum(values(p.vacost))) : p.vacost
-
-"The largest capacity a process may run at anywhere, `Inf` if unbounded."
-maximum_capacity(p::Process) =
-    p.capacity isa Dict ? (isempty(p.capacity) ? Inf : maximum(values(p.capacity))) :
-                          p.capacity
 
 """
 $(TYPEDSIGNATURES)

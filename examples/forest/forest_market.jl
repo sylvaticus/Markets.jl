@@ -324,9 +324,10 @@ nothing # hide
 pulp_regions = ["SWF", "OF", "EU", "NA", "AS", "RW"]
 
 # Pellet mills, by contrast, exist everywhere — but only so many of them. A
-# [`Process`](@ref) with constant returns and no `capacity` would pile into
-# whichever region makes pellets most cheaply; the installed plant is what
-# stops it, region by region:
+# [`Process`](@ref) with constant returns would pile into whichever region makes
+# pellets most cheaply; the installed plant is what stops it, region by region.
+# The plants' capacity, in Mt of pellets a year, becomes a limit on the mills'
+# activity further down:
 
 pellet_capacity = Dict("SEF" => 0.427, "SWF" => 0.50, "GEF" => 0.349, "OF" => 0.645,
                        "EU"  => 28.3,  "NA"  => 15.3, "AS"  => 19.9,  "RW" => 14.1)
@@ -372,7 +373,6 @@ processes = [
     ## the pellet mill bids for the same wood as the panel and pulp mills, and
     ## for the same smallwood that households would otherwise burn as it comes
     Process(name    = "pelletmill",
-            capacity = pellet_capacity,
             inputs  = [ces(composite = 2.2,            # m³ of wood per tonne
                            products  = ["chips", "smallwood", "swr", "hwr"],
                            shares    = [0.40, 0.40, 0.12, 0.08],
@@ -549,16 +549,31 @@ forest_limits(stock) =
 
 forest_limits(stock)[1:7]
 
-# ### Logistics and policy
+# ### Plants, logistics and policy
 #
-# Wood leaving the Landes has to be carried on the roads and through the ports
-# that are there. A [`TradeLimit`](@ref) caps the **sum** of the flows it
-# covers, so one entry limits all the roundwood `SWF` can send anywhere. At
-# 18 Mm³ it is slack in a normal year — the region ships about 12 — and the
-# storm scenario at the end is what makes it bite.
+# The pellet plants are the simplest kind of limit: one per region, on the
+# activity of its pellet mills. A family of limits, one per region, is what
+# [`@limits`](@ref) writes — `pellet_plant[SEF]`, `pellet_plant[SWF]`, and so on:
 
-trade_limits = [TradeLimit(name = "landes_evacuation", products = ["swr", "smallwood"],
-                           from = "SWF", capacity = 18.0)]
+pellet_limits = @limits "pellet_plant" [r in regions] activity(region = r, process = "pelletmill") <=
+                                                      pellet_capacity[r]
+pellet_limits[1:2]
+
+# Wood leaving the Landes has to be carried on the roads and through the ports
+# that are there. One limit caps the **sum** of what `SWF` exports of the two
+# products that travel by road, wherever it goes. At 18 Mm³ it is slack in a
+# normal year — the region ships about 13 — and the storm scenario at the end
+# is what makes it bite.
+
+evacuation = @limit("landes_evacuation",
+                    exports(region = "SWF", product = ["swr", "smallwood"]) <= 18.0)
+nothing # hide
+
+# All the limits of the economy, for a given stock of the stands — the
+# scenarios below change the stock and nothing else:
+
+all_limits(stock) = [forest_limits(stock); pellet_limits; evacuation]
+nothing # hide
 
 # And the rest of the world taxes its log exports, as several timber exporters
 # do, to keep the wood at home for its own mills. The rate is **ad valorem**, a
@@ -573,8 +588,8 @@ taxes = [Tax(name = "rw_log_duty", on = "trade", product = ["swr", "hwr"], from 
 # ## Solving
 
 example_market = MarketData(; regions, products, demand, supply, processes,
-                              transport_costs, armington, trade_limits, taxes,
-                              limits = forest_limits(stock))
+                              transport_costs, armington, taxes,
+                              limits = all_limits(stock))
 
 res = solve_market(example_market)
 nothing # hide
@@ -784,7 +799,7 @@ nothing # hide
 felled = merge(stock, Dict("SWF" => (conifers = stock["SWF"].conifers + 30.0,
                                      broadleaves = stock["SWF"].broadleaves)))
 storm = solve_market(reconfigure(example_market, supply = salvage,
-                                 limits = forest_limits(felled)))
+                                 limits = all_limits(felled)))
 nothing # hide
 
 # The question a spatial model exists to answer is how far the shock travels.
@@ -869,7 +884,7 @@ gas.activity[gas.activity.process .== "pelletmill", :]
 
 protected = Dict(r => r in france ? (conifers = 2 / 3 * s.conifers, broadleaves = 2 / 3 * s.broadleaves) : s
                  for (r, s) in stock)
-aside = solve_market(reconfigure(example_market, limits = forest_limits(protected)))
+aside = solve_market(reconfigure(example_market, limits = all_limits(protected)))
 nothing # hide
 
 # Now the French regions hit their stands, and the limits that bind are those
@@ -1000,7 +1015,7 @@ save_outcomes("uncalibrated.csv", ["reference" => res, "storm" => storm, "gas" =
 #   between region centroids.
 # * Drive a multi-period run from outside: call `solve_market` once per period
 #   and update each region's supply `shift` from the standing volume left after
-#   the harvest, and each mill's `capacity` from what was built. The engine
+#   the harvest, and each mill's capacity limit from what was built. The engine
 #   stays static on purpose — the time loop belongs to whatever uses it.
 
 #src ---------------------------------------------------------------------------
