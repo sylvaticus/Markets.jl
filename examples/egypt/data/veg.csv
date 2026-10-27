@@ -1,0 +1,16 @@
+region,season,area
+u-egypt,winter,42.0
+u-egypt,summer,40.0
+u-egypt,nili,50.0
+m-egypt,winter,101.0
+m-egypt,summer,114.0
+m-egypt,nili,100.0
+e-delta,winter,129.0
+e-delta,summer,154.0
+e-delta,nili,124.0
+m-delta,winter,84.0
+m-delta,summer,117.0
+m-delta,nili,95.0
+w-delta,winter,85.0
+w-delta,summer,180.0
+w-delta,nili,105.0

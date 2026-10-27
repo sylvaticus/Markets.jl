@@ -98,10 +98,16 @@ nest_products(p::String, acc = String[]) = push!(acc, p)
 """
 $(TYPEDEF)
 
-Constant-elasticity *final* demand for one product in one region, calibrated to
-pass through the reference point `(q0, p0)`.
+*Final* demand for one product in one region. The curve is given in one of
+two ways:
 
-Inverse demand is `P = a · D^(-1/η)` with `a = p0 · q0^(1/η)`.
+* by a **reference point** `(q0, p0)` and the own-price `elasticity` there.
+  The curve has constant elasticity by default, `D = q0 · (p/p0)^(-η)`, or is
+  the straight line through the point with that slope, with `form = :linear`;
+* by the **coefficients** of a straight line, `D = alpha + beta · p`, with
+  `alpha > 0` the quantity demanded at a zero price and `beta < 0`.
+
+Either way, `shift` multiplies the quantity demanded at every price.
 
 # Fields
 $(TYPEDFIELDS)
@@ -109,64 +115,93 @@ $(TYPEDFIELDS)
 # Example
 ```julia
 DemandSpec(product = "gasoline", region = "EU", p0 = 900, q0 = 80, elasticity = 0.3)
+DemandSpec(product = "gasoline", region = "EU", p0 = 900, q0 = 80, elasticity = 0.3,
+           form = :linear)                       # the tangent line at the same point
+DemandSpec(product = "wheat", region = "A", alpha = 200, beta = -9)
 ```
 """
-Base.@kwdef struct DemandSpec
+struct DemandSpec
     """
     The consumed product, or a [`DemandNest`](@ref) of products that substitute
-    for each other, in which case the reference point and the elasticity below
-    describe the **composite** of the group
+    for each other, in which case the curve describes the **composite** of the
+    group
     """
     product::Union{String,DemandNest}
     "Region where the product is consumed"
     region::String
-    "Reference price, i.e. the price at which the quantity demanded is `q0`"
+    """
+    Shape of the curve: `:isoelastic`, the same elasticity at every price, or
+    `:linear`, the same slope. Giving `alpha` and `beta` makes it `:linear`
+    """
+    form::Symbol
+    "Reference price, i.e. the price at which the quantity demanded is `q0`; `NaN` for a line given by its coefficients"
     p0::Float64
-    "Reference quantity, i.e. the quantity demanded at price `p0`"
+    "Reference quantity, i.e. the quantity demanded at price `p0`; `NaN` for a line given by its coefficients"
     q0::Float64
     """
-    Own-price demand elasticity ``\\eta``, which must be positive. Any value is
-    allowed: for ``\\eta \\le 1`` the benefit term of the objective is an
-    antiderivative of the inverse demand rather than the integral from zero,
-    which leaves the equilibrium and the prices unchanged but makes the
-    reported objective value a welfare *difference* rather than a level.
-    `Inf` makes the curve flat: any quantity is bought at `p0`, as an export
-    market at a given world price is (`q0`, which then plays no role, must
-    still be positive, and `shift` has no effect)
+    Own-price demand elasticity ``\\eta`` at the reference point, which must be
+    positive. Any value is allowed: for ``\\eta \\le 1`` the benefit term of
+    the objective is an antiderivative of the inverse demand rather than the
+    integral from zero, which leaves the equilibrium and the prices unchanged
+    but makes the reported objective value a welfare *difference* rather than
+    a level. `Inf` makes the curve flat, in either form: any quantity is
+    bought at `p0`, as an export market at a given world price is (`q0`, which
+    then plays no role, must still be positive, and `shift` has no effect).
+    `NaN` for a line given by its coefficients
     """
     elasticity::Float64
     """
-    Multiplicative shifter of the whole curve: the quantity demanded at any
-    given price is `shift` times what the reference point implies. It is how
-    everything other than the price enters demand — income, population, the
-    price of a substitute outside the model — leaving `q0` to hold the
-    calibration. [`exogenous_shift`](@ref) builds one from drivers and their
-    elasticities. The default, 1, is the calibrated curve itself
+    Quantity demanded at a zero price, ``\\alpha`` in ``D = \\alpha + \\beta p``,
+    for a linear curve; given, or derived from the reference point. `NaN` for a
+    constant-elasticity curve
     """
-    shift::Float64 = 1.0
+    alpha::Float64
+    """
+    Slope ``\\beta = dD/dp < 0`` of a linear curve; given, or derived from the
+    reference point. `NaN` for a constant-elasticity curve
+    """
+    beta::Float64
+    """
+    Multiplicative shifter of the whole curve: the quantity demanded at any
+    given price is `shift` times what the curve otherwise implies. It is how
+    everything other than the price enters demand — income, population, the
+    price of a substitute outside the model — leaving the reference point or
+    the coefficients to hold the calibration. [`exogenous_shift`](@ref) builds
+    one from drivers and their elasticities. The default, 1, is the calibrated
+    curve itself
+    """
+    shift::Float64
 
-    function DemandSpec(product, region, p0, q0, elasticity, shift)
-        p0 > 0 && q0 > 0 || throw(ArgumentError(
-            "the reference point of the demand for $product in $region must be " *
-            "positive, got p0 = $p0, q0 = $q0"))
-        elasticity > 0 || throw(ArgumentError(
-            "the demand elasticity of $product in $region must be positive, " *
-            "got $elasticity"))
+    function DemandSpec(product, region, form, p0, q0, elasticity, alpha, beta, shift)
         shift > 0 || throw(ArgumentError(
             "the demand shifter of $product in $region must be positive, got $shift"))
         new(product isa DemandNest ? product : nm(product), nm(region),
-            p0, q0, elasticity, shift)
+            form, p0, q0, elasticity, alpha, beta, shift)
     end
 end
+
+DemandSpec(; product, region, p0 = nothing, q0 = nothing, elasticity = nothing,
+           alpha = nothing, beta = nothing, form = nothing, shift = 1.0) =
+    DemandSpec(product, region,
+               curve_parameters(:demand, "$product in $region", p0, q0, elasticity,
+                                alpha, beta, form)..., shift)
 
 """
 $(TYPEDEF)
 
-Constant-elasticity *primary* supply (e.g. crude oil from wells, ore from a
-mine, fish from the sea, crops from land) for one product in one region, calibrated to pass
-through the reference point `(q0, p0)`.
+*Primary* supply (e.g. crude oil from wells, ore from a mine, fish from the
+sea, crops from land) of one product in one region. The curve is given in one
+of two ways:
 
-Inverse supply is `P = b · S^(1/ε)` with `b = p0 · q0^(-1/ε)`.
+* by a **reference point** `(q0, p0)` and the own-price `elasticity` there.
+  The curve has constant elasticity by default, `S = q0 · (p/p0)^ε`, or is
+  the straight line through the point with that slope, with `form = :linear`;
+* by the **coefficients** of a straight line, `S = alpha + beta · p`, with
+  `beta > 0`. `alpha` may have either sign: negative, nothing is supplied
+  below the price `-alpha/beta`; positive, something is supplied even at a
+  zero price.
+
+Either way, `shift` multiplies the quantity supplied at every price.
 
 # Fields
 $(TYPEDFIELDS)
@@ -174,49 +209,158 @@ $(TYPEDFIELDS)
 # Example
 ```julia
 SupplySpec(product = "crude", region = "US", p0 = 550, q0 = 600, elasticity = 0.4)
+SupplySpec(product = "crude", region = "US", p0 = 550, q0 = 600, elasticity = 0.4,
+           form = :linear)                       # the tangent line at the same point
+SupplySpec(product = "wheat", region = "A", alpha = -50, beta = 10.5)
 ```
 """
-Base.@kwdef struct SupplySpec
+struct SupplySpec
     "Supplied product"
     product::String
     "Region where the product is supplied"
     region::String
-    "Reference price, i.e. the price at which the quantity supplied is `q0`"
+    """
+    Shape of the curve: `:isoelastic`, the same elasticity at every price, or
+    `:linear`, the same slope. Giving `alpha` and `beta` makes it `:linear`
+    """
+    form::Symbol
+    "Reference price, i.e. the price at which the quantity supplied is `q0`; `NaN` for a line given by its coefficients"
     p0::Float64
-    "Reference quantity, i.e. the quantity supplied at price `p0`"
+    "Reference quantity, i.e. the quantity supplied at price `p0`; `NaN` for a line given by its coefficients"
     q0::Float64
     """
-    Own-price supply elasticity ``\\varepsilon``, which must be positive.
-    `Inf` makes the curve flat: any quantity is sold at `p0`, as imports at a
-    given world price are (`q0`, which then plays no role, must still be
-    positive, and `shift` has no effect). A flat supply that can reach a flat
-    demand paying more than it costs, transport and taxes included, leaves
-    the market without a finite answer
+    Own-price supply elasticity ``\\varepsilon`` at the reference point, which
+    must be positive. `Inf` makes the curve flat, in either form: any quantity
+    is sold at `p0`, as imports at a given world price are (`q0`, which then
+    plays no role, must still be positive, and `shift` has no effect). A flat
+    supply that can reach a flat demand paying more than it costs, transport
+    and taxes included, leaves the market without a finite answer. `NaN` for a
+    line given by its coefficients
     """
     elasticity::Float64
     """
-    Multiplicative shifter of the whole curve: the quantity supplied at any
-    given price is `shift` times what the reference point implies. It is how
-    the exogenous conditions of production enter — the size of the resource,
-    the roads and ports, the labour and machinery available — leaving `q0` to hold
-    the calibration. [`exogenous_shift`](@ref) builds one from drivers and
-    their elasticities. The default, 1, is the calibrated curve itself. A hard
-    ceiling on the quantity — an allowable cut, a quota, an exhausted resource
-    — is a [`Limit`](@ref) instead
+    Quantity supplied at a zero price, ``\\alpha`` in ``S = \\alpha + \\beta p``,
+    for a linear curve; given, or derived from the reference point. `NaN` for a
+    constant-elasticity curve
     """
-    shift::Float64 = 1.0
+    alpha::Float64
+    """
+    Slope ``\\beta = dS/dp > 0`` of a linear curve; given, or derived from the
+    reference point. `NaN` for a constant-elasticity curve
+    """
+    beta::Float64
+    """
+    Multiplicative shifter of the whole curve: the quantity supplied at any
+    given price is `shift` times what the curve otherwise implies. It is how
+    the exogenous conditions of production enter — the size of the resource,
+    the roads and ports, the labour and machinery available — leaving the
+    reference point or the coefficients to hold the calibration.
+    [`exogenous_shift`](@ref) builds one from drivers and their elasticities.
+    The default, 1, is the calibrated curve itself. A hard ceiling on the
+    quantity — an allowable cut, a quota, an exhausted resource — is a
+    [`Limit`](@ref) instead
+    """
+    shift::Float64
 
-    function SupplySpec(product, region, p0, q0, elasticity, shift)
-        p0 > 0 && q0 > 0 || throw(ArgumentError(
-            "the reference point of the supply of $product in $region must be " *
-            "positive, got p0 = $p0, q0 = $q0"))
-        elasticity > 0 || throw(ArgumentError(
-            "the supply elasticity of $product in $region must be positive, " *
-            "got $elasticity"))
+    function SupplySpec(product, region, form, p0, q0, elasticity, alpha, beta, shift)
         shift > 0 || throw(ArgumentError(
             "the supply shifter of $product in $region must be positive, got $shift"))
-        new(nm(product), nm(region), p0, q0, elasticity, shift)
+        new(nm(product), nm(region), form, p0, q0, elasticity, alpha, beta, shift)
     end
+end
+
+SupplySpec(; product, region, p0 = nothing, q0 = nothing, elasticity = nothing,
+           alpha = nothing, beta = nothing, form = nothing, shift = 1.0) =
+    SupplySpec(product, region,
+               curve_parameters(:supply, "$product in $region", p0, q0, elasticity,
+                                alpha, beta, form)..., shift)
+
+# Julia picks a method by the types of the positional arguments, never by the
+# names of the keywords, so the two ways of giving a curve share one keyword
+# constructor, and this sorts out which one was used: it returns the fields
+# `(form, p0, q0, elasticity, alpha, beta)`.
+function curve_parameters(kind::Symbol, what::String, p0, q0, elasticity, alpha, beta, form)
+    given(x) = x !== nothing
+    point, line = (p0, q0, elasticity), (alpha, beta)
+    shape = form === nothing ? nothing : Symbol(form)
+    shape in (nothing, :isoelastic, :linear) || throw(ArgumentError(
+        "the $kind of $what has form $(repr(form)): it must be :isoelastic or :linear"))
+    if any(given, line)
+        any(given, point) && throw(ArgumentError(
+            "the $kind of $what is given both by a reference point (p0, q0, elasticity) " *
+            "and by the coefficients of a line (alpha, beta): give one or the other"))
+        all(given, line) || throw(ArgumentError(
+            "the linear $kind of $what needs both alpha and beta"))
+        shape === :isoelastic && throw(ArgumentError(
+            "alpha and beta describe a straight line, so the $kind of $what cannot " *
+            "be :isoelastic"))
+        α, β = float(alpha), float(beta)
+        isfinite(α) && isfinite(β) || throw(ArgumentError(
+            "the coefficients of the $kind of $what must be finite, got alpha = $α, beta = $β"))
+        if kind === :demand
+            α > 0 && β < 0 || throw(ArgumentError(
+                "a linear demand D = alpha + beta·p needs alpha > 0 and beta < 0; " *
+                "the demand for $what has alpha = $α, beta = $β"))
+        else
+            β > 0 || throw(ArgumentError(
+                "a linear supply S = alpha + beta·p needs beta > 0; " *
+                "the supply of $what has beta = $β"))
+        end
+        return (:linear, NaN, NaN, NaN, α, β)
+    end
+    all(given, point) || throw(ArgumentError(
+        "the $kind of $what needs either a reference point and its elasticity " *
+        "(p0, q0, elasticity) or the coefficients of a line (alpha, beta)"))
+    p, q, e = float(p0), float(q0), float(elasticity)
+    p > 0 && q > 0 || throw(ArgumentError(
+        "the reference point of the $kind of $what must be positive, got p0 = $p, q0 = $q"))
+    e > 0 || throw(ArgumentError(
+        "the $kind elasticity of $what must be positive, got $e"))
+    # a flat curve is the same in both forms, and has no finite slope
+    (shape === :linear && isfinite(e)) || return (:isoelastic, p, q, e, NaN, NaN)
+    β = (kind === :demand ? -e : e) * q / p
+    return (:linear, p, q, e, q - β * p, β)
+end
+
+# Where a curve sits, as a quantity: its reference quantity, or, for a line
+# given by its coefficients, a quantity of its order of magnitude (half what is
+# demanded at a zero price; for supply what is supplied at a zero price, or
+# offered at twice the price where supply starts). It starts the solver and
+# scales the numerical tolerances; it does not calibrate anything.
+reference_quantity(s::DemandSpec) = isnan(s.q0) ? s.alpha / 2 : s.q0
+reference_quantity(s::SupplySpec) = isnan(s.q0) ? (iszero(s.alpha) ? s.beta : abs(s.alpha)) : s.q0
+
+"""
+$(TYPEDSIGNATURES)
+
+The price along the supply curve `s` at quantity `q`: the marginal cost of the
+`q`-th unit, before any tax.
+"""
+supply_price(s::SupplySpec, q::Real) =
+    s.form === :linear ? (q / s.shift - s.alpha) / s.beta :
+                         s.p0 * (q / (s.shift * s.q0))^(1 / s.elasticity)
+
+"""
+$(TYPEDSIGNATURES)
+
+The price along the demand curve `s` at quantity `q`: the willingness to pay
+for the `q`-th unit, before any tax.
+"""
+demand_price(s::DemandSpec, q::Real) =
+    s.form === :linear ? (q / s.shift - s.alpha) / s.beta :
+                         s.p0 * (q / (s.shift * s.q0))^(-1 / s.elasticity)
+
+function Base.show(io::IO, s::Union{DemandSpec,SupplySpec})
+    print(io, s isa DemandSpec ? "DemandSpec" : "SupplySpec", "(product = ", repr(s.product),
+          ", region = ", repr(s.region))
+    if isnan(s.p0)
+        print(io, ", alpha = ", s.alpha, ", beta = ", s.beta)
+    else
+        print(io, ", p0 = ", s.p0, ", q0 = ", s.q0, ", elasticity = ", s.elasticity)
+        s.form === :linear && print(io, ", form = :linear")
+    end
+    s.shift == 1 || print(io, ", shift = ", s.shift)
+    print(io, ")")
 end
 
 """

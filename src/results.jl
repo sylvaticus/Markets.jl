@@ -369,8 +369,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
             for spec in d.supply
                 selects(t.product, spec.product) && selects(t.region, spec.region) || continue
                 q  = val(S[(spec.region, spec.product)])
-                mc = spec.p0 * (spec.shift * spec.q0)^(-1 / spec.elasticity) *
-                     q^(1 / spec.elasticity)        # the untaxed marginal cost
+                mc = supply_price(spec, q)        # the untaxed marginal cost
                 revenue += (t.relative ? t.rate * mc : t.rate) * q
             end
         elseif t.on == "demand"

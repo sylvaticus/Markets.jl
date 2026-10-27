@@ -142,6 +142,42 @@ Which of the two to use for which driver, and when to model the factors
 explicitly instead, is set out in
 [Everything other than the price](@ref).
 
+### Straight lines and flat curves
+
+Demand and supply curves have constant elasticity by default. Either can be a
+straight line instead, given in one of two ways:
+
+```julia
+# through a reference point, with the elasticity there: the tangent line
+DemandSpec(product = "wheat", region = "EG", p0 = 88, q0 = 7634, elasticity = 0.55,
+           form = :linear)
+# by its coefficients, D = alpha + beta·p and S = alpha + beta·p
+DemandSpec(product = "wheat", region = "A", alpha = 200, beta = -9)
+SupplySpec(product = "wheat", region = "A", alpha = -50, beta = 10.5)
+```
+
+The coefficients carry their signs as a regression would estimate them:
+`beta < 0` for demand, `beta > 0` for supply, and for demand `alpha > 0`, the
+quantity demanded at a zero price. A supply `alpha` may have either sign:
+negative, nothing is supplied below the price `-alpha/beta`. Giving both a
+reference point and coefficients is an error, as is giving neither. In either
+form, `shift` multiplies the quantity at every price.
+
+An `elasticity` of `Inf` makes the curve flat, in either form: a price given
+from outside, at which any quantity is bought or sold. It is how a small
+country meets the world market, the region `"world"` selling at the import
+price and buying at the export price:
+
+```julia
+supply = [SupplySpec(product = "wheat", region = "world", p0 = 96.8, q0 = 1, elasticity = Inf)]
+demand = [DemandSpec(product = "wheat", region = "world", p0 = 88.0, q0 = 1, elasticity = Inf)]
+```
+
+`q0` plays no role on a flat curve but must still be positive. The import price
+has to be above the export price, transport included, or buying from the world
+to sell back to it would be a profit without end, and the market has no
+answer.
+
 ### Processes and input nests
 
 A [`Process`](@ref) turns inputs into outputs at a level of activity ``z``
@@ -697,6 +733,15 @@ terminal.
 ```bash
 julia --project=docs examples/forest/forest_market.jl
 ```
+
+Two more pages port models published with their code, from the GAMS model
+library, and check each port against the original.
+[Takayama and Judge](@ref "Takayama and Judge: two products, three regions")
+is the textbook spatial equilibrium with straight-line supply and demand, and
+[Egyptian agriculture](@ref "Egyptian agriculture, 1980") a sector model of
+1980: crops as processes, land, water and labour by month as limits, livestock
+fed from fodder, and a small country trading at world prices. Its port is
+compared line by line with a JuMP transcription of the original.
 
 ## How to amend an economy
 

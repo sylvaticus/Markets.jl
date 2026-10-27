@@ -1,0 +1,10 @@
+from,to,cost
+m-egypt,m-egypt,0.0
+m-egypt,e-delta,6.0
+m-egypt,m-delta,7.0
+e-delta,m-egypt,6.0
+e-delta,e-delta,0.0
+e-delta,m-delta,3.0
+m-delta,m-egypt,7.0
+m-delta,e-delta,3.0
+m-delta,m-delta,0.0

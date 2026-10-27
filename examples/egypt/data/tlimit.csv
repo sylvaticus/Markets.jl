@@ -1,0 +1,13 @@
+crop,direction,limit
+w-onion,exports,60
+w-tomato,exports,100
+cotton,exports,inf
+s+n-tomato,exports,100
+citrus,exports,110
+potato,exports,150
+rice,exports,300
+wheat,imports,5000
+horse-bean,imports,inf
+maize,imports,inf
+veg-oil,imports,inf
+lentils,imports,50

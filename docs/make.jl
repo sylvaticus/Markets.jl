@@ -10,7 +10,9 @@ using Markets
 const EXAMPLES = [joinpath(@__DIR__, "..", "examples", "minimal", "minimal_market.jl"),
                   joinpath(@__DIR__, "..", "examples", "forest",  "forest_market.jl"),
                   joinpath(@__DIR__, "..", "examples", "forest",  "forest_calibration.jl"),
-                  joinpath(@__DIR__, "..", "examples", "forest",  "forest_full_data.jl")]
+                  joinpath(@__DIR__, "..", "examples", "forest",  "forest_full_data.jl"),
+                  joinpath(@__DIR__, "..", "examples", "spatequ", "spatequ.jl"),
+                  joinpath(@__DIR__, "..", "examples", "egypt",   "egypt.jl")]
 const GENERATED = joinpath(@__DIR__, "src", "generated")
 
 rm(GENERATED; recursive = true, force = true)
@@ -41,6 +43,10 @@ makedocs(
                 "Writing the model"        => "generated/forest_market.md",
                 "Calibrating with partial data" => "generated/forest_calibration.md",
                 "Complete data, and what calibration changes" => "generated/forest_full_data.md",
+            ],
+            "Ports of published models" => [
+                "Takayama and Judge (GAMS spatequ)" => "generated/spatequ.md",
+                "Egyptian agriculture (GAMS egypt)" => "generated/egypt.md",
             ],
         ],
         "Modelling choices"   => "modelling.md",

@@ -48,7 +48,8 @@ solved(res)      = res.status in (Markets.MOI.LOCALLY_SOLVED, Markets.MOI.OPTIMA
     d = MarketData(regions = [:A], products = [:x])
     @test isempty(d.demand) && isempty(d.supply) && isempty(d.processes) &&
           isempty(d.transport_costs)
-    @test_throws UndefKeywordError DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1)
+    # a curve needs a reference point and its elasticity, or a line's coefficients
+    @test_throws ArgumentError DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1)
 end
 
 @testset "Spatial price equilibrium (one product, two regions)" begin
@@ -305,6 +306,95 @@ end
                                           elasticity = -0.5)
 end
 
+@testset "Linear curves" begin
+    @testset "two ways to give a line, and what they mean" begin
+        # through a reference point with the elasticity there
+        d = DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5,
+                       form = :linear)
+        @test d.form === :linear
+        @test d.beta ≈ -1.5 * 10 / 100 && d.alpha ≈ 10 * (1 + 1.5)
+        @test Markets.demand_price(d, 10.0) ≈ 100
+        s = SupplySpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 0.5,
+                       form = "linear")
+        @test s.beta ≈ 0.5 * 10 / 100 && s.alpha ≈ 10 * (1 - 0.5)
+        @test Markets.supply_price(s, 10.0) ≈ 100
+        # by its coefficients
+        c = DemandSpec(product = :x, region = :A, alpha = 200, beta = -9)
+        @test c.form === :linear && isnan(c.p0) && isnan(c.elasticity)
+        @test Markets.demand_price(c, 200 - 9 * 12.0) ≈ 12
+        # the default is still the constant elasticity, and a flat curve has one form
+        @test DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 2).form === :isoelastic
+        @test SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = Inf,
+                         form = :linear).form === :isoelastic
+        # the shifter scales the quantity at every price, in both forms
+        shifted = DemandSpec(product = :x, region = :A, alpha = 200, beta = -9, shift = 2)
+        @test Markets.demand_price(shifted, 2 * (200 - 9 * 12.0)) ≈ 12
+        @test occursin("alpha = 200.0, beta = -9.0", repr(c))
+        @test occursin("form = :linear", repr(d))
+    end
+
+    @testset "what a line refuses" begin
+        @test_throws ArgumentError DemandSpec(product = :x, region = :A, alpha = 200, beta = 9)
+        @test_throws ArgumentError DemandSpec(product = :x, region = :A, alpha = -1, beta = -9)
+        @test_throws ArgumentError SupplySpec(product = :x, region = :A, alpha = -50, beta = -1)
+        @test_throws ArgumentError SupplySpec(product = :x, region = :A, alpha = -50)
+        @test_throws ArgumentError SupplySpec(product = :x, region = :A, alpha = 1, beta = 2,
+                                              p0 = 1)
+        @test_throws ArgumentError SupplySpec(product = :x, region = :A, alpha = 1, beta = 2,
+                                              form = :isoelastic)
+        @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1,
+                                              elasticity = 1, form = :quadratic)
+    end
+
+    # the equilibrium of lines can be found by hand: with A exporting to B,
+    # pA + τ = pB and SA(pA) - DA(pA) = DB(pB) - SB(pB)
+    τ = 2.0
+    lines = MarketData(regions = [:A, :B], products = [:x],
+        demand = [DemandSpec(product = :x, region = :A, alpha = 100, beta = -4),
+                  DemandSpec(product = :x, region = :B, alpha = 200, beta = -9)],
+        supply = [SupplySpec(product = :x, region = :A, alpha = -50, beta = 20.5),
+                  SupplySpec(product = :x, region = :B, alpha = -50, beta = 10.5)],
+        transport_costs = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ))
+    res = solve_market(lines)
+    @test solved(res)
+    # excess supply of A, 24.5pA - 150, meets excess demand of B, 250 - 19.5(pA + τ)
+    pA = (150 + 250 - 19.5τ) / (24.5 + 19.5)
+    @test price(res, :A, :x) ≈ pA rtol = 1e-6
+    @test price(res, :B, :x) ≈ pA + τ rtol = 1e-6
+    @test getq(res.consumption, :A, :x) ≈ 100 - 4pA rtol = 1e-6
+    @test getq(res.production, :B, :x) ≈ -50 + 10.5 * (pA + τ) rtol = 1e-6
+    @test flow(res, :x, :A, :B) ≈ (-50 + 20.5pA) - (100 - 4pA) rtol = 1e-6
+
+    # a line through the reference point agrees with the constant-elasticity
+    # curve there, and responds to a shock by the slope it has there: for a
+    # small shock the two forms move the price alike, for a large one they part
+    market(form, q0) = MarketData(regions = [:A], products = [:x],
+        demand = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 0.8,
+                             form = form)],
+        supply = [SupplySpec(product = :x, region = :A, p0 = 100, q0 = q0, elasticity = 1.2,
+                             form = form)])
+    @test price(solve_market(market(:linear, 10)), :A, :x) ≈ 100 rtol = 1e-6
+    move(form, q0) = price(solve_market(market(form, q0)), :A, :x) / 100 - 1
+    @test move(:linear, 10.1) ≈ move(:isoelastic, 10.1) rtol = 1e-2
+    @test !isapprox(move(:linear, 15), move(:isoelastic, 15); rtol = 1e-2)
+    # a straight demand has a finite price at zero: no floor keeps it alive, so
+    # a supply that only starts above the choke price leaves the market empty
+    empty = solve_market(MarketData(regions = [:A], products = [:x],
+        demand = [DemandSpec(product = :x, region = :A, alpha = 100, beta = -4)],      # chokes at 25
+        supply = [SupplySpec(product = :x, region = :A, alpha = -60, beta = 2)]))      # starts at 30
+    @test solved(empty) && getq(empty.consumption, :A, :x) == 0
+    # a tax on a straight supply: the market price covers the marginal cost
+    # along the line plus the tax
+    taxed = MarketData(regions = [:A], products = [:x],
+        demand = [DemandSpec(product = :x, region = :A, alpha = 100, beta = -4)],
+        supply = [SupplySpec(product = :x, region = :A, alpha = -10, beta = 3)],
+        taxes = [Tax(name = :levy, on = :supply, rate = 2.0)])
+    t = solve_market(taxed)
+    q = getq(t.production, :A, :x)
+    @test price(t, :A, :x) ≈ (q + 10) / 3 + 2 rtol = 1e-5
+    @test only(t.taxes.revenue) ≈ 2q rtol = 1e-5
+end
+
 @testset "Flat curves: a price given from outside" begin
     # a small country facing the world: its own curves at 200 in autarky, and
     # a "world" region that sells at `buy` and buys at `sell`, whatever
@@ -342,6 +432,14 @@ end
     @test nrow(apart.trade) == 0
     # the world selling for less than it buys: no finite answer
     @test_throws ErrorException solve_market(economy(150, 170))
+    # a flat curve has no quantity of its own: its q0 does not set the scale
+    # of the economy, and so neither the floors nor the solver's tolerances
+    tiny(q0) = MarketData(regions = [:home, :world], products = [:wheat],
+        demand = [DemandSpec(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.5)],
+        supply = [SupplySpec(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.8),
+                  SupplySpec(product = :wheat, region = :world, p0 = 170, q0 = q0, elasticity = Inf)],
+        transport_costs = Dict((:wheat, :world, :home) => τ))
+    @test Markets.quantity_scale(tiny(1e-9)) == Markets.quantity_scale(tiny(1e9)) == 100
 end
 
 @testset "Exogenous drivers of the curves" begin
@@ -2117,6 +2215,44 @@ end
         row(case) = ex.comparison[startswith.(ex.comparison.case, case), :]
         @test abs(only(row("partial").storm_SWF) - only(row("complete").storm_SWF)) < 0.5
         @test only(row("uncalibrated").storm_SWF) < only(row("complete").storm_SWF) - 3
+    end
+end
+
+@testset "Ports of published models" begin
+    # a page may include a file of its own, as Documenter's modules allow
+    function run(dir, file)
+        m = Module()
+        Core.eval(m, :(include(path) = Base.include($m, path)))
+        Base.include(m, joinpath(@__DIR__, "..", "examples", dir, file))
+        return m
+    end
+
+    @testset "Takayama and Judge (GAMS spatequ)" begin
+        ex = run("spatequ", "spatequ.jl")
+        @test solved(ex.result)
+        # every quantity on its line and every region in balance ...
+        @test maximum(abs, Matrix(ex.checks[:, [:demand_gap, :supply_gap, :balance_gap]])) < 1e-6
+        # ... no price gap wider than the cost of closing it, and none narrower
+        # where goods move
+        a = ex.arbitrage
+        @test all(a.price_gap .<= a.cost .+ 1e-6)
+        @test all(abs.(a.price_gap[a.shipped .> 1e-6] .- a.cost[a.shipped .> 1e-6]) .< 1e-6)
+        @test price(ex.result, :Reg2, :Com1) ≈ 9 rtol = 1e-6
+    end
+
+    @testset "Egyptian agriculture (GAMS egypt)" begin
+        ex = run("egypt", "egypt.jl")
+        @test solved(ex.result) && solved(ex.dry_result)
+        # the port is the original with exact demand lines: same welfare, same
+        # prices, same water rent when water binds
+        @test ex.exact.objective - ex.meat_and_milk ≈ ex.result.objective rtol = 1e-7
+        @test maximum(abs.(ex.comparison.difference ./ ex.comparison.transcription)) < 1e-5
+        @test ex.exact_drier.objective - ex.meat_and_milk ≈ ex.dry_result.objective rtol = 1e-7
+        @test ex.water_rent(ex.dry_result) ≈ ex.exact_drier.water_rent rtol = 1e-5
+        @test ex.water_rent(ex.result) < 1e-6 < ex.water_rent(ex.dry_result)
+        # the grid of the original is near the exact lines, not on them
+        gap = maximum(abs(ex.original.price[c] / ex.exact.price[c] - 1) for c in ex.marketed)
+        @test 1e-4 < gap < 0.05
     end
 end
 

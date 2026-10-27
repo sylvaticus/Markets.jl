@@ -12,9 +12,11 @@ the model is written in tonnes or in million tonnes.
 """
 function quantity_scale(d::MarketData)
     # a curve over a group of substitutes describes their composite, so its
-    # reference quantity is divided among them for the purpose of scale
-    qs = Float64[s.q0 / length(nest_products(s.product)) for s in d.demand]
-    append!(qs, Float64[s.q0 for s in d.supply])
+    # reference quantity is divided among them for the purpose of scale; a
+    # flat curve has no quantity of its own, whatever its q0 says
+    qs = Float64[reference_quantity(s) / length(nest_products(s.product))
+                 for s in d.demand if isfinite(s.elasticity)]
+    append!(qs, Float64[reference_quantity(s) for s in d.supply if isfinite(s.elasticity)])
     return isempty(qs) ? 1.0 : minimum(qs)
 end
 
@@ -554,17 +556,19 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     # the balances and the result tables stay per product throughout.
     D = Dict{Tuple{String,String},VariableRef}()
     composites = Tuple{DemandSpec,Any}[]
-    # a flat curve (η = Inf) has a finite marginal benefit at zero: no floor
+    # a flat curve (η = Inf) or a straight one has a finite marginal benefit
+    # at zero: no floor
     for s in d.demand
         push!(composites,
-              (s, demand_quantity(m, s.product, s.region, D, floor_at, s.shift * s.q0,
-                                  isfinite(s.elasticity))))
+              (s, demand_quantity(m, s.product, s.region, D, floor_at,
+                                  s.shift * reference_quantity(s),
+                                  s.form === :isoelastic && isfinite(s.elasticity))))
     end
     # primary supply quantities: the marginal cost b·S^(1/ε) is finite at zero,
     # so no floor is needed
     S = Dict{Tuple{String,String},VariableRef}()
     for s in d.supply
-        S[(s.region, s.product)] = @variable(m, lower_bound = 0.0, start = s.shift * s.q0,
+        S[(s.region, s.product)] = @variable(m, lower_bound = 0.0, start = s.shift * reference_quantity(s),
                                              base_name = "S[$(s.region),$(s.product)]")
     end
     # process activity levels
@@ -598,7 +602,7 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
         floored = floored_origins(root)
         # a rough but useful starting point: the local reference consumption
         a0 = get(demand_of, (r, p), nothing)
-        start = a0 === nothing ? 1.0 : a0.q0
+        start = a0 === nothing ? 1.0 : reference_quantity(a0)
         A[(p, r)] = @variable(m, lower_bound = 0.0, start = start, base_name = "A[$p,$r]")
         for (i, o) in pairs(origins)
             X[(p, o, r)] = @variable(m, lower_bound = o in floored ?
@@ -744,21 +748,26 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     # integral from zero: for η ≤ 1 that integral diverges, but the constant it
     # differs by changes neither the optimum nor the prices.  It is concave and
     # increasing for every η > 0 — for η < 1 both a/e and e are negative — and
-    # at η = 1 the antiderivative is a·log(D).
+    # at η = 1 the antiderivative is a·log(D). Along a straight line
+    # D = shift·(α + β·p) the inverse demand is (D/shift - α)/β, whose integral
+    # from zero is quadratic and concave, since β < 0.
     # A tax on consumption sits between what the consumer pays, which is what
     # the curve describes, and the market price, which the objective's gradient
     # has to equal: hence the division by (1 + relative) and the term in
     # `absolute` below.
     cons_benefit = @expression(m, sum(
         let w = 1 + demand_relative_tax(d, s),
-            a = s.p0 * (s.shift * s.q0)^(1 / s.elasticity) / w,
-            e = 1 - 1 / s.elasticity,
             # per-unit rates are charged on each product's own quantity: the
             # composite is an index, and a tax per m³ is not a tax per index
             # point unless every member happens to cost the same
             taxed = [(tax_rates(d.taxes, "demand"; product = p, region = s.region).absolute, p)
                      for p in nest_products(s.product)],
-            benefit = abs(e) < 1e-8 ? a * log(C) : (a / e) * C^e
+            benefit = s.form === :linear ?
+                (C^2 / (2 * s.shift) - s.alpha * C) / (s.beta * w) :
+                let a = s.p0 * (s.shift * s.q0)^(1 / s.elasticity) / w,
+                    e = 1 - 1 / s.elasticity
+                    abs(e) < 1e-8 ? a * log(C) : (a / e) * C^e
+                end
             # untaxed curves are left without the term, which would only print
             # as a string of zeros in `jump_model`
             all(iszero(first(t)) for t in taxed) ? benefit :
@@ -769,9 +778,13 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     supply_cost = @expression(m, sum(
         let s = supply_of[k],
             t = tax_rates(d.taxes, "supply"; product = s.product, region = s.region),
-            b = (1 + t.relative) * s.p0 * (s.shift * s.q0)^(-1 / s.elasticity),
-            e = 1 + 1 / s.elasticity
-            (b / e) * S[k]^e + t.absolute * S[k]
+            cost = s.form === :linear ?
+                (S[k]^2 / (2 * s.shift) - s.alpha * S[k]) / s.beta :
+                let b = s.p0 * (s.shift * s.q0)^(-1 / s.elasticity),
+                    e = 1 + 1 / s.elasticity
+                    (b / e) * S[k]^e
+                end
+            (1 + t.relative) * cost + t.absolute * S[k]
         end for k in keys(S)))
     conv_cost = @expression(m, sum(
         let t = tax_rates(d.taxes, "process"; process = proc.name, region = r)

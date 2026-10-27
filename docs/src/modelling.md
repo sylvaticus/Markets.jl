@@ -109,6 +109,30 @@ gradient of the objective's benefit term, and that integrability is what makes
 the surplus-maximisation equivalence legitimate in the first place; it is also
 why the cross-price structure has to be a tree rather than a free matrix.
 
+### Straight lines
+
+A curve can instead be a straight line, ``D = \alpha + \beta p`` with
+``\beta < 0`` or ``S = \alpha + \beta p`` with ``\beta > 0``: the form of
+the classic spatial-equilibrium models from
+[Samuelson (1952)](https://www.jstor.org/stable/1810137) and Takayama and
+Judge onwards, and of most mathematical-programming sector models. Its integral
+is quadratic, so the objective stays concave and the program convex.
+
+The two forms agree at the reference point and in the slope there, so small
+changes are the same in both. They part on large ones. A line has a finite
+*choke price*, ``-\alpha/\beta``, above which nothing is demanded; a
+constant-elasticity demand never reaches zero. And the elasticity of a line
+grows as the price rises: a demand that is inelastic at the reference point
+becomes elastic further up. A large supply shock therefore raises the price
+less along a line than along a constant-elasticity curve calibrated to the
+same point. Neither is more correct; the line is what a linear regression
+estimates, and what a model built on one should be ported with.
+
+A line through a reference point is the tangent there to the
+constant-elasticity curve, `form = :linear` in [`DemandSpec`](@ref) and
+[`SupplySpec`](@ref). The flat curve, `elasticity = Inf`, is the same in both
+forms: a price given from outside, as world prices are for a small country.
+
 ## Everything other than the price
 
 A curve says how much is offered or wanted *at a given price*. Its position
@@ -191,7 +215,7 @@ The rent is the price producers get minus what the curve says the last unit
 cost, taxes on production included:
 
 ```julia
-rent = producer_price - ((1 + t_rel) * s.p0 * (S / (s.shift * s.q0))^(1 / s.elasticity) + t_abs)
+rent = producer_price - ((1 + t_rel) * Markets.supply_price(s, S) + t_abs)
 ```
 
 which is the multiplier of the ceiling, and is how `Results.supply` and
