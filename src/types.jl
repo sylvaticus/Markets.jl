@@ -129,7 +129,10 @@ Base.@kwdef struct DemandSpec
     allowed: for ``\\eta \\le 1`` the benefit term of the objective is an
     antiderivative of the inverse demand rather than the integral from zero,
     which leaves the equilibrium and the prices unchanged but makes the
-    reported objective value a welfare *difference* rather than a level
+    reported objective value a welfare *difference* rather than a level.
+    `Inf` makes the curve flat: any quantity is bought at `p0`, as an export
+    market at a given world price is (`q0`, which then plays no role, must
+    still be positive, and `shift` has no effect)
     """
     elasticity::Float64
     """
@@ -182,7 +185,14 @@ Base.@kwdef struct SupplySpec
     p0::Float64
     "Reference quantity, i.e. the quantity supplied at price `p0`"
     q0::Float64
-    "Own-price supply elasticity ``\\varepsilon``, which must be positive"
+    """
+    Own-price supply elasticity ``\\varepsilon``, which must be positive.
+    `Inf` makes the curve flat: any quantity is sold at `p0`, as imports at a
+    given world price are (`q0`, which then plays no role, must still be
+    positive, and `shift` has no effect). A flat supply that can reach a flat
+    demand paying more than it costs, transport and taxes included, leaves
+    the market without a finite answer
+    """
     elasticity::Float64
     """
     Multiplicative shifter of the whole curve: the quantity supplied at any

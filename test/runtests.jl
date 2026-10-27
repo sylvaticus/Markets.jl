@@ -305,6 +305,45 @@ end
                                           elasticity = -0.5)
 end
 
+@testset "Flat curves: a price given from outside" begin
+    # a small country facing the world: its own curves at 200 in autarky, and
+    # a "world" region that sells at `buy` and buys at `sell`, whatever
+    # the quantity (elasticity Inf), each 10 away by transport
+    τ = 10.0
+    economy(buy, sell) = MarketData(
+        regions  = [:home, :world], products = [:wheat],
+        demand   = [DemandSpec(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.5),
+                    DemandSpec(product = :wheat, region = :world, p0 = sell, q0 = 1, elasticity = Inf)],
+        supply   = [SupplySpec(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.8),
+                    SupplySpec(product = :wheat, region = :world, p0 = buy, q0 = 1, elasticity = Inf)],
+        transport_costs = Dict((:wheat, :world, :home) => τ, (:wheat, :home, :world) => τ))
+    on_curve(res) = price(res, :home, :wheat) ≈
+        200 * (getq(res.consumption, :home, :wheat) / 100)^(-1 / 0.5)
+
+    # cheap imports: the price at home is import parity, and nothing goes out
+    cheap = solve_market(economy(170, 150))
+    @test solved(cheap)
+    @test price(cheap, :home, :wheat) ≈ 170 + τ rtol = 1e-6
+    @test price(cheap, :world, :wheat) ≈ 170 rtol = 1e-6
+    @test flow(cheap, :wheat, :world, :home) > 0
+    @test flow(cheap, :wheat, :home, :world) == 0
+    @test getq(cheap.consumption, :world, :wheat) == 0     # no floor forces a sale
+    @test on_curve(cheap)
+    # dear exports: the price at home is export parity
+    dear = solve_market(economy(260, 230))
+    @test price(dear, :home, :wheat) ≈ 230 - τ rtol = 1e-6
+    @test flow(dear, :wheat, :home, :world) > 0
+    @test flow(dear, :wheat, :world, :home) == 0
+    @test on_curve(dear)
+    # world prices on either side of 200: neither trade pays, and home is in
+    # autarky, at the price its own curves set
+    apart = solve_market(economy(230, 170))
+    @test price(apart, :home, :wheat) ≈ 200 rtol = 1e-4
+    @test nrow(apart.trade) == 0
+    # the world selling for less than it buys: no finite answer
+    @test_throws ErrorException solve_market(economy(150, 170))
+end
+
 @testset "Exogenous drivers of the curves" begin
     economy(; supply_kw = (), demand_kw = (), limits = Limit[]) = MarketData(
         regions = [:A], products = [:x],

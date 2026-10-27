@@ -554,9 +554,11 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     # the balances and the result tables stay per product throughout.
     D = Dict{Tuple{String,String},VariableRef}()
     composites = Tuple{DemandSpec,Any}[]
+    # a flat curve (η = Inf) has a finite marginal benefit at zero: no floor
     for s in d.demand
         push!(composites,
-              (s, demand_quantity(m, s.product, s.region, D, floor_at, s.shift * s.q0)))
+              (s, demand_quantity(m, s.product, s.region, D, floor_at, s.shift * s.q0,
+                                  isfinite(s.elasticity))))
     end
     # primary supply quantities: the marginal cost b·S^(1/ε) is finite at zero,
     # so no floor is needed
