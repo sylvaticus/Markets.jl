@@ -791,8 +791,7 @@ nothing # hide
 # 30 Mm³ of the 40 Klaus brought down. Everything else is left alone:
 
 salvage = [s.region == "SWF" && s.product == "swr" ?
-               SupplySpec(product = "swr", region = "SWF", p0 = s.p0, q0 = s.q0,
-                          elasticity = s.elasticity, shift = 3.0) : s
+               SupplySpec(s; shift = 3.0) : s
            for s in supply]
 nothing # hide
 

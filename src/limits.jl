@@ -186,6 +186,16 @@ what a port can ship. A limit that only caps one variable — one supply, one
 activity, one flow — is set as a bound on it, which costs the solver nothing;
 any other is a constraint of the model.
 
+A limit is **hard** by default: no price can buy past it. With a finite
+`penalty` it is **soft**: it can be crossed, at that cost per unit beyond the
+bound, the way a sector model holds trade near its recent levels without
+forbidding a larger move. Below the bound nothing changes; past it the rent
+is exactly the penalty, which is also the most it can ever be. The penalty is
+a device of the model, not a cost anyone pays, so the results report it apart,
+in `Results.penalties`, and leave it out of `welfare`; a cost that is really
+paid past a threshold — overtime, an emergency import — belongs in the
+economy instead, as a second process or route at the higher cost.
+
 # Example
 ```julia
 ## an allowable cut, and the capacity of the mills, region by region
@@ -203,6 +213,9 @@ Limit(name = "SEF stands",
 ## no more than a third of the sawnwood used in OF may come from abroad
 @limit "OF imports" imports(region = "OF", product = "sawn_sw") <=
                     consumption(region = "OF", product = "sawn_sw") / 3
+
+## imports held near last year's, unless it is worth 50 a unit to go further
+@limit "pulp imports DE" imports(region = "DE", product = "pulp") <= 1.1 * last_year penalty = 50
 ```
 """
 Base.@kwdef struct Limit
@@ -217,8 +230,13 @@ Base.@kwdef struct Limit
     lower::Float64 = -Inf
     "Upper bound, `Inf` (the default) for none"
     upper::Float64 = Inf
+    """
+    Cost per unit of crossing a bound: `Inf` (the default) for a hard limit,
+    which cannot be crossed, or a positive number for a soft one
+    """
+    penalty::Float64 = Inf
 
-    function Limit(name, expression, lower, upper)
+    function Limit(name, expression, lower, upper, penalty)
         e = as_expression(expression)
         terms = [t for t in e.terms if !iszero(last(t))]
         isempty(terms) && throw(ArgumentError(
@@ -227,7 +245,20 @@ Base.@kwdef struct Limit
             "limit $name has neither a lower nor an upper bound"))
         lower <= upper || throw(ArgumentError(
             "limit $name has a lower bound ($lower) above its upper bound ($upper)"))
-        new(nm(name), LimitExpression(terms, 0.0), lower - e.constant, upper - e.constant)
+        penalty > 0 || throw(ArgumentError(
+            "the penalty of limit $name must be positive (Inf for a hard limit), got $penalty"))
+        new(nm(name), LimitExpression(terms, 0.0), lower - e.constant, upper - e.constant,
+            penalty)
+    end
+end
+
+# the options a limit takes after its inequality, as `penalty = 50`
+function limit_options(options)
+    map(options) do o
+        o isa Expr && o.head in (:(=), :kw) && length(o.args) == 2 && o.args[1] === :penalty ||
+            throw(ArgumentError("after its inequality a limit takes only `penalty = ...`, " *
+                                "got $(repr(o))"))
+        Expr(:kw, :penalty, esc(o.args[2]))
     end
 end
 
@@ -236,13 +267,15 @@ end
     @limit name lhs >= rhs
     @limit name lhs == rhs
     @limit name lower <= expression <= upper
+    @limit name lhs <= rhs penalty = p
 
 A [`Limit`](@ref) written as the inequality it stands for. Inside the macro the
 term builders — `supply`, `consumption`, `production`, `activity`, `inputs`,
 `flow`, `exports` and `imports` — are those of Markets.jl, whatever the names
 mean outside it, so they need no qualification; quantities may appear on both
 sides, and any constant is moved into the bound. `name` is any expression
-giving a string.
+giving a string. A trailing `penalty = p` makes the limit soft: it can be
+crossed at a cost of `p` per unit (see [`Limit`](@ref)).
 
 # Example
 ```julia
@@ -258,7 +291,8 @@ giving a string.
 @limit "export band" 1.0 <= exports(region = "RW", product = "logs") <= 3.0
 ```
 """
-macro limit(name, ex)
+macro limit(name, ex, options...)
+    extra = limit_options(options)
     qualify(x) = !(x isa Expr) ? x :
         x.head == :call && x.args[1] in QUANTITY_BUILDERS ?
             Expr(:call, GlobalRef(@__MODULE__, x.args[1]), map(qualify, x.args[2:end])...) :
@@ -266,7 +300,7 @@ macro limit(name, ex)
     build(expression; bounds...) = Expr(:call, GlobalRef(@__MODULE__, :Limit),
         Expr(:parameters, Expr(:kw, :name, esc(name)),
              Expr(:kw, :expression, expression),
-             (Expr(:kw, k, v) for (k, v) in bounds)...))
+             (Expr(:kw, k, v) for (k, v) in bounds)..., extra...))
     lower_ops, upper_ops = (:>=, :≥), (:<=, :≤)
     if ex isa Expr && ex.head == :call && length(ex.args) == 3 &&
        ex.args[1] in (lower_ops..., upper_ops..., :(==))
@@ -290,6 +324,7 @@ end
 """
     @limits name [i in I, j in J, ...] lhs <= rhs
     @limits name [i in I, j in J; condition] lhs <= rhs
+    @limits name [i in I, j in J] lhs <= rhs penalty = p
 
 A family of [`Limit`](@ref)s, one for every combination of the indices, as a
 constraint family of JuMP or an indexed equation of GAMS: the same inequality,
@@ -297,7 +332,7 @@ written as for [`@limit`](@ref), with the indices free in it. Each member is
 named after the family and its indices — `cut[SEF]`, `stands[SEF, swr]` — and
 the result is a plain vector of limits. An index may be written `i in I`,
 `i ∈ I` or `i = I`, and a condition after a semicolon keeps only the
-combinations that meet it.
+combinations that meet it. A trailing `penalty = p` makes every member soft.
 
 To read a family back from the results, select its members by name:
 `res.limits[startswith.(res.limits.limit, "cut["), :]`.
@@ -310,7 +345,8 @@ To read a family back from the results, select its members by name:
 @limits "stands" [r in regions, p in primary; haskey(stock, (r, p))] supply(region = r, product = p) <= stock[(r, p)]
 ```
 """
-macro limits(name, indices, ex)
+macro limits(name, indices, ex, options...)
+    limit_options(options)          # checked here, so the error names the family
     fail() = throw(ArgumentError("@limits takes a name, indices such as `[r in regions]` " *
                                  "or `[r in regions, p in products; condition]`, and an " *
                                  "inequality, got $(repr(indices))"))
@@ -337,7 +373,8 @@ macro limits(name, indices, ex)
     end
     vars = first.(loops)
     label = :(string($name, "[", join(string.(($(vars...),)), ", "), "]"))
-    member = Expr(:macrocall, GlobalRef(@__MODULE__, Symbol("@limit")), __source__, label, ex)
+    member = Expr(:macrocall, GlobalRef(@__MODULE__, Symbol("@limit")), __source__, label, ex,
+                  options...)
     # the last index varies fastest, as in nested loops written in that order
     iteration = Expr(:block, (Expr(:(=), v, collection) for (v, collection) in reverse(loops))...)
     generator = condition === nothing ?
@@ -373,5 +410,6 @@ function Base.show(io::IO, l::Limit)
     l.lower == l.upper ? print(io, l.expression, " = ", l.upper) :
         print(io, isfinite(l.lower) ? string(l.lower, " ≤ ") : "", l.expression,
               isfinite(l.upper) ? string(" ≤ ", l.upper) : "")
+    isfinite(l.penalty) && print(io, ", penalty ", l.penalty)
     print(io, ")")
 end

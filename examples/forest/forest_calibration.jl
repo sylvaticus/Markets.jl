@@ -486,8 +486,7 @@ DataFrame((observed = name, entries = length(observed),
 reconfigure(d; kwargs...) =
     MarketData(; (f => get(kwargs, f, getfield(d, f)) for f in fieldnames(MarketData))...)
 salvage = [s.region == "SWF" && s.product == "swr" ?
-               SupplySpec(product = "swr", region = "SWF", p0 = s.p0, q0 = s.q0,
-                          elasticity = s.elasticity, shift = 3.0) : s
+               SupplySpec(s; shift = 3.0) : s
            for s in supply]
 storm = solve_market(reconfigure(calibrated, supply = salvage))
 gas   = solve_market(reconfigure(calibrated, demand = build_demand(60.0)))

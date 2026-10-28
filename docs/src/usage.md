@@ -160,8 +160,21 @@ The coefficients carry their signs as a regression would estimate them:
 `beta < 0` for demand, `beta > 0` for supply, and for demand `alpha > 0`, the
 quantity demanded at a zero price. A supply `alpha` may have either sign:
 negative, nothing is supplied below the price `-alpha/beta`. Giving both a
-reference point and coefficients is an error, as is giving neither. In either
-form, `shift` multiplies the quantity at every price.
+reference point and coefficients is an error, as is giving neither.
+
+In either form, `shift` multiplies the quantity at every price, and
+[`exogenous_shift`](@ref) builds it from drivers as before. On a line it scales
+`alpha` and `beta` together, so the price at which the line meets zero stays
+put. A line estimated in levels, `Q = alpha + beta·p + gamma·Z`, carries its
+drivers in the intercept instead: give the moved line its new `alpha`. The
+calibration helpers ([`ces_calibration`](@ref), [`armington_calibration`](@ref))
+return a reference point, which serves either form.
+
+A scenario moves a curve by giving it a new shifter, whatever its form:
+
+```julia
+salvage = SupplySpec(logs; shift = 3.0)     # the same curve, three times the quantity
+```
 
 An `elasticity` of `Inf` makes the curve flat, in either form: a price given
 from outside, at which any quantity is bought or sold. It is how a small
@@ -173,7 +186,9 @@ supply = [SupplySpec(product = "wheat", region = "world", p0 = 96.8, q0 = 1, ela
 demand = [DemandSpec(product = "wheat", region = "world", p0 = 88.0, q0 = 1, elasticity = Inf)]
 ```
 
-`q0` plays no role on a flat curve but must still be positive. The import price
+`q0` plays no role on a flat curve but must still be positive, and a flat
+curve refuses any `shift` but 1: there is no quantity to scale, and moving it
+means changing `p0`. The import price
 has to be above the export price, transport included, or buying from the world
 to sell back to it would be a profit without end, and the market has no
 answer.
@@ -511,6 +526,31 @@ choosing:
 To read a family back from the results, select its members by name:
 `res.limits[startswith.(res.limits.limit, "cut["), :]`.
 
+#### Soft limits
+
+A limit is hard: no price buys past it. Followed by `penalty = p`, it becomes
+soft, and can be crossed at a cost of `p` per unit beyond the bound — the way
+a sector model holds trade near its recent levels without forbidding a larger
+move when the market really calls for it:
+
+```julia
+@limit "pulp imports DE" imports(region = "DE", product = "pulp") <= 1.1 * last_year penalty = 50
+@limits "trade" [p in products, r in regions] imports(region = r, product = p) <= 1.1 * last[(r, p)] penalty = 50
+```
+
+Below the bound a soft limit changes nothing. Past it, its `rent` is the
+penalty, which is the most a soft limit's rent can be, and `Results.limits`
+says by how much it was crossed in `excess`. A lower bound works the same way,
+on the shortfall. The problem stays convex: the crossing is a variable with a
+linear cost.
+
+The penalty is a device of the model, not a cost anyone pays. The results
+report its total in `penalties`, and `welfare` leaves it out. A cost that is
+really paid past a threshold — overtime past a shift, an emergency import past
+a contract — belongs in the economy instead, as a second process or route at
+the higher cost. A soft limit on one variable is not a capacity, since it can
+be exceeded, so the `capacity` columns ignore it.
+
 #### Writing limits by hand
 
 Inside `@limit` the builders are those of Markets.jl, so a variable of your own
@@ -644,7 +684,8 @@ message in `raw_status`, the `solve_time` in seconds and the `iterations` it
 took (summed over all `solves` when an ad valorem tariff is found by iteration,
 and `missing` for a solver that does not count them), the value of the
 maximised `objective`, the `welfare` that objective implies once tax revenue is
-counted as the transfer it is, and twelve `DataFrame`s:
+counted as the transfer it is and the `penalties` of [soft limits](@ref "Soft
+limits") are taken back out, and twelve `DataFrame`s:
 
 | Field | Columns | Content |
 |:------|:--------|:--------|
@@ -658,7 +699,7 @@ counted as the transfer it is, and twelve `DataFrame`s:
 | `net_trade`   | region, product, exports, imports, net | net = exports − imports |
 | `prices`      | region, product, price, producer\_price | what local users pay, and what local producers get |
 | `activity`    | region, process, level, capacity, rent | process activity, with its capacity and the quasi-rent it earns, as for `supply` |
-| `limits`      | limit, lower, upper, value, rent, regions, variables | every [`Limit`](@ref), the rent of the bound that binds, and what it applies to |
+| `limits`      | limit, lower, upper, penalty, value, excess, rent, regions, variables | every [`Limit`](@ref), how far a soft one was crossed, the rent of the bound that binds, and what it applies to |
 | `taxes`       | tax, on, revenue | what each instrument raises |
 
 Either price column is `missing` where it has no meaning: a region that cannot

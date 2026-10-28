@@ -712,6 +712,7 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     bounded = Set{Tuple}()
     names = Set{String}()
     limits = NamedTuple[]
+    penalised = AffExpr(0.0)      # what crossing the soft limits costs
     for limit in d.limits
         limit.name in names && throw(ArgumentError("duplicate limit named $(limit.name)"))
         push!(names, limit.name)
@@ -721,22 +722,37 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
             add_to_expression!(e, w, variable(key))
         end
         base = "limit[$(limit.name)]"
-        if length(terms) == 1 && only(values(terms)) > 0 && isinf(limit.lower) &&
+        # each dual is (bound, reference, scale, side): side says which way the
+        # bound faces, so that a soft limit crossed still counts as reached
+        duals = Tuple{Float64,Any,Float64,Symbol}[]
+        slacks = VariableRef[]
+        soft = isfinite(limit.penalty)
+        if !soft && length(terms) == 1 && only(values(terms)) > 0 && isinf(limit.lower) &&
            isfinite(limit.upper) && !(only(keys(terms)) in bounded)
             key, w = only(terms)
             set_upper_bound(variable(key), limit.upper / w)
             push!(bounded, key)
-            duals = [(limit.upper, UpperBoundRef(variable(key)), 1 / w)]
-        elseif limit.lower == limit.upper
-            duals = [(limit.upper, @constraint(m, e == limit.upper, base_name = base), 1.0)]
+            push!(duals, (limit.upper, UpperBoundRef(variable(key)), 1 / w, :upper))
+        elseif !soft && limit.lower == limit.upper
+            push!(duals, (limit.upper, @constraint(m, e == limit.upper, base_name = base), 1.0, :equal))
         else
-            duals = Tuple{Float64,Any,Float64}[]
+            # a soft bound is crossed by a slack that costs the penalty per unit
+            function slack(side)
+                soft || return 0.0
+                x = @variable(m, lower_bound = 0.0, base_name = "excess[$(limit.name),$side]")
+                push!(slacks, x)
+                add_to_expression!(penalised, limit.penalty, x)
+                return x
+            end
             isfinite(limit.upper) &&
-                push!(duals, (limit.upper, @constraint(m, e <= limit.upper, base_name = base), 1.0))
+                push!(duals, (limit.upper, @constraint(m, e - slack(:upper) <= limit.upper,
+                                                       base_name = base), 1.0, :upper))
             isfinite(limit.lower) &&
-                push!(duals, (limit.lower, @constraint(m, e >= limit.lower, base_name = base), 1.0))
+                push!(duals, (limit.lower, @constraint(m, e + slack(:lower) >= limit.lower,
+                                                       base_name = base), 1.0, :lower))
         end
-        push!(limits, (limit = limit, expression = e, duals = duals, terms = terms))
+        push!(limits, (limit = limit, expression = e, duals = duals, terms = terms,
+                       slacks = slacks))
     end
 
     # --- objective: net social surplus --------------------------------------
@@ -796,7 +812,9 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
         sum(route_cost(key) * T[key] for key in keys(T); init = 0.0) +
         sum(route_cost(key) * X[key] for key in keys(X) if key[2] != key[3]; init = 0.0))
 
-    @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost)
+    # crossing a soft limit costs its penalty: a device of the model, which
+    # the results report apart from welfare
+    @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost - penalised)
 
     return m, (D = D, S = S, z = z, T = T, X = X, A = A, drawn = drawn, balance = balance,
                origin_balance = origin_balance, limits = limits)

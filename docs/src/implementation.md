@@ -241,7 +241,25 @@ or of the variable bound divided by ``w_{l,v}``. It is reported only where the
 expression actually sits on the bound — complementary slackness, which an
 interior-point solver satisfies only to its tolerance. The rent per unit a
 variable carries is ``\sum_l w_{l,v}\,\text{rent}_l`` over the limits it
-appears in, and its capacity the tightest bound a limit on it alone implies.
+appears in, and its capacity the tightest bound a hard limit on it alone
+implies.
+
+A **soft** limit, with a finite penalty ``\pi_l``, gets a slack for each
+finite bound, ``e_l^+, e_l^- \ge 0``:
+
+```math
+\sum_{v} w_{l,v}\, v - e_l^+ \;\le\; \overline L_l, \qquad
+\sum_{v} w_{l,v}\, v + e_l^- \;\ge\; \underline L_l,
+\qquad W \;\mathrel{-}=\; \pi_l\,(e_l^+ + e_l^-)
+```
+
+It is never set as a variable bound. The slack is linear in the objective, so
+the program stays convex, and its first-order condition caps the dual at
+``\pi_l``: below the bound the limit behaves as a hard one, and once crossed
+its rent is the penalty. A bound counts as reached when the expression is on
+it or beyond it, and `excess` is ``e_l^+ + e_l^-``. The penalty is reported
+apart, as ``\sum_l \pi_l (e_l^+ + e_l^-)``, and added back to the objective
+in `welfare`.
 
 ### Substitutes in final demand
 

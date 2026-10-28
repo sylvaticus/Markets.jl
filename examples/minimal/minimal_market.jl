@@ -345,8 +345,7 @@ price(r, p) = only(result.prices[(result.prices.region .== r) .&
 # the curve was fitted to stays exactly where it was.
 
 thirsty = [d.product == "milk" && d.region == "City" ?
-               DemandSpec(product = "milk", region = "City", p0 = d.p0, q0 = d.q0,
-                          elasticity = d.elasticity, shift = 1.2) : d
+               DemandSpec(d; shift = 1.2) : d
            for d in demand]
 thirst = solve_market(MarketData(; regions, products, demand = thirsty, supply,
                                    processes, transport_costs))

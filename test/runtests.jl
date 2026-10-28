@@ -395,6 +395,61 @@ end
     @test only(t.taxes.revenue) ≈ 2q rtol = 1e-5
 end
 
+@testset "Shifters on straight lines" begin
+    # a shifter multiplies the quantity at every price, whatever the form: on a
+    # line D = shift·(α + β·p) it scales α and β together, so the price at
+    # which demand chokes stays where it was
+    line(; kw...) = MarketData(regions = [:A], products = [:x],
+        demand = [DemandSpec(product = :x, region = :A, alpha = 100, beta = -4; get(kw, :demand, ())...)],
+        supply = [SupplySpec(product = :x, region = :A, p0 = 10, q0 = 30, elasticity = 0.5,
+                             form = :linear; get(kw, :supply, ())...)])
+    base = solve_market(line())
+    for m in (0.6, 1.5, 3.0)
+        res = solve_market(line(supply = (shift = m,)))
+        s = line(supply = (shift = m,)).supply[1]
+        P, Q = price(res, :A, :x), getq(res.production, :A, :x)
+        @test Q ≈ m * (s.alpha + s.beta * P) rtol = 1e-6          # on the shifted line
+        @test getq(res.consumption, :A, :x) ≈ 100 - 4P rtol = 1e-6
+        @test Markets.supply_price(s, Q) ≈ P rtol = 1e-6
+    end
+    @test price(solve_market(line(supply = (shift = 1.5,))), :A, :x) < price(base, :A, :x)
+    @test price(solve_market(line(demand = (shift = 1.4,))), :A, :x) > price(base, :A, :x)
+    shifted = line(demand = (shift = 2.0,)).demand[1]
+    @test Markets.demand_price(shifted, 0.0) ≈ Markets.demand_price(line().demand[1], 0.0) ≈ 25
+    # exogenous_shift gives the same elasticity of the quantity to each driver
+    # at every price, on a line as on a constant-elasticity curve
+    z = exogenous_shift(rain = (level = 1.2, reference = 1.0, elasticity = 0.5))
+    plain  = SupplySpec(product = :x, region = :A, alpha = -20, beta = 4)
+    wetter = SupplySpec(product = :x, region = :A, alpha = -20, beta = 4, shift = z)
+    for P in (6.0, 10.0, 30.0)
+        Q0 = plain.alpha + plain.beta * P
+        @test Markets.supply_price(wetter, 1.2^0.5 * Q0) ≈ P
+    end
+    # a scenario re-shifts a curve without touching its calibration or its form
+    moved = SupplySpec(plain; shift = 2.5)
+    @test moved.form === :linear && moved.alpha == plain.alpha && moved.beta == plain.beta &&
+          moved.shift == 2.5
+    tangent = DemandSpec(product = :x, region = :A, p0 = 5, q0 = 9, elasticity = 0.4,
+                         form = :linear)
+    @test DemandSpec(tangent; shift = 0.5) ==
+          DemandSpec(product = :x, region = :A, p0 = 5, q0 = 9, elasticity = 0.4,
+                     form = :linear, shift = 0.5)
+    @test_throws ArgumentError SupplySpec(plain; shift = 0)
+    # a flat curve has no quantity to scale: a shifter on it is an error, in
+    # the constructor and when re-shifting
+    @test_throws ArgumentError SupplySpec(product = :x, region = :world, p0 = 9, q0 = 1,
+                                          elasticity = Inf, shift = 1.2)
+    flat = DemandSpec(product = :x, region = :world, p0 = 9, q0 = 1, elasticity = Inf)
+    @test_throws ArgumentError DemandSpec(flat; shift = 2)
+    @test DemandSpec(flat; shift = 1) == flat
+    # where the price is at the reference point, the two forms move alike
+    for form in (:isoelastic, :linear)
+        s = SupplySpec(product = :x, region = :A, p0 = 10, q0 = 30, elasticity = 0.5,
+                       form = form, shift = z)
+        @test Markets.supply_price(s, 1.2^0.5 * 30) ≈ 10
+    end
+end
+
 @testset "Flat curves: a price given from outside" begin
     # a small country facing the world: its own curves at 200 in autarky, and
     # a "world" region that sells at `buy` and buys at `sell`, whatever
@@ -784,6 +839,64 @@ end
         @test_throws ArgumentError @limit "x" 1 <= 2
         @test_throws ArgumentError Limit(name = "x", expression = Markets.supply(), lower = 2, upper = 1)
         @test_throws ArgumentError Limit(name = "x", expression = Markets.supply())
+    end
+
+    @testset "a soft limit can be crossed, at its penalty" begin
+        free = solve_market(economy())
+        made = level(free, :A)
+        cap(penalty) = @limit "mill A" activity(region = :A, process = :mill) <= 0.5made penalty = penalty
+        hard = solve_market(economy(limits = [@limit "mill A" activity(region = :A, process = :mill) <= 0.5made]))
+        hard_rent = only(hard.limits.rent)
+        @test hard_rent > 0
+        # a penalty above the rent the hard limit earns is never worth paying:
+        # the soft limit holds where the hard one does, at the same rent
+        dear = solve_market(economy(limits = [cap(2hard_rent)]))
+        @test level(dear, :A) ≈ 0.5made rtol = 1e-6
+        @test only(dear.limits.rent) ≈ hard_rent rtol = 1e-4
+        @test only(dear.limits.excess) ≈ 0 atol = 1e-6
+        @test dear.penalties ≈ 0 atol = 1e-4
+        # a cheaper one is paid: the limit is crossed, its rent is the penalty,
+        # and the mill runs where its margin covers that much
+        cheap = solve_market(economy(limits = [cap(0.25hard_rent)]))
+        row = only(eachrow(cheap.limits))
+        @test level(cheap, :A) > 0.5made
+        @test row.excess ≈ level(cheap, :A) - 0.5made rtol = 1e-5
+        @test row.rent ≈ 0.25hard_rent rtol = 1e-4
+        @test row.penalty == 0.25hard_rent
+        @test cheap.penalties ≈ row.penalty * row.excess rtol = 1e-6
+        @test cheap.welfare ≈ cheap.objective + cheap.penalties rtol = 1e-9
+        margin = price(cheap, :A, :g) - 2 * price(cheap, :A, :w) - 50
+        @test margin ≈ row.rent rtol = 1e-4
+        # the rent never exceeds the penalty, and the mill sits between
+        @test level(hard, :A) < level(cheap, :A) < made
+        # a bound not reached changes nothing
+        slack = solve_market(economy(limits = [@limit "mill A" activity(region = :A, process = :mill) <=
+                                               2made penalty = 1.0]))
+        @test level(slack, :A) ≈ made rtol = 1e-6
+        @test only(slack.limits.rent) == 0 && only(slack.limits.excess) == 0
+        # a penalty of Inf is the hard limit, and a soft ceiling is no capacity
+        @test cap(Inf).penalty == Inf
+        @test level(solve_market(economy(limits = [cap(Inf)])), :A) ≈ level(hard, :A) rtol = 1e-9
+        @test only(cheap.activity[cheap.activity.region .== "A", :capacity]) == Inf
+        @test only(hard.activity[hard.activity.region .== "A", :capacity]) ≈ 0.5made
+        # a soft floor: short of it, the penalty is paid on the shortfall, and
+        # the rent is negative, as for any lower bound
+        floor = solve_market(economy(limits = [@limit "mill B" activity(region = :B, process = :mill) >=
+                                               level(free, :B) + 50 penalty = 5.0]))
+        r = only(eachrow(floor.limits))
+        @test r.rent ≈ -5 rtol = 1e-4
+        @test r.excess ≈ level(free, :B) + 50 - r.value rtol = 1e-5
+        @test r.value > level(free, :B)
+        # a family takes the penalty for each member
+        fam = @limits "mills" [r in (:A, :B)] activity(region = r, process = :mill) <= 1.0 penalty = 3
+        @test all(l.penalty == 3 for l in fam) && length(fam) == 2
+        @test occursin("penalty 3.0", repr(fam[1]))
+        @test occursin("a unit past it", sprint(show, economy(limits = fam)))
+        # what a penalty must be, and what else a limit takes
+        @test_throws ArgumentError cap(0.0)
+        @test_throws ArgumentError cap(-1.0)
+        @test_throws Exception macroexpand(@__MODULE__,
+            :(@limit "x" activity(region = :A) <= 1 cost = 3))
     end
 
     @testset "a trade ceiling binds and earns a congestion rent" begin
@@ -1224,6 +1337,23 @@ end
         @test flow(res, :x, o, r) ≈ flow(base, :x, o, r) rtol = 1e-4 atol = 1e-6
     end
 
+    # the calibration does not depend on the shape of the curves: rebuilt with
+    # the tangent lines at the same base year, the economy gives it back too
+    lines = MarketData(regions = regions, products = [:x],
+        demand = [DemandSpec(product = :x, region = r, p0 = unit_value(S(r)), q0 = bought(S(r)),
+                             elasticity = 0.8, form = :linear) for r in regions],
+        supply = [SupplySpec(product = :x, region = r, p0 = received[S(r)], q0 = made[S(r)],
+                             elasticity = 1.2, form = :linear) for r in regions],
+        transport_costs = truth.transport_costs, armington = [arm])
+    straight = solve_market(lines; solver_options = (tol = 1e-12,))
+    @test solved(straight)
+    for r in regions
+        @test pprice(straight, r, :x) ≈ received[S(r)] rtol = 1e-6
+        @test price(straight, r, :x) ≈ unit_value(S(r)) rtol = 1e-6
+        @test getq(straight.production, r, :x) ≈ made[S(r)] rtol = 1e-5
+        @test getq(straight.consumption, r, :x) ≈ bought(S(r)) rtol = 1e-5
+    end
+
     # a pool member that would be the cheapest but shipped nothing contradicts
     # the data, and a flow without a price cannot be calibrated
     cheap = copy(delivered)
@@ -1492,11 +1622,14 @@ end
         end
     end
 
-    @testset "a demand nest at σ = $σ reproduces the base year" for σ in (0.0, 0.5, 1.0, 3.0)
+    # the composite's curve may be either form: they agree at the base year
+    @testset "a demand nest at σ = $σ reproduces the base year ($form)" for
+            σ in (0.0, 0.5, 1.0, 3.0), form in (:isoelastic, :linear)
         names = [:a, :b, :c]
         c = ces_calibration(quantities = q, prices = p, sigma = σ)
         res = solve_market(MarketData(regions = [:A], products = names,
             demand = [DemandSpec(region = :A, p0 = c.price, q0 = c.quantity, elasticity = 0.6,
+                                 form = form,
                                  product = DemandNest(sigma = σ, products = names,
                                                       shares = c.shares))],
             supply = supply_at(names, q, p)))

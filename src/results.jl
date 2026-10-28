@@ -48,10 +48,17 @@ Base.@kwdef struct Results
     """
     objective::Float64
     """
-    The objective with the tax revenue added back, which is the surplus the
-    economy actually enjoys and the figure to compare across policy scenarios
+    The objective with the tax revenue and the `penalties` added back, which
+    is the surplus the economy actually enjoys and the figure to compare
+    across policy scenarios
     """
     welfare::Float64
+    """
+    What crossing the soft [`Limit`](@ref)s cost in the objective: each one's
+    `penalty` times its `excess`. A device of the model rather than a cost
+    anyone pays, so it is not part of `welfare`; zero without soft limits
+    """
+    penalties::Float64 = 0.0
     "Primary supply + manufactured output: `region`, `product`, `quantity`"
     production::DataFrame
     """
@@ -136,7 +143,9 @@ Base.@kwdef struct Results
     activity::DataFrame
     """
     Every [`Limit`](@ref): `limit`, its `lower` and `upper` bounds (`-Inf` and
-    `Inf` where it has none), the `value` its expression takes, its `rent` —
+    `Inf` where it has none), its `penalty` (`Inf` for a hard limit), the
+    `value` its expression takes, its `excess` — how far past its bound a
+    soft limit was taken, zero for a hard one — its `rent` —
     the gain in the objective from relaxing the bound that binds by one unit,
     positive for an upper bound, like a congestion rent or a quota price,
     negative for a lower one, the subsidy that would get agents to meet it
@@ -214,8 +223,9 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
     # that binds would be worth — in a maximisation, minus its dual, scaled
     # from the variable to the expression where the limit is a variable bound
     limits = DataFrame(limit = String[], lower = Float64[], upper = Float64[],
-                       value = Float64[], rent = Float64[],
-                       regions = Vector{String}[], variables = Vector{String}[])
+                       penalty = Float64[], value = Float64[], excess = Float64[],
+                       rent = Float64[], regions = Vector{String}[], variables = Vector{String}[])
+    penalties = 0.0
     # what the limits charge per unit of each variable they involve, and the
     # tightest ceiling a limit puts on a variable alone
     wedge    = Dict{Tuple,Float64}()
@@ -224,19 +234,30 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
     for L in limits_built
         value = val(L.expression)
         # complementary slackness: a bound that is not reached earns nothing,
-        # whatever numerical dust its dual carries
-        reached(bound) = abs(value - bound) <= 1e-6 * max(1.0, abs(bound))
+        # whatever numerical dust its dual carries. A soft bound may be crossed,
+        # and one crossed is reached too
+        near(bound) = 1e-6 * max(1.0, abs(bound))
+        reached(bound, side) = side === :upper ? value >= bound - near(bound) :
+                               side === :lower ? value <= bound + near(bound) :
+                                                 abs(value - bound) <= near(bound)
         rent = has_duals(m) ?
-            denoise(sum((-dual(ref) * scale for (bound, ref, scale) in L.duals if reached(bound));
-                        init = 0.0)) : 0.0
+            denoise(sum((-dual(ref) * scale for (bound, ref, scale, side) in L.duals
+                         if reached(bound, side)); init = 0.0)) : 0.0
+        # how far a soft limit was crossed, with the solver's dust on either
+        # side of zero read as not at all, on the same scale as `reached`
+        excess = sum(val, L.slacks; init = 0.0)
+        excess = excess <= near(isfinite(L.limit.upper) ? L.limit.upper : L.limit.lower) ?
+                 0.0 : excess
+        penalties += isfinite(L.limit.penalty) ? L.limit.penalty * excess : 0.0
         keys_l = sort(collect(keys(L.terms)); by = describe_key)
         regions_l = regions_in_order(keys_l, d, order)
-        push!(limits, (L.limit.name, L.limit.lower, L.limit.upper, value, rent,
-                       regions_l, describe_key.(keys_l)))
+        push!(limits, (L.limit.name, L.limit.lower, L.limit.upper, L.limit.penalty, value,
+                       excess, rent, regions_l, describe_key.(keys_l)))
         for (key, w) in L.terms
             wedge[key] = get(wedge, key, 0.0) + rent * w
         end
-        if length(L.terms) == 1
+        # a soft limit can be crossed, so it is no capacity
+        if length(L.terms) == 1 && !isfinite(L.limit.penalty)
             key, w = only(L.terms)
             c = w > 0 ? L.limit.upper / w : L.limit.lower / w
             ceilings[key] = min(get(ceilings, key, Inf), c)
@@ -409,7 +430,9 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
                    raw_status = raw_status(m),
                    solve_time = solver_attribute(m, MOI.SolveTimeSec(), wall_time),
                    iterations = iterations,
-                   objective = objective, welfare = objective + sum(taxes.revenue; init = 0.0),
+                   objective = objective,
+                   welfare = objective + sum(taxes.revenue; init = 0.0) + penalties,
+                   penalties = penalties,
                    supply = supply, production = production,
                    consumption = consumption, composites = composites, inputs = inputs,
                    recipes = recipes, solution = solution, trade = trade, net_trade = net,

@@ -163,7 +163,10 @@ struct DemandSpec
     beta::Float64
     """
     Multiplicative shifter of the whole curve: the quantity demanded at any
-    given price is `shift` times what the curve otherwise implies. It is how
+    given price is `shift` times what the curve otherwise implies. On a line,
+    it scales `alpha` and `beta` together, so the price at which the quantity
+    is zero does not move; a flat curve has no quantity to scale and refuses
+    any shifter but 1. It is how
     everything other than the price enters demand — income, population, the
     price of a substitute outside the model — leaving the reference point or
     the coefficients to hold the calibration. [`exogenous_shift`](@ref) builds
@@ -175,6 +178,9 @@ struct DemandSpec
     function DemandSpec(product, region, form, p0, q0, elasticity, alpha, beta, shift)
         shift > 0 || throw(ArgumentError(
             "the demand shifter of $product in $region must be positive, got $shift"))
+        isinf(elasticity) && shift != 1 && throw(ArgumentError(
+            "the demand for $product in $region is flat (elasticity Inf): it buys any " *
+            "quantity at p0, so a shifter has nothing to scale. Change p0 to move it"))
         new(product isa DemandNest ? product : nm(product), nm(region),
             form, p0, q0, elasticity, alpha, beta, shift)
     end
@@ -185,6 +191,21 @@ DemandSpec(; product, region, p0 = nothing, q0 = nothing, elasticity = nothing,
     DemandSpec(product, region,
                curve_parameters(:demand, "$product in $region", p0, q0, elasticity,
                                 alpha, beta, form)..., shift)
+
+"""
+    DemandSpec(s::DemandSpec; shift)
+
+The demand curve `s` with the shifter `shift` in place of its own: the same
+calibration, whatever its form, moved by a new multiplier. This is how a
+scenario moves a curve.
+
+```julia
+thirsty = DemandSpec(milk; shift = 1.2)     # a fifth more milk at every price
+```
+"""
+DemandSpec(s::DemandSpec; shift::Real) =
+    DemandSpec(s.product, s.region, s.form, s.p0, s.q0, s.elasticity, s.alpha, s.beta,
+               float(shift))
 
 """
 $(TYPEDEF)
@@ -251,7 +272,10 @@ struct SupplySpec
     beta::Float64
     """
     Multiplicative shifter of the whole curve: the quantity supplied at any
-    given price is `shift` times what the curve otherwise implies. It is how
+    given price is `shift` times what the curve otherwise implies. On a line,
+    it scales `alpha` and `beta` together, so the price at which the quantity
+    is zero does not move; a flat curve has no quantity to scale and refuses
+    any shifter but 1. It is how
     the exogenous conditions of production enter — the size of the resource,
     the roads and ports, the labour and machinery available — leaving the
     reference point or the coefficients to hold the calibration.
@@ -265,6 +289,9 @@ struct SupplySpec
     function SupplySpec(product, region, form, p0, q0, elasticity, alpha, beta, shift)
         shift > 0 || throw(ArgumentError(
             "the supply shifter of $product in $region must be positive, got $shift"))
+        isinf(elasticity) && shift != 1 && throw(ArgumentError(
+            "the supply of $product in $region is flat (elasticity Inf): it sells any " *
+            "quantity at p0, so a shifter has nothing to scale. Change p0 to move it"))
         new(nm(product), nm(region), form, p0, q0, elasticity, alpha, beta, shift)
     end
 end
@@ -274,6 +301,21 @@ SupplySpec(; product, region, p0 = nothing, q0 = nothing, elasticity = nothing,
     SupplySpec(product, region,
                curve_parameters(:supply, "$product in $region", p0, q0, elasticity,
                                 alpha, beta, form)..., shift)
+
+"""
+    SupplySpec(s::SupplySpec; shift)
+
+The supply curve `s` with the shifter `shift` in place of its own: the same
+calibration, whatever its form, moved by a new multiplier. This is how a
+scenario moves a curve.
+
+```julia
+salvage = SupplySpec(logs; shift = 3.0)     # three times the logs at every price
+```
+"""
+SupplySpec(s::SupplySpec; shift::Real) =
+    SupplySpec(s.product, s.region, s.form, s.p0, s.q0, s.elasticity, s.alpha, s.beta,
+               float(shift))
 
 # Julia picks a method by the types of the positional arguments, never by the
 # names of the keywords, so the two ways of giving a curve share one keyword
@@ -382,6 +424,13 @@ This is the form that comes out of the usual estimation. Regressing
 ``\\log S`` on ``\\log P`` and on the ``\\log Z_j`` gives the price
 elasticity and the ``\\gamma_j`` in one go, so the shifters cost nothing extra to obtain
 once the curve itself has been estimated.
+
+The shifter is the same on a straight line: it multiplies the quantity at
+every price, so ``\\gamma_j`` is the elasticity of the quantity to driver
+``j`` along the whole line, as along a constant-elasticity curve. A line
+estimated in levels, ``Q = \\alpha + \\beta P + \\gamma Z``, has its
+drivers in the intercept instead: there the driver moves `alpha`, by
+``\\gamma (Z - Z^0)``, and is given as a new `alpha` rather than as a shifter.
 
 # Example
 ```julia

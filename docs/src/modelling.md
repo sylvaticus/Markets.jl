@@ -188,6 +188,12 @@ resource each period and must not touch the fitted curve.
     every volume. What matters is only that the elasticity you apply is the one
     your ``\gamma`` was estimated against.
 
+    On a straight line the two part. Multiplying the quantity rotates the line
+    about the price at which supply starts, ``-\alpha/\beta``, which stays
+    where it was; making every unit cheaper would lower that price too. A
+    driver that works through cost belongs in ``\alpha`` on a line, which is
+    also where a regression in levels puts it.
+
 ### A ceiling — for a limit that binds
 
 A shifter scales a curve; it never stops it. When the constraint is a genuine
@@ -223,6 +229,12 @@ which is the multiplier of the ceiling, and is how `Results.supply` and
 
 A ceiling set above what would have been produced anyway changes nothing, so it
 is safe to carry one on every curve that has a known physical limit.
+
+A ceiling can also be **soft**: crossed at a given cost per unit, which caps
+its rent at that cost. That is a device for holding a quantity near a
+reference — trade near its recent levels, in the tradition of the recursive
+forest sector models — rather than a physical limit, and its cost is not part
+of welfare. See [Soft limits](@ref).
 
 ### A structural supply — when the factors are the point
 

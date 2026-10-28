@@ -286,7 +286,8 @@ function Base.show(io::IO, d::MarketData)
                                 l.lower == l.upper ? string("= ", fmt(l.upper)) :
                                     join(filter(!isempty,
                                          [isfinite(l.lower) ? "≥ " * fmt(l.lower) : "",
-                                          isfinite(l.upper) ? "≤ " * fmt(l.upper) : ""]), ", "),
+                                          isfinite(l.upper) ? "≤ " * fmt(l.upper) : ""]), ", ") *
+                                    (isfinite(l.penalty) ? ", or " * fmt(l.penalty) * " a unit past it" : ""),
                                 sprint(show, l.expression)]
                                for l in d.limits]))
     end
