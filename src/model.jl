@@ -86,7 +86,7 @@ function ces_constraint!(m, qs, δ, σ, rhs, name; scale = 1.0)
     end
 end
 
-# --- one CES tree for groups of origins and groups of substitutes ------------
+# --- one CES tree for groups of origins, of substitutes and of inputs ---------
 
 """
 $(TYPEDEF)
@@ -94,8 +94,9 @@ $(TYPEDEF)
 A node of a CES tree as the model builds it: `children` are leaves (`String`s
 — origins, or products) or deeper nodes, `shares` their value shares among
 themselves, summing to 1, and `sigma` the elasticity they substitute at. It is
-the normalised form both an [`OriginNest`](@ref) and a [`DemandNest`](@ref)
-are read into, so that one builder, [`ces_tree!`](@ref), serves both.
+the normalised form an [`OriginNest`](@ref), a [`DemandNest`](@ref) and a
+[`Nest`](@ref) of process inputs are read into, so that one builder,
+[`ces_tree!`](@ref), serves all three.
 """
 struct CESNode
     sigma::Float64
@@ -161,12 +162,20 @@ expected quantity of the node, divided among its children by their shares,
 and `base` names the constraints, numbered in the order the nodes are built.
 A composite needs a positive floor only where it is itself raised to a power,
 i.e. where the node it belongs to has a finite, positive elasticity.
+
+Given `rhs`, the root gets no variable of its own: its aggregate, times
+`scale`, is required to cover `rhs` directly, under the name `base`. That is a
+nest of process inputs, whose composite is its coefficient times the activity.
 """
 function ces_tree!(m, node, leaf, floor_at, start, base::String, in_power::Bool = false,
-                   counter = Ref(0))
+                   counter = Ref(0); rhs = nothing, scale = 1.0)
     node isa AbstractString && return leaf(node, start, in_power)
     qs = [ces_tree!(m, c, leaf, floor_at, s * start, base, powered(node.sigma), counter)
           for (c, s) in zip(node.children, node.shares)]
+    if rhs !== nothing
+        ces_constraint!(m, qs, node.shares, node.sigma, rhs, base; scale = scale)
+        return rhs
+    end
     at = sum(start_value, qs)
     composite = @variable(m, lower_bound = in_power ? floor_at(at) : 0.0, start = at,
                           base_name = "$(base)_composite[$(counter[] += 1)]")
@@ -640,24 +649,26 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
                 addto!(used, (r, nest.products[1]), nest.composite * zk)
                 drawn[(r, proc.name, k, nest.products[1])] = nest.composite * zk
             else                                     # CES
-                qs = VariableRef[]
-                # a Leontief nest uses its inputs linearly, so they may go to zero
-                for p in nest.products
-                    q = @variable(m, lower_bound = iszero(nest.sigma) ? 0.0 :
-                                                   floor_at(nest.composite),
-                                     start = nest.composite,
-                                     base_name = "x[$r,$(proc.name),$p]")
-                    push!(qs, q)
+                # one input variable per product, floored only where the
+                # aggregator raises it to a power: a Leontief nest (σ = 0) or
+                # perfect substitutes (σ = ∞) use their inputs linearly
+                function input(p, start, in_power)
+                    q = @variable(m, lower_bound = in_power ? floor_at(nest.composite) : 0.0,
+                                     start = start, base_name = "x[$r,$(proc.name),$p]")
                     addto!(used, (r, p), q)
                     drawn[(r, proc.name, k, p)] = q
+                    return q
                 end
                 # Calibrated CES: shares are *value* shares (Σδ = 1) and enter
                 # the quantity aggregator as δ^(1/σ).  This makes the implied
                 # composite-input price equal the input price when prices are
                 # uniform (and total physical input = composite·z), so the dual
                 # prices reproduce the genuine marginal cost of production.
-                ces_constraint!(m, qs, nest.shares, nest.sigma, nest.composite * zk,
-                                "input_nest[$r,$(proc.name),$k]"; scale = nest.phi)
+                # The nest is a tree of one level, whose root is no variable
+                # but the coefficient times the activity.
+                ces_tree!(m, CESNode(nest.sigma, Any[nest.products...], nest.shares), input,
+                          floor_at, nest.composite, "input_nest[$r,$(proc.name),$k]";
+                          rhs = nest.composite * zk, scale = nest.phi)
             end
         end
     end

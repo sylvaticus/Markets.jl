@@ -2123,6 +2123,10 @@ end
         @test lb(jump_model(trade(1.0)), "X[x,B,A]") > 0.0
         @test lb(jump_model(processes(0.0)), "x[R,stage1,in1]") == 0.0
         @test lb(jump_model(processes(1.0)), "x[R,stage1,in1]") > 0.0
+        # perfect substitutes among inputs are pooled linearly, as among
+        # origins and in final demand
+        @test lb(jump_model(processes(Inf)), "x[R,stage1,in1]") == 0.0
+        @test solved(solve_market(processes(Inf)))
     end
 end
 
