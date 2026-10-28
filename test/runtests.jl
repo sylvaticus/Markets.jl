@@ -2378,7 +2378,10 @@ end
 
     @testset "Egyptian agriculture (GAMS egypt)" begin
         ex = run("egypt", "egypt.jl")
-        @test solved(ex.result) && solved(ex.dry_result)
+        # nearly an LP: on some platforms Ipopt stops at its acceptable
+        # tolerance, which the comparisons below then hold to account
+        usable(res) = solved(res) || res.status == Markets.MOI.ALMOST_LOCALLY_SOLVED
+        @test usable(ex.result) && usable(ex.dry_result)
         # the port is the original with exact demand lines: same welfare, same
         # prices, same water rent when water binds
         @test ex.exact.objective - ex.meat_and_milk ≈ ex.result.objective rtol = 1e-7

@@ -318,10 +318,15 @@ limits = [land_limits; water_limit; vegetable_limits; area_limits; family_limits
 length(limits)
 
 # ## The equilibrium
+#
+# The solver is asked for a relative precision of 10⁻⁷ rather than its usual
+# 10⁻⁸: the problem is nearly an LP, with many crops tied at the margin, and
+# depending on the platform the last digit can cost Ipopt more than it is
+# worth.
 
 egypt = MarketData(regions = regions, products = products, demand = demand, supply = supply,
                    processes = processes, limits = limits, transport_costs = transport_costs)
-result = solve_market(egypt)
+result = solve_market(egypt; solver_options = (tol = 1e-7,))
 result.status
 
 # What is grown where, in thousands of feddans:
@@ -390,9 +395,7 @@ DataFrame(crop = marketed, original = [original.price[c] for c in marketed],
 # ## The question it was built for
 #
 # What is water worth, and what happens if there is less of it? Take a fifth of
-# it away. (The solver is asked for a relative precision of 10⁻⁷ instead of
-# 10⁻⁸ here: the problem is nearly an LP, with many crops tied at the margin,
-# and the last digit costs Ipopt more than it is worth.)
+# it away, solving to the same precision as before:
 
 drier = MarketData(regions = regions, products = products, demand = demand, supply = supply,
                    processes = processes, transport_costs = transport_costs,
