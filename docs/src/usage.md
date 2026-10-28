@@ -672,6 +672,17 @@ an MOI attribute such as `MOI.TimeLimitSec()` is passed as it is. The options
 are set after the ones Markets chooses for Ipopt (see
 [Numerical details](@ref)), so they override them.
 
+!!! tip "Large economies: a faster barrier strategy"
+    `solver_options = (mu_strategy = "adaptive",)` lets Ipopt update its
+    barrier parameter adaptively instead of monotonically. On the forest
+    examples it roughly halves the iterations and the solve time (1693 → 783
+    iterations for `forest_market`), and the Egypt port solves in a third of
+    the iterations, with the same equilibrium. It is not the default because it
+    is less robust where the goods of a CES group are nearly perfect
+    complements: with an elasticity of substitution of 0.01 between origins,
+    Ipopt stops on an invalid number where the monotone strategy converges.
+    If an adaptive solve fails, solve again without it.
+
 Before building anything, `solve_market` calls [`validate`](@ref) on the
 economy. That check is not a formality: the model has one balance per declared
 region and product, so a name outside those lists would get variables and no
