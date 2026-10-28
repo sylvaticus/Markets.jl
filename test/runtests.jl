@@ -697,7 +697,10 @@ end
         quiet = solve_market(starved; on_failure = :ignore)
         @test !solved(quiet)                       # the status says so plainly
         @test quiet.status == Markets.MOI.LOCALLY_INFEASIBLE
-        @test_logs (:warn,) solve_market(starved; on_failure = :warn)
+        # other packages may warn too (Ipopt.jl does on Julia nightly): look
+        # for ours among them
+        @test_logs (:warn, r"LOCALLY_INFEASIBLE") match_mode = :any solve_market(starved;
+                                                                                on_failure = :warn)
         @test_throws ArgumentError solve_market(starved; on_failure = :nonsense)
     end
 end
