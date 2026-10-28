@@ -61,6 +61,16 @@ matches(::Colon, x)                 = true
 matches(field::AbstractString, x)   = field == x
 matches(field::AbstractVector, x)   = x in field
 
+"""
+$(TYPEDSIGNATURES)
+
+The names a selector field holds, as a vector: the one name, the several, or,
+for the colon, every name of `universe`, which must then be given.
+"""
+each(::Colon, universe)               = collect(universe)
+each(field::AbstractString, _ = ())   = [field]
+each(field::AbstractVector, _ = ())   = field
+
 "A `name => number` dictionary, keyed by strings."
 namekeys(d::AbstractDict) = Dict{String,Float64}(nm(k) => float(v) for (k, v) in d)
 

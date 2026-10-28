@@ -9,14 +9,19 @@ formulation are on the [Modelling choices](@ref) page.
 | File | Content |
 |:-----|:--------|
 | `src/Markets.jl`  | module definition, exports |
-| `src/types.jl`    | data schema: [`DemandSpec`](@ref), [`SupplySpec`](@ref), [`Nest`](@ref), [`leontief`](@ref), [`ces`](@ref), [`Process`](@ref), [`Armington`](@ref), [`OriginNest`](@ref), [`MarketData`](@ref) |
-| `src/model.jl`    | [`solve_market`](@ref): builds and solves the JuMP model |
+| `src/names.jl`    | names and selectors: strings everywhere, symbols accepted, `:` for every one |
+| `src/limits.jl`   | [`Limit`](@ref), [`LimitExpression`](@ref), [`@limit`](@ref) and [`@limits`](@ref): linear constraints on the quantities of the model |
+| `src/types.jl`    | data schema: [`Markets.Curve`](@ref) with its two sides [`DemandCurve`](@ref) and [`SupplyCurve`](@ref), [`DemandNest`](@ref), [`Nest`](@ref), [`leontief`](@ref), [`ces`](@ref), [`Process`](@ref), [`Armington`](@ref), [`OriginNest`](@ref), [`Tax`](@ref), [`MarketData`](@ref), and the calibration helpers |
+| `src/validate.jl` | [`validate`](@ref): every check on an economy, run before anything is built |
 | `src/results.jl`  | [`Results`](@ref) and [`for_region`](@ref): extraction of the result tables |
-| `src/limits.jl`   | [`Limit`](@ref), [`LimitExpression`](@ref) and [`@limit`](@ref): linear constraints on the quantities of the model |
+| `src/model.jl`    | [`solve_market`](@ref) and [`jump_model`](@ref): build and solve the JuMP model, with the one CES tree builder both demand groups and origin groups go through |
 | `src/materials.jl` | [`Material`](@ref) and [`material_accounts`](@ref): material carried by the goods, traced through a solution |
-| `examples/forest/` | the worked example, in three runnable scripts that are also the source of its three pages: `forest_market.jl` (writing the model), `forest_calibration.jl` (calibrating it with partial data) and `forest_full_data.jl` (complete data, and the comparison); `data/` holds their base years, `results/` what the first two save for the third |
+| `src/show.jl`     | the summary `print(::MarketData)` gives |
+| `examples/minimal/` | the two-region dairy, the opening example page |
+| `examples/forest/` | the full-size example, in three runnable scripts that are also the source of its three pages: `forest_market.jl` (writing the model), `forest_calibration.jl` (calibrating it with partial data) and `forest_full_data.jl` (complete data, and the comparison); `data/` holds their base years, `results/` what the first two save for the third |
+| `examples/spatequ/`, `examples/egypt/` | ports of two models of the GAMS library, checked against the originals |
 | `test/runtests.jl` | test suite |
-| `docs/`           | this documentation (Documenter.jl, with Literate.jl for the example page) |
+| `docs/`           | this documentation (Documenter.jl, with Literate.jl for the example pages) |
 
 Every type of the data schema is declared with `Base.@kwdef`, so it is built
 with keyword arguments and its optional fields have defaults; the field
@@ -62,7 +67,7 @@ in dense arrays.
 
 | Variable | Domain | Meaning |
 |:---------|:-------|:--------|
-| ``D_{r,p} \ge q_{min}`` | ``(r,p) \in \mathcal{D}`` | final demand |
+| ``D_{r,p} \ge q_{min}`` | ``(r,p) \in \mathcal{D}`` | final demand; bounded by 0 instead on a straight or a flat curve, whose marginal benefit at zero is finite |
 | ``S_{r,p} \ge 0`` | ``(r,p) \in \mathcal{S}`` | primary supply |
 | ``z_{r,k} \ge 0`` | ``k \in K, r \in R_k`` | process activity |
 | ``C_{s}`` | demand curves `s` over a group | the composite of a group of substitutes, whose members are the ``D`` of each |
@@ -72,9 +77,9 @@ in dense arrays.
 | ``A_{p,r} \ge 0`` | ``p \in P^A``, ``r \in R`` | composite of ``p`` available to the users of ``r``, built only where ``r`` uses it |
 | ``C_{\nu} \ge 0`` | internal nodes ``\nu`` of ``\mathcal{N}_{p,r}`` | sub-composite of a group of origins; floored only when its parent has ``0 < \sigma < \infty`` |
 
-``q_{min}`` is the `qfloor` keyword of [`solve_market`](@ref), which defaults to
-``10^{-6}`` of the smallest reference quantity in the economy (see
-[Numerical details](@ref)).
+``q_{min}`` is, for each variable, ``10^{-6}`` of that variable's own reference
+magnitude, or the one absolute floor given as the `qfloor` keyword of
+[`solve_market`](@ref) (see [Numerical details](@ref)).
 
 ### Objective
 
@@ -203,13 +208,24 @@ at all: the product is treated as homogeneous, which is the same model.
 
 ### How the tree is built
 
-`armington_tree` turns the groups of a specification into the tree for one
+Groups of origins and groups of substitutes in final demand are the same
+structure, and the model builds both through one internal node type, `CESNode`
+— an elasticity, children that are leaves or further nodes, and the children's
+shares among themselves — and one builder, `ces_tree!`, which walks the tree,
+creates a composite variable and one `ces_constraint!` per node, and asks the
+caller for the variable of each leaf: an existing variety ``X_{p,o,r}`` for an
+origin, a fresh consumption variable ``D_{r,p}`` for a product. A node is
+floored only when the node above it raises it to a power, and a leaf likewise.
+
+`armington_tree` turns the groups of a specification into that tree for one
 destination. The origins available to the destination are collected first, each
 with its share; every group is then reduced to the available origins it holds,
-groups that keep none are dropped and groups left with one member collapse into
-it. Each node's shares are the summed shares of the origins beneath each child,
-normalised among siblings — so the data stay a plain bilateral matrix and the
-nesting only says how they are read.
+and groups that keep none are dropped. Each node's shares are the summed shares
+of the origins beneath each child, normalised among siblings — so the data stay
+a plain bilateral matrix and the nesting only says how they are read. A
+[`DemandNest`](@ref) is read into the same form with its own shares. In both,
+a node left with one child is replaced by that child, at every level, so that
+the floors, the constraints and the printed model never carry a trivial group.
 
 The specification applied to a (product, destination) pair is the one whose
 `destination` names it, or the one for every destination (`:`) otherwise,
@@ -263,7 +279,7 @@ in `welfare`.
 
 ### Substitutes in final demand
 
-A [`DemandSpec`](@ref) whose `product` is a [`DemandNest`](@ref) builds the same
+A [`DemandCurve`](@ref) whose `product` is a [`DemandNest`](@ref) builds the same
 calibrated CES tree as the Armington one, over products instead of origins: one
 consumption variable per product of the group, one composite per node, and at
 each node
@@ -316,9 +332,13 @@ transfer, so adding the total back is what returns it to welfare.
 
 ### Convexity
 
-The first term of the objective is concave (exponent ``1 - 1/\eta`` in
-``(0,1)`` because ``\eta > 1``), the second is convex and subtracted, and the
-others are linear, so the objective is concave. The CES aggregator is concave
+The first term of the objective is concave for every ``\eta > 0``: for
+``\eta > 1`` the exponent ``1 - 1/\eta`` is in ``(0,1)``, for ``\eta < 1``
+the coefficient and the exponent are both negative, and at ``\eta = 1`` it is a
+logarithm; on a straight line it is a quadratic with a negative leading
+coefficient. The second is convex and subtracted — a power above 1, or a
+quadratic with a positive leading coefficient — and the others are linear, so
+the objective is concave. The CES aggregator is concave
 for ``\rho < 1``, negative ``\rho`` included, and so are its limits at
 ``\sigma = 0`` (a minimum of linear functions) and ``\sigma = 1`` (a weighted
 geometric mean with weights summing to 1), so the set where it is above a
@@ -337,10 +357,17 @@ consumed product becomes an unbounded one, and the solver reports success
 either way. Rather than guard each site, every name, duplicate and selector is
 checked once, up front, against the declared sets.
 
-The same pass rejects two economies that have no finite answer to give: one
-with no regions or no products, and one containing a process with no inputs, no
-value-added cost and no limit on its activity, which is a free source of its own
-output.
+The same pass checks everything else that would otherwise surface only while
+the model is built, so that `validate` alone is the verdict on a specification:
+the Armington specifications resolve to one per product and destination
+(`armington_of`), with a product imperfectly substitutable everywhere or
+nowhere; every term of every limit selects at least one quantity the
+model will have (`limit_terms` over `model_catalogue`); every tax selects at
+least one curve, process or route; and the members of one demand group carry
+one ad valorem rate. It rejects two economies that have no finite answer to
+give: one with no regions or no products, and one containing a process with no
+inputs, no value-added cost and no ceiling on its activity, which is a free
+source of its own output.
 
 ## From the solution to prices
 
@@ -393,10 +420,13 @@ of it.
 variables and constraints the results are read from; `solve_once` solves what
 it returns, and [`jump_model`](@ref) hands it to the user unsolved. Every
 variable and every constraint is named — the balances `balance[r,p]` and
-`origin_balance[r,p]`, the CES aggregators `input_nest[r,k]`,
-`demand_group[r]`, `origin_group[p,r]` and `armington[p,r]`, and
-`limit[name]` for a limit that is a constraint — so `print(jump_model(d))` can be read against the
-formulation above. A per-unit demand tax of zero is left out of the objective
+`origin_balance[r,p]`, the CES aggregators `input_nest[r,k,n]` for the
+``n``-th nest of a process, `demand_group[r][i]` and `origin_group[p,r][i]`
+for the ``i``-th node of a tree, and `armington[p,r]`, and `limit[name]` for a
+limit that is a constraint — so `print(jump_model(d))` can be read against the
+formulation above. A balance in which no variable appears — a product the
+region neither makes, uses nor carries — is not written, since a constraint on
+nothing would only count against the degrees of freedom Ipopt insists on. A per-unit demand tax of zero is left out of the objective
 rather than written as a term that is zero, which would only make the printed
 model harder to read.
 
@@ -406,17 +436,24 @@ model harder to read.
 a [`Results`](@ref) with the tables:
 
 * `production`: ``S_{r,p}`` plus ``\sum_k y_{k,p} z_{r,k}``, for all region and
-  product pairs with a value above `tol`;
-* `consumption`: ``D_{r,p}`` for every pair in ``\mathcal{D}``;
+  product pairs with a value above `tol`, and `supply` for ``S_{r,p}`` alone,
+  with the capacity and the rent the limits put on it;
+* `consumption`: ``D_{r,p}`` above `tol`, in composite and in physical units;
+* `composites`, `inputs` and `recipes`: the physical account of the CES
+  aggregates, as described under [Physical accounts](@ref);
 * `trade`: ``T_{p,r,r'}`` and the cross-border ``X_{p,o,r}`` (``o \ne r``) above `tol`;
 * `net_trade`: exports and imports summed over routes, for pairs with any trade above `tol`;
 * `prices`: one row for every region and product, if the solver returned duals,
   with `price` and `producer_price` as above;
-* `activity`: ``z_{r,k}`` above `tol`.
+* `activity`: ``z_{r,k}`` above `tol`;
+* `limits` and `taxes`: each limit with its value, excess and rent, and each
+  tax with its revenue.
 
-Intermediate input use (the ``x`` variables and the Leontief uses) and the
-domestic Armington varieties ``X_{p,r,r}`` are not reported as tables; they can
-be recovered from `res.model`.
+Every solved quantity, unrounded and unfiltered — the ``x`` variables and the
+Leontief uses in `drawn`, the domestic varieties ``X_{p,r,r}`` among the
+`flows`, production, and each region's composite — is kept in `res.solution`,
+which is what [`material_accounts`](@ref) and any account that must close
+exactly start from.
 
 ## Numerical details
 

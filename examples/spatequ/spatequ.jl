@@ -54,10 +54,10 @@ nothing # hide
 # package, whose substitution is a CES rather than a free linear matrix.)
 
 slope(row) = sum(row)
-demand = [DemandSpec(product = c, region = r, alpha = alpha_d[(r, c)],
+demand = [DemandCurve(product = c, region = r, alpha = alpha_d[(r, c)],
                      beta = slope(beta_d[(r, c)]))
           for r in regions for c in products]
-supply = [SupplySpec(product = c, region = r, alpha = alpha_s[(r, c)],
+supply = [SupplyCurve(product = c, region = r, alpha = alpha_s[(r, c)],
                      beta = slope(beta_s[(r, c)]))
           for r in regions for c in products]
 demand[1]

@@ -6,7 +6,7 @@ arbitrary set of products, regions and transformation processes.
 
 The package is the *engine* only: it knows nothing about specific products.
 You describe an economy with the data types [`MarketData`](@ref),
-[`DemandSpec`](@ref), [`SupplySpec`](@ref) and [`Process`](@ref) (built from
+[`DemandCurve`](@ref), [`SupplyCurve`](@ref) and [`Process`](@ref) (built from
 [`leontief`](@ref) and [`ces`](@ref) input nests), hand it to
 [`solve_market`](@ref), and get back production, consumption, trade and prices
 per region in a [`Results`](@ref) object.
@@ -30,7 +30,7 @@ module Markets
 using JuMP, Ipopt, DataFrames
 using DocStringExtensions: TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 
-export MarketData, DemandSpec, SupplySpec, Process, Nest, Armington, OriginNest,
+export MarketData, DemandCurve, SupplyCurve, Process, Nest, Armington, OriginNest,
        DemandNest, Tax,
        leontief, ces, disposal, armington_shares, armington_calibration, ces_calibration,
        impute_flows, exogenous_shift, Material, material_accounts,

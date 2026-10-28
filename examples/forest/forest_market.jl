@@ -108,34 +108,34 @@ nothing # hide
 # the blocs' — French forests are fragmented between many small private owners,
 # which makes the harvest slow to respond to price.
 
-supply = SupplySpec[
+supply = SupplyCurve[
     ## softwood roundwood
-    SupplySpec(product = "swr", region = "SEF", p0 =  95, q0 =   3.58, elasticity = 0.40),
-    SupplySpec(product = "swr", region = "SWF", p0 =  93, q0 =   8.79, elasticity = 0.45),
-    SupplySpec(product = "swr", region = "GEF", p0 =  96, q0 =   2.99, elasticity = 0.40),
-    SupplySpec(product = "swr", region = "OF",  p0 =  96, q0 =   3.86, elasticity = 0.40),
-    SupplySpec(product = "swr", region = "EU",  p0 =  98, q0 = 335.0,  elasticity = 0.60),
-    SupplySpec(product = "swr", region = "NA",  p0 =  94, q0 = 488.0,  elasticity = 0.60),
-    SupplySpec(product = "swr", region = "AS",  p0 = 135, q0 = 200.0,  elasticity = 0.55),
-    SupplySpec(product = "swr", region = "RW",  p0 = 103, q0 = 260.0,  elasticity = 0.55),
+    SupplyCurve(product = "swr", region = "SEF", p0 =  95, q0 =   3.58, elasticity = 0.40),
+    SupplyCurve(product = "swr", region = "SWF", p0 =  93, q0 =   8.79, elasticity = 0.45),
+    SupplyCurve(product = "swr", region = "GEF", p0 =  96, q0 =   2.99, elasticity = 0.40),
+    SupplyCurve(product = "swr", region = "OF",  p0 =  96, q0 =   3.86, elasticity = 0.40),
+    SupplyCurve(product = "swr", region = "EU",  p0 =  98, q0 = 335.0,  elasticity = 0.60),
+    SupplyCurve(product = "swr", region = "NA",  p0 =  94, q0 = 488.0,  elasticity = 0.60),
+    SupplyCurve(product = "swr", region = "AS",  p0 = 135, q0 = 200.0,  elasticity = 0.55),
+    SupplyCurve(product = "swr", region = "RW",  p0 = 103, q0 = 260.0,  elasticity = 0.55),
     ## hardwood roundwood
-    SupplySpec(product = "hwr", region = "SEF", p0 = 111, q0 =   1.58, elasticity = 0.35),
-    SupplySpec(product = "hwr", region = "SWF", p0 = 112, q0 =   1.38, elasticity = 0.35),
-    SupplySpec(product = "hwr", region = "GEF", p0 = 108, q0 =   3.78, elasticity = 0.35),
-    SupplySpec(product = "hwr", region = "OF",  p0 = 108, q0 =   5.16, elasticity = 0.35),
-    SupplySpec(product = "hwr", region = "EU",  p0 = 117, q0 = 105.0,  elasticity = 0.50),
-    SupplySpec(product = "hwr", region = "NA",  p0 = 132, q0 =  94.7,  elasticity = 0.50),
-    SupplySpec(product = "hwr", region = "AS",  p0 = 131, q0 = 240.0,  elasticity = 0.50),
-    SupplySpec(product = "hwr", region = "RW",  p0 = 107, q0 = 166.0,  elasticity = 0.50),
+    SupplyCurve(product = "hwr", region = "SEF", p0 = 111, q0 =   1.58, elasticity = 0.35),
+    SupplyCurve(product = "hwr", region = "SWF", p0 = 112, q0 =   1.38, elasticity = 0.35),
+    SupplyCurve(product = "hwr", region = "GEF", p0 = 108, q0 =   3.78, elasticity = 0.35),
+    SupplyCurve(product = "hwr", region = "OF",  p0 = 108, q0 =   5.16, elasticity = 0.35),
+    SupplyCurve(product = "hwr", region = "EU",  p0 = 117, q0 = 105.0,  elasticity = 0.50),
+    SupplyCurve(product = "hwr", region = "NA",  p0 = 132, q0 =  94.7,  elasticity = 0.50),
+    SupplyCurve(product = "hwr", region = "AS",  p0 = 131, q0 = 240.0,  elasticity = 0.50),
+    SupplyCurve(product = "hwr", region = "RW",  p0 = 107, q0 = 166.0,  elasticity = 0.50),
     ## smallwood: thinnings and tops, worth less than a sawlog
-    SupplySpec(product = "smallwood", region = "SEF", p0 = 61, q0 =   8.31, elasticity = 0.50),
-    SupplySpec(product = "smallwood", region = "SWF", p0 = 63, q0 =   5.35, elasticity = 0.55),
-    SupplySpec(product = "smallwood", region = "GEF", p0 = 62, q0 =   9.17, elasticity = 0.50),
-    SupplySpec(product = "smallwood", region = "OF",  p0 = 62, q0 =  12.5,  elasticity = 0.50),
-    SupplySpec(product = "smallwood", region = "EU",  p0 = 68, q0 = 244.0,  elasticity = 0.60),
-    SupplySpec(product = "smallwood", region = "NA",  p0 = 80, q0 = 137.0,  elasticity = 0.60),
-    SupplySpec(product = "smallwood", region = "AS",  p0 = 79, q0 = 317.0,  elasticity = 0.55),
-    SupplySpec(product = "smallwood", region = "RW",  p0 = 64, q0 = 439.0,  elasticity = 0.55),
+    SupplyCurve(product = "smallwood", region = "SEF", p0 = 61, q0 =   8.31, elasticity = 0.50),
+    SupplyCurve(product = "smallwood", region = "SWF", p0 = 63, q0 =   5.35, elasticity = 0.55),
+    SupplyCurve(product = "smallwood", region = "GEF", p0 = 62, q0 =   9.17, elasticity = 0.50),
+    SupplyCurve(product = "smallwood", region = "OF",  p0 = 62, q0 =  12.5,  elasticity = 0.50),
+    SupplyCurve(product = "smallwood", region = "EU",  p0 = 68, q0 = 244.0,  elasticity = 0.60),
+    SupplyCurve(product = "smallwood", region = "NA",  p0 = 80, q0 = 137.0,  elasticity = 0.60),
+    SupplyCurve(product = "smallwood", region = "AS",  p0 = 79, q0 = 317.0,  elasticity = 0.55),
+    SupplyCurve(product = "smallwood", region = "RW",  p0 = 64, q0 = 439.0,  elasticity = 0.55),
 ]
 nothing # hide
 
@@ -240,7 +240,7 @@ function construction_demand(r)
     outer = ces_calibration(quantities = [q("sawn_hw"), inner.quantity],
                             prices     = [price("sawn_hw"), inner.price],
                             sigma = σ_construction)
-    return DemandSpec(region = r, p0 = outer.price, q0 = outer.quantity, elasticity = 0.45,
+    return DemandCurve(region = r, p0 = outer.price, q0 = outer.quantity, elasticity = 0.45,
         product = DemandNest(sigma = σ_construction,
             products = ["sawn_hw"], shares = [outer.shares[1]],
             nests = [DemandNest(sigma = σ_lumber, share = outer.shares[2],
@@ -267,7 +267,7 @@ fuels = ["smallwood", "pellets"]
 function fuel_demand(r, gas = gas_price)
     fuel = ces_calibration(quantities = [reference[p][2][r] for p in fuels],
                            prices     = [reference[p][1] for p in fuels], sigma = σ_fuel)
-    return DemandSpec(region = r, p0 = fuel.price, q0 = fuel.quantity, elasticity = 0.35,
+    return DemandCurve(region = r, p0 = fuel.price, q0 = fuel.quantity, elasticity = 0.35,
         shift = exogenous_shift(gas = (level = gas, reference = gas_reference,
                                        elasticity = gas_cross_elasticity)),
         product = DemandNest(sigma = σ_fuel, products = fuels, shares = fuel.shares))
@@ -283,7 +283,7 @@ end
 build_demand(gas = gas_price) =
     [[construction_demand(r) for r in regions];
      [fuel_demand(r, gas) for r in regions];
-     [DemandSpec(product = "paper", region = r, p0 = reference["paper"][1],
+     [DemandCurve(product = "paper", region = r, p0 = reference["paper"][1],
                  q0 = reference["paper"][2][r], elasticity = 0.30) for r in regions]]
 
 demand = build_demand()
@@ -484,11 +484,15 @@ nothing # hide
 # One [`Armington`](@ref) specification per product then assembles the three
 # levels. The same structure applies to every destination here, but it need not
 # — a `destination` argument would let the EU market treat a bloc differently
-# from how that bloc treats the EU, which is what non-tariff measures do.
+# from how that bloc treats the EU, which is what non-tariff measures do. The
+# gravity rule gives every pair a share, but a region that mills no pulp has no
+# pulp variety to offer: the engine would drop such a share, and `validate`
+# would warn about it, so the pulp shares are kept to the regions that make it.
 
+offers(p) = p == "pulp" ? pulp_regions : regions
 armington = [Armington(product = p,
                        sigma   = σ_blocs[p],
-                       shares  = shares,
+                       shares  = Dict(k => v for (k, v) in shares if k[1] in offers(p)),
                        nests   = [europe(p)])
              for p in products]
 nothing # hide
@@ -771,7 +775,7 @@ nothing # hide
 # south-west France, several years of harvest at once. The salvage has to be
 # sold, so the region's supply curve shifts far out.
 #
-# That is what the `shift` field of a [`SupplySpec`](@ref) is for. Everything
+# That is what the `shift` field of a [`SupplyCurve`](@ref) is for. Everything
 # about the curve other than its price response lives there — the standing
 # volume, the road network, the labour and machines available — while `p0` and
 # `q0` go on holding the calibration. Tripling `q0` would have worked here too,
@@ -791,7 +795,7 @@ nothing # hide
 # 30 Mm³ of the 40 Klaus brought down. Everything else is left alone:
 
 salvage = [s.region == "SWF" && s.product == "swr" ?
-               SupplySpec(s; shift = 3.0) : s
+               SupplyCurve(s; shift = 3.0) : s
            for s in supply]
 nothing # hide
 

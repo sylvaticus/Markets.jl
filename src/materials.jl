@@ -131,13 +131,7 @@ function material_accounts(res::Results, material::Material; tol::Real = 1e-12,
     arm = Set(p for (p, _) in keys(armington_of(d)))
     supplied(r, p) = get(sol.supply, (r, p), 0.0)
     level(r, k) = get(sol.activity, (r, k), 0.0)
-    production = Dict{Tuple{String,String},Float64}()
-    for ((r, p), q) in sol.supply
-        production[(r, p)] = get(production, (r, p), 0.0) + q
-    end
-    for proc in d.processes, r in regions_of(proc, d), (p, y) in proc.outputs
-        production[(r, p)] = get(production, (r, p), 0.0) + y * level(r, proc.name)
-    end
+    production = sol.production
     # what each region receives of each product, physically: the varieties of
     # an Armington product, its own included, or the imports of a homogeneous one
     into = Dict{Tuple{String,String},Vector{Tuple{String,Float64}}}()

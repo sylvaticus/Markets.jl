@@ -14,7 +14,7 @@ function quantity_scale(d::MarketData)
     # a curve over a group of substitutes describes their composite, so its
     # reference quantity is divided among them for the purpose of scale; a
     # flat curve has no quantity of its own, whatever its q0 says
-    qs = Float64[reference_quantity(s) / length(nest_products(s.product))
+    qs = Float64[reference_quantity(s) / length(leaves(s.product))
                  for s in d.demand if isfinite(s.elasticity)]
     append!(qs, Float64[reference_quantity(s) for s in d.supply if isfinite(s.elasticity)])
     return isempty(qs) ? 1.0 : minimum(qs)
@@ -29,7 +29,7 @@ no composite of it, though it may still produce it for others.
 """
 function consumed(d::MarketData)
     uses = Set{Tuple{String,String}}()
-    for s in d.demand, p in nest_products(s.product)
+    for s in d.demand, p in leaves(s.product)
         push!(uses, (p, s.region))
     end
     for proc in d.processes, r in regions_of(proc, d), nest in proc.inputs, p in nest.products
@@ -86,24 +86,92 @@ function ces_constraint!(m, qs, δ, σ, rhs, name; scale = 1.0)
     end
 end
 
+# --- one CES tree for groups of origins and groups of substitutes ------------
+
+"""
+$(TYPEDEF)
+
+A node of a CES tree as the model builds it: `children` are leaves (`String`s
+— origins, or products) or deeper nodes, `shares` their value shares among
+themselves, summing to 1, and `sigma` the elasticity they substitute at. It is
+the normalised form both an [`OriginNest`](@ref) and a [`DemandNest`](@ref)
+are read into, so that one builder, [`ces_tree!`](@ref), serves both.
+"""
+struct CESNode
+    sigma::Float64
+    children::Vector{Any}
+    shares::Vector{Float64}
+end
+
 """
 $(TYPEDSIGNATURES)
 
-The origins that sit directly under a CES node of `node` that raises them to a
-power.  Only those need a positive lower bound; a variety under a Leontief
-node or pooled by an infinitely substitutable group enters linearly and may go
-to zero.
+`node` with every group of one member replaced by that member, at every
+level: a group of one is no group, and dropping it keeps the aggregator, the
+floors and the printed model free of trivial nodes.
 """
-function floored_origins(node, acc = Set{String}())
+collapse(leaf::AbstractString) = leaf
+function collapse(node::CESNode)
+    length(node.children) == 1 && return collapse(only(node.children))
+    return CESNode(node.sigma, Any[collapse(c) for c in node.children], node.shares)
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The [`CESNode`](@ref) tree of a [`DemandNest`](@ref): its products and
+sub-groups, weighted by their `shares` and `share` normalised over the node,
+with groups of one collapsed.
+"""
+function tree(n::DemandNest)
+    weights = Float64[n.shares; [sub.share for sub in n.nests]]
+    return collapse(CESNode(n.sigma, Any[n.products; [tree(sub) for sub in n.nests]],
+                            weights ./ sum(weights)))
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The leaves that sit directly under a node of `node` that raises them to a
+power. Only those need a positive lower bound; a leaf under a Leontief node or
+pooled by an infinitely substitutable group enters linearly and may go to
+zero.
+"""
+function floored_leaves(node, acc = Set{String}())
     node isa AbstractString && return acc
     for c in node.children
         if c isa AbstractString
             powered(node.sigma) && push!(acc, c)
         else
-            floored_origins(c, acc)
+            floored_leaves(c, acc)
         end
     end
     return acc
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The quantity of the composite that `node` stands for, as a variable of `m`:
+`leaf(name, share, in_power)` for a leaf — the variable of that origin or
+product, which the caller creates or looks up, told its share of the start
+value and whether it is raised to a power — and otherwise a fresh variable
+tied to its children by the CES aggregator of the node. `start` is the
+expected quantity of the node, divided among its children by their shares,
+and `base` names the constraints, numbered in the order the nodes are built.
+A composite needs a positive floor only where it is itself raised to a power,
+i.e. where the node it belongs to has a finite, positive elasticity.
+"""
+function ces_tree!(m, node, leaf, floor_at, start, base::String, in_power::Bool = false,
+                   counter = Ref(0))
+    node isa AbstractString && return leaf(node, start, in_power)
+    qs = [ces_tree!(m, c, leaf, floor_at, s * start, base, powered(node.sigma), counter)
+          for (c, s) in zip(node.children, node.shares)]
+    at = sum(start_value, qs)
+    composite = @variable(m, lower_bound = in_power ? floor_at(at) : 0.0, start = at,
+                          base_name = "$(base)_composite[$(counter[] += 1)]")
+    ces_constraint!(m, qs, node.shares, node.sigma, composite, "$base[$(counter[])]")
+    return composite
 end
 
 """
@@ -116,24 +184,21 @@ Products absent from it are homogeneous.
 
 A product is Armington in every destination or in none, so a specification with
 a finite elasticity for some destinations must be matched either by one for
-each of the others or by a `:` fallback.
+each of the others or by a `:` fallback. [`validate`](@ref) runs this, so a
+specification that breaks the rule is caught before anything is built.
 """
 function armington_of(d::MarketData)
     specs    = Dict{Tuple{String,String},Armington}()   # (product, destination)
     fallback = Dict{String,Armington}()                 # product, from `:`
     products = String[]
     for a in d.armington
-        a.product in d.products ||
-            throw(ArgumentError("Armington specification for unknown product $(a.product)"))
         isfinite(a.sigma) && push!(products, a.product)
         if a.destination isa Colon
             haskey(fallback, a.product) && throw(ArgumentError(
                 "duplicate Armington specification for $(a.product)"))
             fallback[a.product] = a
         else
-            for r in (a.destination isa AbstractString ? [a.destination] : a.destination)
-                r in d.regions || throw(ArgumentError(
-                    "Armington specification of $(a.product) for unknown region $r"))
+            for r in each(a.destination)
                 haskey(specs, (a.product, r)) && throw(ArgumentError(
                     "duplicate Armington specification for $(a.product) in region $r"))
                 specs[(a.product, r)] = a
@@ -209,24 +274,16 @@ function armington_origins(d::MarketData, a::Armington, r::String,
     return origins, shares
 end
 
-# A node of the CES tree a destination aggregates its origins with: `children`
-# are origins (`String`) or deeper nodes, `shares` their value shares among
-# themselves, `sigma` the elasticity they substitute at.
-struct ArmNode
-    sigma::Float64
-    children::Vector{Any}
-    shares::Vector{Float64}
-end
-
 """
 $(TYPEDSIGNATURES)
 
-Lay out the origins available to destination `r` as the CES tree described by
-the groups of `a`: origins placed in a group are aggregated by it first, and
-every other origin is a direct member of the root.  Each node's shares are
-those of the origins beneath it, normalised among its siblings.  Groups that no
-available origin belongs to are dropped, and a group left with a single member
-collapses into it.
+Lay out the origins available to destination `r` as the [`CESNode`](@ref) tree
+described by the groups of `a`: origins placed in a group are aggregated by it
+first, and every other origin is a direct member of the root.  Each node's
+shares are those of the origins beneath it, normalised among its siblings.
+Groups that no available origin belongs to are dropped, and a group left with
+a single member collapses into it. Returns the tree with the origins and
+their shares.
 """
 function armington_tree(d::MarketData, a::Armington, r::String,
                         can::Set{Tuple{String,String}} = producible(d))
@@ -235,19 +292,24 @@ function armington_tree(d::MarketData, a::Armington, r::String,
     # weight of everything below a child, origins being the leaves
     subtotal(c) = c isa AbstractString ? weight[c] : sum(subtotal, c.children)
 
-    # a group becomes a node over the available origins it holds, or `nothing`
+    # a group becomes a node over the available origins it holds, or `nothing`;
+    # the shares are filled in once the whole tree stands
     function group(n::OriginNest)
         members = Any[o for o in n.origins if haskey(weight, o)]
         for sub in n.nests
             s = group(sub)
             s === nothing || push!(members, s)
         end
-        isempty(members) && return nothing
-        length(members) == 1 && return members[1]    # a lone member is no group
-        return ArmNode(n.sigma, members, Float64[])  # shares filled in below
+        return isempty(members) ? nothing : CESNode(n.sigma, members, Float64[])
+    end
+    function normalise(c)
+        c isa CESNode || return c
+        total = sum(subtotal, c.children)
+        return CESNode(c.sigma, Any[normalise(k) for k in c.children],
+                       Float64[subtotal(k) / total for k in c.children])
     end
 
-    placed = collect_origins!(String[], a.nests)
+    placed = leaves(a.nests)
     children = Any[]
     for n in a.nests
         s = group(n)
@@ -256,67 +318,7 @@ function armington_tree(d::MarketData, a::Armington, r::String,
     for o in origins                     # origins in no group sit at the root
         o in placed || push!(children, o)
     end
-
-    # give every node the shares of its children among themselves
-    function normalise(c)
-        c isa ArmNode || return c
-        total = sum(subtotal, c.children)
-        return ArmNode(c.sigma, Any[normalise(k) for k in c.children],
-                       Float64[subtotal(k) / total for k in c.children])
-    end
-    root = length(children) == 1 ? children[1] :
-           normalise(ArmNode(a.sigma, children, Float64[]))
-    return root, origins, shares
-end
-
-"""
-$(TYPEDSIGNATURES)
-
-The quantity of the composite that `node` stands for, as a variable of `m`: the
-variety of an origin when `node` is a `String`, otherwise a fresh variable tied
-to its children by the CES aggregator of the group.  Called on the root of an
-[`armington_tree`](@ref), it adds one variable and one constraint per group.
-"""
-function armington_quantity(m, node, p::String, r::String, X, floor_at, in_power::Bool = false)
-    node isa AbstractString && return X[(p, node, r)]
-    qs = [armington_quantity(m, c, p, r, X, floor_at, powered(node.sigma))
-          for c in node.children]
-    # the composite only needs a positive floor where it is itself raised to a
-    # power, i.e. where the group it belongs to has a finite, positive elasticity
-    composite = @variable(m, lower_bound = in_power ? floor_at(sum(start_value, qs)) : 0.0,
-                             start = sum(start_value, qs), base_name = "origin_composite[$p,$r]")
-    ces_constraint!(m, qs, node.shares, node.sigma, composite, "origin_group[$p,$r]")
-    return composite
-end
-
-"""
-$(TYPEDSIGNATURES)
-
-The quantity of the demand composite that `node` stands for, as a variable of
-`m`: the quantity consumed of a product when `node` is a `String`, otherwise a
-fresh variable tied to its members by the CES aggregator of the group. Called
-on the `product` field of a [`DemandSpec`](@ref), it creates one consumption
-variable per product of the group and one composite per nest.
-"""
-function demand_quantity(m, node, r::String, D, floor_at, start, in_power::Bool = true)
-    if node isa AbstractString
-        haskey(D, (r, node)) && throw(ArgumentError(
-            "$(node) has more than one final demand in region $r"))
-        f = floor_at(start)
-        return D[(r, node)] = @variable(m, lower_bound = in_power ? f : 0.0,
-                                           start = max(start, f), base_name = "D[$r,$node]")
-    end
-    weights = Float64[node.shares; [sub.share for sub in node.nests]]
-    weights ./= sum(weights)
-    members = Any[node.products; node.nests]
-    qs = [demand_quantity(m, member, r, D, floor_at, weights[i] * start,
-                          powered(node.sigma))
-          for (i, member) in enumerate(members)]
-    length(qs) == 1 && return qs[1]
-    composite = @variable(m, lower_bound = in_power ? floor_at(sum(start_value, qs)) : 0.0,
-                             start = sum(start_value, qs), base_name = "demand_composite[$r]")
-    ces_constraint!(m, qs, weights, node.sigma, composite, "demand_group[$r]")
-    return composite
+    return collapse(normalise(CESNode(a.sigma, children, Float64[]))), origins, shares
 end
 
 """
@@ -341,7 +343,7 @@ function model_catalogue(d::MarketData)
         append!(flows, [(p, o, r) for o in origins if o != r])
     end
     supply      = [(s.region, s.product) for s in d.supply]
-    consumption = [(s.region, p) for s in d.demand for p in nest_products(s.product)]
+    consumption = [(s.region, p) for s in d.demand for p in leaves(s.product)]
     processes   = [(r, proc) for proc in d.processes for r in regions_of(proc, d)]
     # the same, indexed by region, so that a limit naming one region does not
     # scan the whole economy
@@ -407,9 +409,12 @@ function quantity_keys(q::QuantityRef, d::MarketData, cat)
         q.kind == :flow && pool === cat.flows && (pool = candidates(cat.flows, cat.flows_to, sel.to))
         for (p, o, r) in pool
             is(:product, p) || continue
+            # for a group of regions only what crosses its border counts; with
+            # no region named, the group is the world and every flow crosses
+            every = q.kind != :flow && sel.region isa Colon
             keep = q.kind == :flow    ? is(:from, o) && is(:to, r) :
-                   q.kind == :exports ? is(:region, o) && !is(:region, r) :
-                                        !is(:region, o) && is(:region, r)     # imports
+                   q.kind == :exports ? is(:region, o) && (every || !is(:region, r)) :
+                                        is(:region, r) && (every || !is(:region, o))  # imports
             keep && push!(keys, (:flow, p, o, r) => 1.0)
         end
     end
@@ -475,8 +480,8 @@ index; a rate that differed between members would not, and there is no single
 curve left to put it on.  Per-unit rates have no such problem — they are
 charged on each product's own quantity — so only this one has to be shared.
 """
-function demand_relative_tax(d::MarketData, s::DemandSpec)
-    products = nest_products(s.product)
+function demand_relative_tax(d::MarketData, s::DemandCurve)
+    products = leaves(s.product)
     rates = [tax_rates(d.taxes, "demand"; product = p, region = s.region).relative
              for p in products]
     allequal(rates) || throw(ArgumentError(
@@ -543,8 +548,8 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     supply_of = Dict((s.region, s.product) => s for s in d.supply)
     # the reference quantity of whatever curve a consumed product belongs to,
     # used only to start the solver off in a sensible place
-    demand_of = Dict{Tuple{String,String},DemandSpec}()
-    for spec in d.demand, p in nest_products(spec.product)
+    demand_of = Dict{Tuple{String,String},DemandCurve}()
+    for spec in d.demand, p in leaves(spec.product)
         demand_of[(spec.region, p)] = spec
     end
 
@@ -555,14 +560,20 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     # gets one per product plus the composite the curve actually describes, so
     # the balances and the result tables stay per product throughout.
     D = Dict{Tuple{String,String},VariableRef}()
-    composites = Tuple{DemandSpec,Any}[]
+    composites = Tuple{DemandCurve,Any}[]
     # a flat curve (η = Inf) or a straight one has a finite marginal benefit
-    # at zero: no floor
+    # at zero: no floor on what it is taken over
     for s in d.demand
+        consumed_product(p, start, in_power) = begin
+            f = floor_at(start)
+            D[(s.region, p)] = @variable(m, lower_bound = in_power ? f : 0.0,
+                                         start = max(start, f), base_name = "D[$(s.region),$p]")
+        end
+        node = s.product isa DemandNest ? tree(s.product) : s.product
         push!(composites,
-              (s, demand_quantity(m, s.product, s.region, D, floor_at,
-                                  s.shift * reference_quantity(s),
-                                  s.form === :isoelastic && isfinite(s.elasticity))))
+              (s, ces_tree!(m, node, consumed_product, floor_at,
+                            s.shift * reference_quantity(s), "demand_group[$(s.region)]",
+                            s.form === :isoelastic && isfinite(s.elasticity))))
     end
     # primary supply quantities: the marginal cost b·S^(1/ε) is finite at zero,
     # so no floor is needed
@@ -599,7 +610,7 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
         (p, r) in uses || continue
         root, origins, shares = armington_tree(d, a, r, can)
         tree_of[(p, r)] = root
-        floored = floored_origins(root)
+        floored = floored_leaves(root)
         # a rough but useful starting point: the local reference consumption
         a0 = get(demand_of, (r, p), nothing)
         start = a0 === nothing ? 1.0 : reference_quantity(a0)
@@ -646,10 +657,13 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
                 # uniform (and total physical input = composite·z), so the dual
                 # prices reproduce the genuine marginal cost of production.
                 ces_constraint!(m, qs, nest.shares, nest.sigma, nest.composite * zk,
-                                "input_nest[$r,$(proc.name)]"; scale = nest.phi)
+                                "input_nest[$r,$(proc.name),$k]"; scale = nest.phi)
             end
         end
     end
+
+    # an expression that holds no variable, whether a number or an empty sum
+    constant(x) = x isa Number || (x isa AbstractJuMPScalar && isempty(x.terms) && iszero(x.constant))
 
     # --- balances per (region, product)  → duals are the prices -------------
     # `balance` is what a region's users face (its dual is the price they pay),
@@ -683,7 +697,9 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
                 balance[(r, p)] = @constraint(m, A[(p, r)] - use == 0.0,
                                               base_name = "balance[$r,$p]")
                 φ = scale_of(arm[(p, r)], r)
-                aggregate = armington_quantity(m, tree_of[(p, r)], p, r, X, floor_at)
+                # the leaves are the varieties, whose variables exist already
+                aggregate = ces_tree!(m, tree_of[(p, r)], (o, _, _) -> X[(p, o, r)], floor_at,
+                                      start_value(A[(p, r)]), "origin_group[$p,$r]")
                 @constraint(m, (isone(φ) ? aggregate : φ * aggregate) >= A[(p, r)],
                             base_name = "armington[$p,$r]")
             end
@@ -691,6 +707,10 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
             # homogeneous product: imports into r minus exports from r
             imp = @expression(m, sum(T[(p, o, r)] for o in d.regions if haskey(T, (p, o, r)); init = 0.0))
             exp = @expression(m, sum(T[(p, r, o)] for o in d.regions if haskey(T, (p, r, o)); init = 0.0))
+            # a product nothing in the region makes, uses or carries has no
+            # balance there: `0 == 0` would only be a constraint on nothing,
+            # which Ipopt counts against the degrees of freedom
+            all(constant, (src, imp, use, exp)) && continue
             balance[(r, p)] = @constraint(m, src + imp - use - exp == 0.0,
                                           base_name = "balance[$r,$p]")
         end
@@ -710,12 +730,9 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
                     key[1] == :input       ? drawn[(key[2], key[3], key[4], key[5])] :
                                              flow_vars[(key[2], key[3], key[4])]
     bounded = Set{Tuple}()
-    names = Set{String}()
     limits = NamedTuple[]
     penalised = AffExpr(0.0)      # what crossing the soft limits costs
     for limit in d.limits
-        limit.name in names && throw(ArgumentError("duplicate limit named $(limit.name)"))
-        push!(names, limit.name)
         terms = limit_terms(limit, d, cat)
         e = AffExpr(0.0)
         for (key, w) in terms
@@ -730,6 +747,10 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
         if !soft && length(terms) == 1 && only(values(terms)) > 0 && isinf(limit.lower) &&
            isfinite(limit.upper) && !(only(keys(terms)) in bounded)
             key, w = only(terms)
+            limit.upper / w >= lower_bound(variable(key)) || throw(ArgumentError(
+                "limit $(limit.name) caps $(describe_key(key)) at $(limit.upper / w), " *
+                "below the floor of $(lower_bound(variable(key))) it must keep: a " *
+                "quantity raised to a power cannot be held at zero"))
             set_upper_bound(variable(key), limit.upper / w)
             push!(bounded, key)
             push!(duals, (limit.upper, UpperBoundRef(variable(key)), 1 / w, :upper))
@@ -777,13 +798,8 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
             # composite is an index, and a tax per m³ is not a tax per index
             # point unless every member happens to cost the same
             taxed = [(tax_rates(d.taxes, "demand"; product = p, region = s.region).absolute, p)
-                     for p in nest_products(s.product)],
-            benefit = s.form === :linear ?
-                (C^2 / (2 * s.shift) - s.alpha * C) / (s.beta * w) :
-                let a = s.p0 * (s.shift * s.q0)^(1 / s.elasticity) / w,
-                    e = 1 - 1 / s.elasticity
-                    abs(e) < 1e-8 ? a * log(C) : (a / e) * C^e
-                end
+                     for p in leaves(s.product)],
+            benefit = curve_integral(s, C) / w
             # untaxed curves are left without the term, which would only print
             # as a string of zeros in `jump_model`
             all(iszero(first(t)) for t in taxed) ? benefit :
@@ -793,14 +809,8 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     # keeps, so it raises the marginal cost the market has to cover.
     supply_cost = @expression(m, sum(
         let s = supply_of[k],
-            t = tax_rates(d.taxes, "supply"; product = s.product, region = s.region),
-            cost = s.form === :linear ?
-                (S[k]^2 / (2 * s.shift) - s.alpha * S[k]) / s.beta :
-                let b = s.p0 * (s.shift * s.q0)^(-1 / s.elasticity),
-                    e = 1 + 1 / s.elasticity
-                    (b / e) * S[k]^e
-                end
-            (1 + t.relative) * cost + t.absolute * S[k]
+            t = tax_rates(d.taxes, "supply"; product = s.product, region = s.region)
+            (1 + t.relative) * curve_integral(s, S[k]) + t.absolute * S[k]
         end for k in keys(S)))
     conv_cost = @expression(m, sum(
         let t = tax_rates(d.taxes, "process"; process = proc.name, region = r)
@@ -864,6 +874,10 @@ equivalent by solving repeatedly. The model here is the first of those solves,
 with those tariffs at zero. Every other tax is in it as it will be solved.
 """
 function jump_model(d::MarketData; kwargs...)
+    unknown = setdiff(keys(kwargs), (:solver, :solver_options, :silent, :qfloor))
+    isempty(unknown) || throw(ArgumentError("jump_model does not take " *
+        "$(join(unknown, ", ")): the model has no solution yet, so only the keywords " *
+        "that shape it apply — solver, solver_options, silent and qfloor"))
     validate(d)
     return first(build_model(d, Dict{Tuple{String,String,String},Float64}(); kwargs...))
 end
@@ -888,11 +902,12 @@ time spent and the iterations taken are on the [`Results`](@ref).
   They are set after Markets' own settings, and so override them.
 * `qfloor` is the lower bound given to the quantities that are raised to a
   power below 1, which an interior-point solver cannot differentiate at zero.
+  By default each such quantity is floored at a millionth of its own reference
+  magnitude; a number here sets one absolute floor for all of them instead.
 * `tol` is the quantity below which a flow, an output or an activity is treated
-  as zero and left out of the result tables.
-
-Both default to a multiple of the smallest reference quantity in `d`, so that
-they scale with the units the economy is written in.
+  as zero and left out of the result tables. It defaults to a thousandth of the
+  smallest reference quantity in `d`, so that it scales with the units the
+  economy is written in.
 
 An **ad valorem tax on trade** is a fraction of the price at the origin, which
 is a dual of the problem and so cannot be written into its objective. When `d`
@@ -923,14 +938,13 @@ function solve_market(d::MarketData; max_tax_iterations::Int = 50,
     previous_gap = Inf
     step = 1.0
     for _ in 1:max_tax_iterations
-        # the money a rate of `relative` comes to, at the prices just found
-        origin_price(p, o) = begin
-            rows = res.prices[(res.prices.region .== o) .&
-                              (res.prices.product .== p), :]
-            isempty(rows) ? 0.0 : coalesce(only(rows.producer_price), 0.0)
-        end
+        # the money a rate of `relative` comes to, at the prices just found:
+        # the producer price at the origin, 0 where it has none (it then has
+        # no variety to ship, so the route is empty whatever the tariff)
+        at_origin = Dict((r, p) => coalesce(price, 0.0) for (r, p, price) in
+                         zip(res.prices.region, res.prices.product, res.prices.producer_price))
         updated = Dict(key => tax_rates(d.taxes, "trade"; product = key[1], from = key[2],
-                                        to = key[3]).relative * origin_price(key[1], key[2])
+                                        to = key[3]).relative * get(at_origin, (key[2], key[1]), 0.0)
                        for key in routes)
         gap = maximum(abs(updated[k] - get(tariff, k, 0.0)) / max(abs(updated[k]), 1.0)
                       for k in routes; init = 0.0)

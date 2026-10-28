@@ -117,7 +117,7 @@ function direction(from, to)
     return string(listing(from), " → ", listing(to))
 end
 
-const TAX_BASE = Dict("supply" => "of the producer price", "demand" => "of the consumer price",
+const TAX_BASE = Dict("supply" => "of the producer price", "demand" => "of the market price",
                       "process" => "of the value-added cost", "trade" => "of the origin price")
 
 function tax_row(t::Tax)
@@ -135,9 +135,10 @@ function tax_row(t::Tax)
     return [t.name, string(kind, " on ", t.on), rate, isempty(scope) ? "everywhere" : scope]
 end
 
-# The economy in one line, which is what the REPL shows when it is typed, and
-# what stands for it inside a vector, a dictionary or another structure.
-Base.show(io::IO, ::MIME"text/plain", d::MarketData) = print(io, "MarketData(",
+# The economy in one line: what the REPL shows when it is typed, what `repr`
+# gives, and what stands for it inside a vector, a dictionary or another
+# structure. `print` gives the summary below.
+Base.show(io::IO, d::MarketData) = print(io, "MarketData(",
     plural(length(d.regions), "region"), ", ", plural(length(d.products), "product"), ", ",
     plural(length(d.processes), "process", "processes"), ")")
 
@@ -146,14 +147,12 @@ $(TYPEDSIGNATURES)
 
 A summary of the economy `d`: its products and what happens to each, the
 processes in the order they chain, the routes and what they cost, and the
-taxes, subsidies and limits. Shown by `print(d)` and `println(d)`, while typing
-`d` in the REPL gives only its one-line count; printed to a terminal, lines
-wider than it are cut, and a route list too long for one line is summarised.
+taxes, subsidies and limits. Shown by `print(d)` and `println(d)`, hence by
+`string(d)` and `"\$d"`, while typing `d` in the REPL, `repr(d)` and a container
+holding it give only its one-line count; printed to a terminal, lines wider
+than it are cut, and a route list too long for one line is summarised.
 """
-function Base.show(io::IO, d::MarketData)
-    # inside a container, the one line stands for the whole
-    (get(io, :compact, false) || haskey(io, :typeinfo)) &&
-        return show(io, MIME"text/plain"(), d)
+function Base.print(io::IO, d::MarketData)
     limit = get(io, :limit, false) || io isa Base.TTY
     width = limit ? displaysize(io)[2] : typemax(Int)
     line(s) = println(io, clip(s, width))
@@ -174,7 +173,7 @@ function Base.show(io::IO, d::MarketData)
     # --- products -----------------------------------------------------------
     count_of(pairs) = (c = Dict{String,Int}(); for k in pairs; c[k] = get(c, k, 0) + 1; end; c)
     supplied = count_of(s.product for s in d.supply)
-    consumed = count_of(p for s in d.demand for p in nest_products(s.product))
+    consumed = count_of(p for s in d.demand for p in leaves(s.product))
     made     = count_of(p for proc in d.processes for (p, _) in proc.outputs)
     used     = count_of(p for proc in d.processes for n in proc.inputs for p in unique(n.products))
     routes   = count_of(k[1] for k in keys(d.transport_costs))

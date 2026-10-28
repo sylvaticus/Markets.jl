@@ -129,8 +129,8 @@ same point. Neither is more correct; the line is what a linear regression
 estimates, and what a model built on one should be ported with.
 
 A line through a reference point is the tangent there to the
-constant-elasticity curve, `form = :linear` in [`DemandSpec`](@ref) and
-[`SupplySpec`](@ref). The flat curve, `elasticity = Inf`, is the same in both
+constant-elasticity curve, `form = :linear` in [`DemandCurve`](@ref) and
+[`SupplyCurve`](@ref). The flat curve, `elasticity = Inf`, is the same in both
 forms: a price given from outside, as world prices are for a small country.
 
 ## Everything other than the price
@@ -152,7 +152,7 @@ S(P) = \underbrace{\prod_j \left(\frac{Z_j}{Z_j^0}\right)^{\gamma_j}}_{\text{shi
        \; q_0 \left(\frac{P}{p_0}\right)^{\varepsilon}
 ```
 
-This is what [`SupplySpec`](@ref)'s and [`DemandSpec`](@ref)'s `shift` field
+This is what [`SupplyCurve`](@ref)'s and [`DemandCurve`](@ref)'s `shift` field
 holds, and what [`exogenous_shift`](@ref) builds. It is the device most
 sector partial-equilibrium models use to link a resource to what is taken from
 it — the forest to the harvest, the fish stock to the catch — and there are
@@ -169,7 +169,7 @@ can drive supply negative and destroys the constant-elasticity reading of
 fixed quantity regardless of price — a stockpile released by a government,
 scrap collected under a recycling mandate, a quota of imports from outside the
 model. In this
-package that is a separate [`SupplySpec`](@ref) held to that quantity by a
+package that is a separate [`SupplyCurve`](@ref) held to that quantity by a
 [`Limit`](@ref), not a shifter.
 
 It **separates calibration from scenario**. `p0` and `q0` keep holding the
@@ -221,7 +221,7 @@ The rent is the price producers get minus what the curve says the last unit
 cost, taxes on production included:
 
 ```julia
-rent = producer_price - ((1 + t_rel) * Markets.supply_price(s, S) + t_abs)
+rent = producer_price - ((1 + t_rel) * Markets.curve_price(s, S) + t_abs)
 ```
 
 which is the multiplier of the ceiling, and is how `Results.supply` and
@@ -618,10 +618,10 @@ What *is* available is the same answer as for origins: a **tree**, through
 [`DemandNest`](@ref). Products that substitute closely sit in a group with a
 high ``\sigma``; the group as a whole substitutes against the rest at the lower
 ``\sigma`` of the level above; and the whole bundle faces one
-[`DemandSpec`](@ref) curve, which describes the composite. So
+[`DemandCurve`](@ref) curve, which describes the composite. So
 
 ```julia
-DemandSpec(region = "EU", p0 = 30000, q0 = 12, elasticity = 0.5,
+DemandCurve(region = "EU", p0 = 30000, q0 = 12, elasticity = 0.5,
            product = DemandNest(sigma = 1.6, products = ["electric_car"], shares = [0.25],
                        nests = [DemandNest(sigma = 5.0, share = 0.75,
                                            products = ["petrol_car", "diesel_car"],
@@ -647,7 +647,7 @@ constant, so its effect on demand is a **shift of the whole curve**. Put the
 cross-price elasticity in [`exogenous_shift`](@ref) as the driver elasticity:
 
 ```julia
-DemandSpec(product = cars, region = "EU", p0 = ..., q0 = ...,
+DemandCurve(product = cars, region = "EU", p0 = ..., q0 = ...,
            elasticity = 0.4,
            shift = exogenous_shift(fares = (level = 3.2, reference = 2.0,
                                             elasticity = 0.35)))
@@ -741,7 +741,8 @@ gravel, cement, ore — therefore have high transport costs relative to their va
 limits their trade.
 
 Since products are identical whatever their origin, two regions never ship the
-same product to each other — there is no cross-hauling — and each region buys
+same product to each other — there is no cross-hauling, though a region may
+carry it through on the cheapest path between two others — and each region buys
 from the cheapest source available to it. Trade patterns are therefore sharper
 than observed ones: a small cost advantage can capture an entire market. This
 is the default; the next section is the way out of it.
@@ -1304,7 +1305,7 @@ for the reason given under [Dynamics are somebody else's job](@ref).
   redirecting output between destinations is costly for producers too, which is
   the mirror image of the import-side nest built here.
 * **Inputs with an exogenous price** inside a nest (e.g. a chemical bought at a world
-  price). A `SupplySpec` with a very high elasticity is an approximation
+  price). A `SupplyCurve` with a very high elasticity is an approximation
   available today.
 * **Ad valorem taxes without iteration**, which would need the model restated
   as a complementarity problem rather than an optimisation.

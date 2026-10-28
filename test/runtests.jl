@@ -49,7 +49,7 @@ solved(res)      = res.status in (Markets.MOI.LOCALLY_SOLVED, Markets.MOI.OPTIMA
     @test isempty(d.demand) && isempty(d.supply) && isempty(d.processes) &&
           isempty(d.transport_costs)
     # a curve needs a reference point and its elasticity, or a line's coefficients
-    @test_throws ArgumentError DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1)
+    @test_throws ArgumentError DemandCurve(product = :x, region = :A, p0 = 1, q0 = 1)
 end
 
 @testset "Spatial price equilibrium (one product, two regions)" begin
@@ -57,10 +57,10 @@ end
     d = MarketData(
         regions   = [:A, :B],
         products  = [:x],
-        demand    = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5),
-                     DemandSpec(product = :x, region = :B, p0 = 100, q0 = 10, elasticity = 1.5)],
-        supply    = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 30, elasticity = 1.0),   # cheap
-                     SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],  # expensive
+        demand    = [DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5),
+                     DemandCurve(product = :x, region = :B, p0 = 100, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplyCurve(product = :x, region = :A, p0 = 50, q0 = 30, elasticity = 1.0),   # cheap
+                     SupplyCurve(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],  # expensive
         transport_costs = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
     )
     res = solve_market(d)
@@ -87,10 +87,10 @@ end
 
 @testset "The solver: choosing it, tuning it, and what it reports" begin
     d = MarketData(regions = [:A, :B], products = [:x],
-        demand = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
+        demand = [DemandCurve(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
                   for r in (:A, :B)],
-        supply = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 30, elasticity = 1.0),
-                  SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],
+        supply = [SupplyCurve(product = :x, region = :A, p0 = 50, q0 = 30, elasticity = 1.0),
+                  SupplyCurve(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],
         transport_costs = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0))
     res = solve_market(d)
     @test solved(res)
@@ -125,11 +125,11 @@ end
 
 @testset "Looking at an economy before solving it" begin
     d = MarketData(regions = [:A, :B, :C], products = [:log, :board, :chips, :panel],
-        supply = [SupplySpec(product = :log, region = r, p0 = 50, q0 = 10, elasticity = 1.0)
+        supply = [SupplyCurve(product = :log, region = r, p0 = 50, q0 = 10, elasticity = 1.0)
                   for r in (:A, :B)],
-        demand = [[DemandSpec(product = :board, region = r, p0 = 200, q0 = 3, elasticity = 1.2)
+        demand = [[DemandCurve(product = :board, region = r, p0 = 200, q0 = 3, elasticity = 1.2)
                    for r in (:A, :B, :C)];
-                  [DemandSpec(product = :panel, region = r, p0 = 200, q0 = 3, elasticity = 1.2)
+                  [DemandCurve(product = :panel, region = r, p0 = 200, q0 = 3, elasticity = 1.2)
                    for r in (:A, :B)]],
         processes = [Process(name = :sawmill, inputs = [leontief(product = :log, coeff = 2)],
                              outputs = [:board => 1.0, :chips => 0.6], vacost = 30),
@@ -155,7 +155,9 @@ end
         # a limit on one variable is a bound on it, not a constraint
         @test JuMP.constraint_by_name(m, "limit[panels B]") === nothing
         @test JuMP.upper_bound(JuMP.variable_by_name(m, "z[B,panelmill]")) == 4.0
-        @test occursin("balance[C,panel]", sprint(print, m))
+        @test occursin("balance[C,board]", sprint(print, m))
+        # C neither makes, uses nor carries panels: no balance on nothing
+        @test !occursin("balance[C,panel]", sprint(print, m))
         # the ad valorem duty is found by iteration, so it is not in the model;
         # without it the model is exactly the first of solve_market's solves
         free = MarketData(; (f => getfield(d, f) for f in fieldnames(MarketData))...,
@@ -167,16 +169,17 @@ end
         @test JuMP.get_attribute(jump_model(d; solver_options = (max_iter = 7,)),
                                  "max_iter") == 7
         @test_throws ArgumentError jump_model(MarketData(regions = [:A], products = [:x],
-            demand = [DemandSpec(product = :y, region = :A, p0 = 1, q0 = 1, elasticity = 1)]))
+            demand = [DemandCurve(product = :y, region = :A, p0 = 1, q0 = 1, elasticity = 1)]))
     end
 
     @testset "the summary says what the economy is" begin
         # typed in the REPL it is one line, and so it is inside a container ...
         @test sprint(show, MIME"text/plain"(), d) == "MarketData(3 regions, 4 products, 3 processes)"
+        @test repr(d) == "MarketData(3 regions, 4 products, 3 processes)"
         @test sprint(show, [d]) == "MarketData[MarketData(3 regions, 4 products, 3 processes)]"
-        # ... while printed it is the whole summary
+        # ... while printed it is the whole summary, as it is when interpolated
         text = sprint(print, d)
-        @test text == sprint(show, d)
+        @test string(d) == text && "$d" == text && text != repr(d)
         @test startswith(text, "MarketData: 3 regions, 4 products, 3 processes, 4 trade routes, 2 taxes")
         # processes in the order they chain, with recipe, cost, bound and place
         @test occursin(r"1  sawmill\s+2 log ─+→ board \+ 0.6 chips", text)
@@ -208,9 +211,9 @@ end
     # :logs come out of the forest, and are either burnt as they are or sawn
     d = MarketData(
         regions   = [:A], products = [:logs, :board],
-        demand    = [DemandSpec(product = :logs,  region = :A, p0 = 40,  q0 = 20, elasticity = 0.4),
-                     DemandSpec(product = :board, region = :A, p0 = 300, q0 = 10, elasticity = 1.2)],
-        supply    = [SupplySpec(product = :logs, region = :A, p0 = 40, q0 = 35, elasticity = 0.6)],
+        demand    = [DemandCurve(product = :logs,  region = :A, p0 = 40,  q0 = 20, elasticity = 0.4),
+                     DemandCurve(product = :board, region = :A, p0 = 300, q0 = 10, elasticity = 1.2)],
+        supply    = [SupplyCurve(product = :logs, region = :A, p0 = 40, q0 = 35, elasticity = 0.6)],
         processes = [Process(name = :mill, vacost = 120,
                              inputs  = [leontief(product = :logs, coeff = 2.0)],
                              outputs = [:board => 1.0])])
@@ -225,7 +228,7 @@ end
     # the direct use competes with the mill: a higher willingness to pay for
     # firewood takes wood away from the board
     hotter = solve_market(MarketData(regions = d.regions, products = d.products,
-        demand = [DemandSpec(product = :logs, region = :A, p0 = 70, q0 = 20, elasticity = 0.4),
+        demand = [DemandCurve(product = :logs, region = :A, p0 = 70, q0 = 20, elasticity = 0.4),
                   d.demand[2]],
         supply = d.supply, processes = d.processes))
     @test getq(hotter.consumption, :A, :logs) > burnt
@@ -238,9 +241,9 @@ end
     d = MarketData(
         regions   = [:R],
         products  = [:in1, :in2, :mid, :out],
-        demand    = [DemandSpec(product = :out, region = :R, p0 = 500, q0 = 10, elasticity = 1.5)],
-        supply    = [SupplySpec(product = :in1, region = :R, p0 = 50, q0 = 10, elasticity = 0.8),
-                     SupplySpec(product = :in2, region = :R, p0 = 50, q0 = 10, elasticity = 0.8)],
+        demand    = [DemandCurve(product = :out, region = :R, p0 = 500, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplyCurve(product = :in1, region = :R, p0 = 50, q0 = 10, elasticity = 0.8),
+                     SupplyCurve(product = :in2, region = :R, p0 = 50, q0 = 10, elasticity = 0.8)],
         processes = [Process(name = :stage1, vacost = 20,
                              inputs  = [ces(composite = 2.0, products = [:in1, :in2], shares = δ, sigma = σ)],
                              outputs = [:mid => 1.0]),
@@ -264,10 +267,10 @@ end
 @testset "Demand elasticities of any sign of (η-1)" begin
     economy(η) = MarketData(
         regions  = [:A, :B], products = [:x],
-        demand   = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = η)
+        demand   = [DemandCurve(product = :x, region = r, p0 = 100, q0 = 10, elasticity = η)
                     for r in (:A, :B)],
-        supply   = [SupplySpec(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 1.0),
-                    SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 1.0)],
+        supply   = [SupplyCurve(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 1.0),
+                    SupplyCurve(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 1.0)],
         transport_costs = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0))
 
     # η ≤ 1 is not a restriction: the benefit term is an antiderivative of the
@@ -289,60 +292,60 @@ end
         base = solve_market(economy(η))
         more = MarketData(regions = [:A, :B], products = [:x],
                  demand = economy(η).demand,
-                 supply = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 45, elasticity = 1.0),
-                           SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],
+                 supply = [SupplyCurve(product = :x, region = :A, p0 = 50, q0 = 45, elasticity = 1.0),
+                           SupplyCurve(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],
                  transport_costs = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0))
         1 - price(solve_market(more), :A, :x) / price(base, :A, :x)
     end
     @test shock(0.4) > shock(1.5) > 0
 
-    @test_throws ArgumentError DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10,
+    @test_throws ArgumentError DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10,
                                           elasticity = 0.0)
-    @test_throws ArgumentError DemandSpec(product = :x, region = :A, p0 = -1, q0 = 10,
+    @test_throws ArgumentError DemandCurve(product = :x, region = :A, p0 = -1, q0 = 10,
                                           elasticity = 1.5)
-    @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 50, q0 = 0,
+    @test_throws ArgumentError SupplyCurve(product = :x, region = :A, p0 = 50, q0 = 0,
                                           elasticity = 1.0)
-    @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 50, q0 = 10,
+    @test_throws ArgumentError SupplyCurve(product = :x, region = :A, p0 = 50, q0 = 10,
                                           elasticity = -0.5)
 end
 
 @testset "Linear curves" begin
     @testset "two ways to give a line, and what they mean" begin
         # through a reference point with the elasticity there
-        d = DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5,
+        d = DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5,
                        form = :linear)
         @test d.form === :linear
         @test d.beta ≈ -1.5 * 10 / 100 && d.alpha ≈ 10 * (1 + 1.5)
-        @test Markets.demand_price(d, 10.0) ≈ 100
-        s = SupplySpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 0.5,
+        @test Markets.curve_price(d, 10.0) ≈ 100
+        s = SupplyCurve(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 0.5,
                        form = "linear")
         @test s.beta ≈ 0.5 * 10 / 100 && s.alpha ≈ 10 * (1 - 0.5)
-        @test Markets.supply_price(s, 10.0) ≈ 100
+        @test Markets.curve_price(s, 10.0) ≈ 100
         # by its coefficients
-        c = DemandSpec(product = :x, region = :A, alpha = 200, beta = -9)
+        c = DemandCurve(product = :x, region = :A, alpha = 200, beta = -9)
         @test c.form === :linear && isnan(c.p0) && isnan(c.elasticity)
-        @test Markets.demand_price(c, 200 - 9 * 12.0) ≈ 12
+        @test Markets.curve_price(c, 200 - 9 * 12.0) ≈ 12
         # the default is still the constant elasticity, and a flat curve has one form
-        @test DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 2).form === :isoelastic
-        @test SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = Inf,
+        @test DemandCurve(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 2).form === :isoelastic
+        @test SupplyCurve(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = Inf,
                          form = :linear).form === :isoelastic
         # the shifter scales the quantity at every price, in both forms
-        shifted = DemandSpec(product = :x, region = :A, alpha = 200, beta = -9, shift = 2)
-        @test Markets.demand_price(shifted, 2 * (200 - 9 * 12.0)) ≈ 12
+        shifted = DemandCurve(product = :x, region = :A, alpha = 200, beta = -9, shift = 2)
+        @test Markets.curve_price(shifted, 2 * (200 - 9 * 12.0)) ≈ 12
         @test occursin("alpha = 200.0, beta = -9.0", repr(c))
         @test occursin("form = :linear", repr(d))
     end
 
     @testset "what a line refuses" begin
-        @test_throws ArgumentError DemandSpec(product = :x, region = :A, alpha = 200, beta = 9)
-        @test_throws ArgumentError DemandSpec(product = :x, region = :A, alpha = -1, beta = -9)
-        @test_throws ArgumentError SupplySpec(product = :x, region = :A, alpha = -50, beta = -1)
-        @test_throws ArgumentError SupplySpec(product = :x, region = :A, alpha = -50)
-        @test_throws ArgumentError SupplySpec(product = :x, region = :A, alpha = 1, beta = 2,
+        @test_throws ArgumentError DemandCurve(product = :x, region = :A, alpha = 200, beta = 9)
+        @test_throws ArgumentError DemandCurve(product = :x, region = :A, alpha = -1, beta = -9)
+        @test_throws ArgumentError SupplyCurve(product = :x, region = :A, alpha = -50, beta = -1)
+        @test_throws ArgumentError SupplyCurve(product = :x, region = :A, alpha = -50)
+        @test_throws ArgumentError SupplyCurve(product = :x, region = :A, alpha = 1, beta = 2,
                                               p0 = 1)
-        @test_throws ArgumentError SupplySpec(product = :x, region = :A, alpha = 1, beta = 2,
+        @test_throws ArgumentError SupplyCurve(product = :x, region = :A, alpha = 1, beta = 2,
                                               form = :isoelastic)
-        @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1,
+        @test_throws ArgumentError SupplyCurve(product = :x, region = :A, p0 = 1, q0 = 1,
                                               elasticity = 1, form = :quadratic)
     end
 
@@ -350,10 +353,10 @@ end
     # pA + τ = pB and SA(pA) - DA(pA) = DB(pB) - SB(pB)
     τ = 2.0
     lines = MarketData(regions = [:A, :B], products = [:x],
-        demand = [DemandSpec(product = :x, region = :A, alpha = 100, beta = -4),
-                  DemandSpec(product = :x, region = :B, alpha = 200, beta = -9)],
-        supply = [SupplySpec(product = :x, region = :A, alpha = -50, beta = 20.5),
-                  SupplySpec(product = :x, region = :B, alpha = -50, beta = 10.5)],
+        demand = [DemandCurve(product = :x, region = :A, alpha = 100, beta = -4),
+                  DemandCurve(product = :x, region = :B, alpha = 200, beta = -9)],
+        supply = [SupplyCurve(product = :x, region = :A, alpha = -50, beta = 20.5),
+                  SupplyCurve(product = :x, region = :B, alpha = -50, beta = 10.5)],
         transport_costs = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ))
     res = solve_market(lines)
     @test solved(res)
@@ -369,9 +372,9 @@ end
     # curve there, and responds to a shock by the slope it has there: for a
     # small shock the two forms move the price alike, for a large one they part
     market(form, q0) = MarketData(regions = [:A], products = [:x],
-        demand = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 0.8,
+        demand = [DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 0.8,
                              form = form)],
-        supply = [SupplySpec(product = :x, region = :A, p0 = 100, q0 = q0, elasticity = 1.2,
+        supply = [SupplyCurve(product = :x, region = :A, p0 = 100, q0 = q0, elasticity = 1.2,
                              form = form)])
     @test price(solve_market(market(:linear, 10)), :A, :x) ≈ 100 rtol = 1e-6
     move(form, q0) = price(solve_market(market(form, q0)), :A, :x) / 100 - 1
@@ -380,14 +383,14 @@ end
     # a straight demand has a finite price at zero: no floor keeps it alive, so
     # a supply that only starts above the choke price leaves the market empty
     empty = solve_market(MarketData(regions = [:A], products = [:x],
-        demand = [DemandSpec(product = :x, region = :A, alpha = 100, beta = -4)],      # chokes at 25
-        supply = [SupplySpec(product = :x, region = :A, alpha = -60, beta = 2)]))      # starts at 30
+        demand = [DemandCurve(product = :x, region = :A, alpha = 100, beta = -4)],      # chokes at 25
+        supply = [SupplyCurve(product = :x, region = :A, alpha = -60, beta = 2)]))      # starts at 30
     @test solved(empty) && getq(empty.consumption, :A, :x) == 0
     # a tax on a straight supply: the market price covers the marginal cost
     # along the line plus the tax
     taxed = MarketData(regions = [:A], products = [:x],
-        demand = [DemandSpec(product = :x, region = :A, alpha = 100, beta = -4)],
-        supply = [SupplySpec(product = :x, region = :A, alpha = -10, beta = 3)],
+        demand = [DemandCurve(product = :x, region = :A, alpha = 100, beta = -4)],
+        supply = [SupplyCurve(product = :x, region = :A, alpha = -10, beta = 3)],
         taxes = [Tax(name = :levy, on = :supply, rate = 2.0)])
     t = solve_market(taxed)
     q = getq(t.production, :A, :x)
@@ -400,8 +403,8 @@ end
     # line D = shift·(α + β·p) it scales α and β together, so the price at
     # which demand chokes stays where it was
     line(; kw...) = MarketData(regions = [:A], products = [:x],
-        demand = [DemandSpec(product = :x, region = :A, alpha = 100, beta = -4; get(kw, :demand, ())...)],
-        supply = [SupplySpec(product = :x, region = :A, p0 = 10, q0 = 30, elasticity = 0.5,
+        demand = [DemandCurve(product = :x, region = :A, alpha = 100, beta = -4; get(kw, :demand, ())...)],
+        supply = [SupplyCurve(product = :x, region = :A, p0 = 10, q0 = 30, elasticity = 0.5,
                              form = :linear; get(kw, :supply, ())...)])
     base = solve_market(line())
     for m in (0.6, 1.5, 3.0)
@@ -410,43 +413,43 @@ end
         P, Q = price(res, :A, :x), getq(res.production, :A, :x)
         @test Q ≈ m * (s.alpha + s.beta * P) rtol = 1e-6          # on the shifted line
         @test getq(res.consumption, :A, :x) ≈ 100 - 4P rtol = 1e-6
-        @test Markets.supply_price(s, Q) ≈ P rtol = 1e-6
+        @test Markets.curve_price(s, Q) ≈ P rtol = 1e-6
     end
     @test price(solve_market(line(supply = (shift = 1.5,))), :A, :x) < price(base, :A, :x)
     @test price(solve_market(line(demand = (shift = 1.4,))), :A, :x) > price(base, :A, :x)
     shifted = line(demand = (shift = 2.0,)).demand[1]
-    @test Markets.demand_price(shifted, 0.0) ≈ Markets.demand_price(line().demand[1], 0.0) ≈ 25
+    @test Markets.curve_price(shifted, 0.0) ≈ Markets.curve_price(line().demand[1], 0.0) ≈ 25
     # exogenous_shift gives the same elasticity of the quantity to each driver
     # at every price, on a line as on a constant-elasticity curve
     z = exogenous_shift(rain = (level = 1.2, reference = 1.0, elasticity = 0.5))
-    plain  = SupplySpec(product = :x, region = :A, alpha = -20, beta = 4)
-    wetter = SupplySpec(product = :x, region = :A, alpha = -20, beta = 4, shift = z)
+    plain  = SupplyCurve(product = :x, region = :A, alpha = -20, beta = 4)
+    wetter = SupplyCurve(product = :x, region = :A, alpha = -20, beta = 4, shift = z)
     for P in (6.0, 10.0, 30.0)
         Q0 = plain.alpha + plain.beta * P
-        @test Markets.supply_price(wetter, 1.2^0.5 * Q0) ≈ P
+        @test Markets.curve_price(wetter, 1.2^0.5 * Q0) ≈ P
     end
     # a scenario re-shifts a curve without touching its calibration or its form
-    moved = SupplySpec(plain; shift = 2.5)
+    moved = SupplyCurve(plain; shift = 2.5)
     @test moved.form === :linear && moved.alpha == plain.alpha && moved.beta == plain.beta &&
           moved.shift == 2.5
-    tangent = DemandSpec(product = :x, region = :A, p0 = 5, q0 = 9, elasticity = 0.4,
+    tangent = DemandCurve(product = :x, region = :A, p0 = 5, q0 = 9, elasticity = 0.4,
                          form = :linear)
-    @test DemandSpec(tangent; shift = 0.5) ==
-          DemandSpec(product = :x, region = :A, p0 = 5, q0 = 9, elasticity = 0.4,
+    @test DemandCurve(tangent; shift = 0.5) ==
+          DemandCurve(product = :x, region = :A, p0 = 5, q0 = 9, elasticity = 0.4,
                      form = :linear, shift = 0.5)
-    @test_throws ArgumentError SupplySpec(plain; shift = 0)
+    @test_throws ArgumentError SupplyCurve(plain; shift = 0)
     # a flat curve has no quantity to scale: a shifter on it is an error, in
     # the constructor and when re-shifting
-    @test_throws ArgumentError SupplySpec(product = :x, region = :world, p0 = 9, q0 = 1,
+    @test_throws ArgumentError SupplyCurve(product = :x, region = :world, p0 = 9, q0 = 1,
                                           elasticity = Inf, shift = 1.2)
-    flat = DemandSpec(product = :x, region = :world, p0 = 9, q0 = 1, elasticity = Inf)
-    @test_throws ArgumentError DemandSpec(flat; shift = 2)
-    @test DemandSpec(flat; shift = 1) == flat
+    flat = DemandCurve(product = :x, region = :world, p0 = 9, q0 = 1, elasticity = Inf)
+    @test_throws ArgumentError DemandCurve(flat; shift = 2)
+    @test DemandCurve(flat; shift = 1) == flat
     # where the price is at the reference point, the two forms move alike
     for form in (:isoelastic, :linear)
-        s = SupplySpec(product = :x, region = :A, p0 = 10, q0 = 30, elasticity = 0.5,
+        s = SupplyCurve(product = :x, region = :A, p0 = 10, q0 = 30, elasticity = 0.5,
                        form = form, shift = z)
-        @test Markets.supply_price(s, 1.2^0.5 * 30) ≈ 10
+        @test Markets.curve_price(s, 1.2^0.5 * 30) ≈ 10
     end
 end
 
@@ -457,10 +460,10 @@ end
     τ = 10.0
     economy(buy, sell) = MarketData(
         regions  = [:home, :world], products = [:wheat],
-        demand   = [DemandSpec(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.5),
-                    DemandSpec(product = :wheat, region = :world, p0 = sell, q0 = 1, elasticity = Inf)],
-        supply   = [SupplySpec(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.8),
-                    SupplySpec(product = :wheat, region = :world, p0 = buy, q0 = 1, elasticity = Inf)],
+        demand   = [DemandCurve(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.5),
+                    DemandCurve(product = :wheat, region = :world, p0 = sell, q0 = 1, elasticity = Inf)],
+        supply   = [SupplyCurve(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.8),
+                    SupplyCurve(product = :wheat, region = :world, p0 = buy, q0 = 1, elasticity = Inf)],
         transport_costs = Dict((:wheat, :world, :home) => τ, (:wheat, :home, :world) => τ))
     on_curve(res) = price(res, :home, :wheat) ≈
         200 * (getq(res.consumption, :home, :wheat) / 100)^(-1 / 0.5)
@@ -490,9 +493,9 @@ end
     # a flat curve has no quantity of its own: its q0 does not set the scale
     # of the economy, and so neither the floors nor the solver's tolerances
     tiny(q0) = MarketData(regions = [:home, :world], products = [:wheat],
-        demand = [DemandSpec(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.5)],
-        supply = [SupplySpec(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.8),
-                  SupplySpec(product = :wheat, region = :world, p0 = 170, q0 = q0, elasticity = Inf)],
+        demand = [DemandCurve(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.5)],
+        supply = [SupplyCurve(product = :wheat, region = :home, p0 = 200, q0 = 100, elasticity = 0.8),
+                  SupplyCurve(product = :wheat, region = :world, p0 = 170, q0 = q0, elasticity = Inf)],
         transport_costs = Dict((:wheat, :world, :home) => τ))
     @test Markets.quantity_scale(tiny(1e-9)) == Markets.quantity_scale(tiny(1e9)) == 100
 end
@@ -500,9 +503,9 @@ end
 @testset "Exogenous drivers of the curves" begin
     economy(; supply_kw = (), demand_kw = (), limits = Limit[]) = MarketData(
         regions = [:A], products = [:x],
-        demand  = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10,
+        demand  = [DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10,
                               elasticity = 1.5; demand_kw...)],
-        supply  = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 20,
+        supply  = [SupplyCurve(product = :x, region = :A, p0 = 50, q0 = 20,
                               elasticity = 0.8; supply_kw...)],
         limits  = limits)
     on_curve(s, S) = s.p0 * (S / (s.shift * s.q0))^(1 / s.elasticity)
@@ -570,9 +573,9 @@ end
         @test_throws ArgumentError exogenous_shift(a = (level = 1.0, reference = 1.0))
         @test_throws ArgumentError exogenous_shift(a = (level = -1.0, reference = 1.0,
                                                         elasticity = 1.0))
-        @test_throws ArgumentError SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1,
+        @test_throws ArgumentError SupplyCurve(product = :x, region = :A, p0 = 1, q0 = 1,
                                               elasticity = 1, shift = 0)
-        @test_throws ArgumentError DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1,
+        @test_throws ArgumentError DemandCurve(product = :x, region = :A, p0 = 1, q0 = 1,
                                               elasticity = 2, shift = -0.5)
     end
 end
@@ -581,9 +584,9 @@ end
     ## a small, correct economy that each case below breaks in one way
     good(; kw...) = MarketData(;
         regions = [:A, :B], products = [:logs, :board],
-        demand  = [DemandSpec(product = :board, region = :A, p0 = 300, q0 = 10,
+        demand  = [DemandCurve(product = :board, region = :A, p0 = 300, q0 = 10,
                               elasticity = 1.2)],
-        supply  = [SupplySpec(product = :logs, region = :A, p0 = 40, q0 = 35,
+        supply  = [SupplyCurve(product = :logs, region = :A, p0 = 40, q0 = 35,
                               elasticity = 0.6)],
         processes = [Process(name = :mill, vacost = 120,
                              inputs = [leontief(product = :logs, coeff = 2.0)],
@@ -599,9 +602,9 @@ end
                      inputs = [leontief(product = :logz, coeff = 2.0)],
                      outputs = [:board => 1.0])]))
         @test_throws ArgumentError solve_market(good(demand =
-            [DemandSpec(product = :nope, region = :A, p0 = 1, q0 = 1, elasticity = 2)]))
+            [DemandCurve(product = :nope, region = :A, p0 = 1, q0 = 1, elasticity = 2)]))
         @test_throws ArgumentError solve_market(good(supply =
-            [SupplySpec(product = :logs, region = :Mars, p0 = 1, q0 = 1, elasticity = 1)]))
+            [SupplyCurve(product = :logs, region = :Mars, p0 = 1, q0 = 1, elasticity = 1)]))
         @test_throws ArgumentError solve_market(good(processes =
             [Process(name = :mill, vacost = 1, regions = [:Mars],
                      inputs = [leontief(product = :logs, coeff = 1)],
@@ -627,11 +630,11 @@ end
              Process(name = :mill, vacost = 9, inputs = [leontief(product = :logs, coeff = 1)],
                      outputs = [:board => 1.0])]))
         @test_throws ArgumentError solve_market(good(supply =
-            [SupplySpec(product = :logs, region = :A, p0 = 40, q0 = 35, elasticity = 0.6),
-             SupplySpec(product = :logs, region = :A, p0 = 90, q0 = 35, elasticity = 0.6)]))
+            [SupplyCurve(product = :logs, region = :A, p0 = 40, q0 = 35, elasticity = 0.6),
+             SupplyCurve(product = :logs, region = :A, p0 = 90, q0 = 35, elasticity = 0.6)]))
         @test_throws ArgumentError solve_market(good(demand =
-            [DemandSpec(product = :board, region = :A, p0 = 300, q0 = 10, elasticity = 1.2),
-             DemandSpec(product = :board, region = :A, p0 = 300, q0 = 10, elasticity = 1.2)]))
+            [DemandCurve(product = :board, region = :A, p0 = 300, q0 = 10, elasticity = 1.2),
+             DemandCurve(product = :board, region = :A, p0 = 300, q0 = 10, elasticity = 1.2)]))
     end
 
     @testset "routes that go nowhere" begin
@@ -661,19 +664,19 @@ end
     @testset "economies with no finite answer" begin
         # a process with no inputs and no cost is a free source of its output
         @test_throws ArgumentError solve_market(MarketData(regions = [:A], products = [:g],
-            demand = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
+            demand = [DemandCurve(product = :g, region = :A, p0 = 300, q0 = 10,
                                  elasticity = 1.2)],
             processes = [Process(name = :magic, vacost = 0.0, inputs = Nest[],
                                  outputs = [:g => 1.0])]))
         # the same process is legitimate once it costs something ...
         @test solved(solve_market(MarketData(regions = [:A], products = [:g],
-            demand = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
+            demand = [DemandCurve(product = :g, region = :A, p0 = 300, q0 = 10,
                                  elasticity = 1.2)],
             processes = [Process(name = :backstop, vacost = 50.0, inputs = Nest[],
                                  outputs = [:g => 1.0])])))
         # ... or once it is bounded
         @test solved(solve_market(MarketData(regions = [:A], products = [:g],
-            demand = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
+            demand = [DemandCurve(product = :g, region = :A, p0 = 300, q0 = 10,
                                  elasticity = 1.2)],
             processes = [Process(name = :windfall, vacost = 0.0, inputs = Nest[],
                                  outputs = [:g => 1.0])],
@@ -688,7 +691,7 @@ end
         # demand with no source anywhere is infeasible; it used to be returned
         # as LOCALLY_SOLVED because the violation sat under Ipopt's tolerance
         starved = MarketData(regions = [:A], products = [:x],
-            demand = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10,
+            demand = [DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10,
                                  elasticity = 1.5)])
         @test_throws ErrorException solve_market(starved)
         quiet = solve_market(starved; on_failure = :ignore)
@@ -702,10 +705,10 @@ end
 @testset "Bounds on transformation and on trade" begin
     economy(; limits = Limit[]) = MarketData(
         regions   = [:A, :B], products = [:w, :g],
-        demand    = [DemandSpec(product = :g, region = r, p0 = 300, q0 = 10, elasticity = 1.2)
+        demand    = [DemandCurve(product = :g, region = r, p0 = 300, q0 = 10, elasticity = 1.2)
                      for r in (:A, :B)],
-        supply    = [SupplySpec(product = :w, region = :A, p0 = 40, q0 = 40, elasticity = 0.8),
-                     SupplySpec(product = :w, region = :B, p0 = 90, q0 = 5,  elasticity = 0.8)],
+        supply    = [SupplyCurve(product = :w, region = :A, p0 = 40, q0 = 40, elasticity = 0.8),
+                     SupplyCurve(product = :w, region = :B, p0 = 90, q0 = 5,  elasticity = 0.8)],
         processes = [Process(name = :mill, vacost = 50,
                              inputs  = [leontief(product = :w, coeff = 2.0)],
                              outputs = [:g => 1.0])],
@@ -735,9 +738,9 @@ end
     @testset "a value-added cost may differ by region" begin
         regional(cost) = MarketData(
             regions   = [:A, :B], products = [:w, :g],
-            demand    = [DemandSpec(product = :g, region = r, p0 = 300, q0 = 10, elasticity = 1.2)
+            demand    = [DemandCurve(product = :g, region = r, p0 = 300, q0 = 10, elasticity = 1.2)
                          for r in (:A, :B)],
-            supply    = [SupplySpec(product = :w, region = r, p0 = 40, q0 = 40, elasticity = 0.8)
+            supply    = [SupplyCurve(product = :w, region = r, p0 = 40, q0 = 40, elasticity = 0.8)
                          for r in (:A, :B)],
             processes = [Process(name = :mill, vacost = cost,
                                  inputs  = [leontief(product = :w, coeff = 2.0)],
@@ -891,7 +894,7 @@ end
         fam = @limits "mills" [r in (:A, :B)] activity(region = r, process = :mill) <= 1.0 penalty = 3
         @test all(l.penalty == 3 for l in fam) && length(fam) == 2
         @test occursin("penalty 3.0", repr(fam[1]))
-        @test occursin("a unit past it", sprint(show, economy(limits = fam)))
+        @test occursin("a unit past it", sprint(print, economy(limits = fam)))
         # what a penalty must be, and what else a limit takes
         @test_throws ArgumentError cap(0.0)
         @test_throws ArgumentError cap(-1.0)
@@ -946,11 +949,11 @@ end
     nest = DemandNest(sigma = 4.0, products = [:pellets, :firewood], shares = [0.6, 0.4])
     economy(sh) = MarketData(
         regions = [:A], products = [:pellets, :firewood],
-        demand  = [DemandSpec(product = nest, region = :A, p0 = 100, q0 = 20,
+        demand  = [DemandCurve(product = nest, region = :A, p0 = 100, q0 = 20,
                               elasticity = 0.5)],
-        supply  = [SupplySpec(product = :pellets,  region = :A, p0 = 100, q0 = 12,
+        supply  = [SupplyCurve(product = :pellets,  region = :A, p0 = 100, q0 = 12,
                               elasticity = 0.8),
-                   SupplySpec(product = :firewood, region = :A, p0 = 100, q0 = 8,
+                   SupplyCurve(product = :firewood, region = :A, p0 = 100, q0 = 8,
                               elasticity = 0.8, shift = sh)])
 
     @testset "the group splits by its shares at equal prices" begin
@@ -978,12 +981,12 @@ end
 
     @testset "a nest of one product is an ordinary curve" begin
         plain  = MarketData(regions = [:A], products = [:x],
-                   demand = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10,
+                   demand = [DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10,
                                         elasticity = 1.2)],
-                   supply = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 20,
+                   supply = [SupplyCurve(product = :x, region = :A, p0 = 50, q0 = 20,
                                         elasticity = 0.8)])
         nested = MarketData(regions = plain.regions, products = plain.products,
-                   demand = [DemandSpec(product = DemandNest(sigma = 3.0, products = [:x]),
+                   demand = [DemandCurve(product = DemandNest(sigma = 3.0, products = [:x]),
                                         region = :A, p0 = 100, q0 = 10, elasticity = 1.2)],
                    supply = plain.supply)
         @test getq(solve_market(nested).consumption, :A, :x) ≈
@@ -999,9 +1002,9 @@ end
                    nests = [DemandNest(sigma = 2.0, products = [:b])])             # loose inside
         # a product may not have two demand curves in one region
         twice = MarketData(regions = [:A], products = [:x],
-            demand = [DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 2),
-                      DemandSpec(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 2)],
-            supply = [SupplySpec(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 1)])
+            demand = [DemandCurve(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 2),
+                      DemandCurve(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 2)],
+            supply = [SupplyCurve(product = :x, region = :A, p0 = 1, q0 = 1, elasticity = 1)])
         @test_throws ArgumentError solve_market(twice)
     end
 end
@@ -1009,10 +1012,10 @@ end
 @testset "Taxes and subsidies" begin
     economy(taxes) = MarketData(
         regions  = [:A, :B], products = [:x],
-        demand   = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.2)
+        demand   = [DemandCurve(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.2)
                     for r in (:A, :B)],
-        supply   = [SupplySpec(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 0.8),
-                    SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 0.8)],
+        supply   = [SupplyCurve(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 0.8),
+                    SupplyCurve(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 0.8)],
         transport_costs = Dict((:x, :A, :B) => 5.0, (:x, :B, :A) => 5.0),
         taxes    = taxes)
     base = solve_market(economy(Tax[]))
@@ -1091,9 +1094,9 @@ end
 
     @testset "taxing a process" begin
         d = MarketData(regions = [:A], products = [:w, :g],
-            demand    = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
+            demand    = [DemandCurve(product = :g, region = :A, p0 = 300, q0 = 10,
                                     elasticity = 1.2)],
-            supply    = [SupplySpec(product = :w, region = :A, p0 = 40, q0 = 40,
+            supply    = [SupplyCurve(product = :w, region = :A, p0 = 40, q0 = 40,
                                     elasticity = 0.8)],
             processes = [Process(name = :mill, vacost = 50,
                                  inputs = [leontief(product = :w, coeff = 2.0)],
@@ -1116,8 +1119,8 @@ end
         # a group of substitutes shares one curve, so it must share its tax
         nest = DemandNest(sigma = 3.0, products = [:a, :b])
         d = MarketData(regions = [:A], products = [:a, :b],
-            demand = [DemandSpec(product = nest, region = :A, p0 = 10, q0 = 2, elasticity = 2)],
-            supply = [SupplySpec(product = p, region = :A, p0 = 10, q0 = 1, elasticity = 1)
+            demand = [DemandCurve(product = nest, region = :A, p0 = 10, q0 = 2, elasticity = 2)],
+            supply = [SupplyCurve(product = p, region = :A, p0 = 10, q0 = 1, elasticity = 1)
                       for p in (:a, :b)],
             taxes  = [Tax(on = :demand, product = :a, rate = 0.2, relative = true)])
         @test_throws ArgumentError solve_market(d)
@@ -1130,8 +1133,8 @@ end
     # price is therefore negative, and must be reported as such.
     d = MarketData(
         regions   = [:A], products = [:w, :g, :junk],
-        demand    = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10, elasticity = 1.5)],
-        supply    = [SupplySpec(product = :w, region = :A, p0 = 50, q0 = 20, elasticity = 1.0)],
+        demand    = [DemandCurve(product = :g, region = :A, p0 = 300, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplyCurve(product = :w, region = :A, p0 = 50, q0 = 20, elasticity = 1.0)],
         processes = [Process(name = :mill, vacost = 20,
                              inputs  = [leontief(product = :w, coeff = 1.0)],
                              outputs = [:g => 1.0, :junk => 0.5]),
@@ -1159,13 +1162,13 @@ end
         # one obscure product with a tiny reference quantity must not drag the
         # floor of every other variable down with it
         d = MarketData(regions = [:A], products = [:x, :dust],
-            demand = [DemandSpec(product = :x,    region = :A, p0 = 100, q0 = 50,
+            demand = [DemandCurve(product = :x,    region = :A, p0 = 100, q0 = 50,
                                  elasticity = 1.3),
-                      DemandSpec(product = :dust, region = :A, p0 = 5, q0 = 0.001,
+                      DemandCurve(product = :dust, region = :A, p0 = 5, q0 = 0.001,
                                  elasticity = 1.3)],
-            supply = [SupplySpec(product = :x,    region = :A, p0 = 40, q0 = 120,
+            supply = [SupplyCurve(product = :x,    region = :A, p0 = 40, q0 = 120,
                                  elasticity = 0.8),
-                      SupplySpec(product = :dust, region = :A, p0 = 5, q0 = 0.001,
+                      SupplyCurve(product = :dust, region = :A, p0 = 5, q0 = 0.001,
                                  elasticity = 0.8)])
         res = solve_market(d)
         @test solved(res)
@@ -1183,11 +1186,11 @@ end
         # homogeneous trade, so that the price gap on a used route is exactly
         # freight plus the wedge and the fixed point can be read off it
         economy(rate, eta) = MarketData(regions = [:A, :B], products = [:x],
-            demand = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10,
+            demand = [DemandCurve(product = :x, region = r, p0 = 100, q0 = 10,
                                  elasticity = eta) for r in (:A, :B)],
-            supply = [SupplySpec(product = :x, region = :A, p0 = 30,  q0 = 40,
+            supply = [SupplyCurve(product = :x, region = :A, p0 = 30,  q0 = 40,
                                  elasticity = 3.0),
-                      SupplySpec(product = :x, region = :B, p0 = 200, q0 = 2,
+                      SupplyCurve(product = :x, region = :B, p0 = 200, q0 = 2,
                                  elasticity = 3.0)],
             transport_costs = Dict((:x, :A, :B) => 1.0, (:x, :B, :A) => 1.0),
             taxes = [Tax(on = :trade, product = :x, from = :A, to = :B, rate = rate,
@@ -1214,9 +1217,9 @@ end
 
 @testset "Disposal of an unwanted by-product" begin
     economy(extra) = MarketData(regions = [:A], products = [:w, :g, :junk],
-        demand = [DemandSpec(product = :g, region = :A, p0 = 300, q0 = 10,
+        demand = [DemandCurve(product = :g, region = :A, p0 = 300, q0 = 10,
                              elasticity = 1.5)],
-        supply = [SupplySpec(product = :w, region = :A, p0 = 50, q0 = 20,
+        supply = [SupplyCurve(product = :w, region = :A, p0 = 50, q0 = 20,
                              elasticity = 1.0)],
         processes = [Process(name = :mill, vacost = 20,
                              inputs = [leontief(product = :w, coeff = 1.0)],
@@ -1280,9 +1283,9 @@ end
     τ(o, r) = o == r ? 0.0 : 4.0 + 3.0 * abs(findfirst(==(o), regions) - findfirst(==(r), regions))
     nests = [OriginNest(sigma = 8.0, origins = [:A], nests = [OriginNest(sigma = Inf, origins = [:B, :C])])]
     truth = MarketData(regions = regions, products = [:x],
-        demand = [DemandSpec(product = :x, region = r, p0 = 100, q0 = q0, elasticity = 0.8)
+        demand = [DemandCurve(product = :x, region = r, p0 = 100, q0 = q0, elasticity = 0.8)
                   for (r, q0) in zip(regions, (12.0, 8.0, 15.0, 10.0))],
-        supply = [SupplySpec(product = :x, region = r, p0 = p0, q0 = q0, elasticity = 1.2)
+        supply = [SupplyCurve(product = :x, region = r, p0 = p0, q0 = q0, elasticity = 1.2)
                   for (r, p0, q0) in zip(regions, (60, 55, 58, 70), (10.0, 14.0, 9.0, 12.0))],
         transport_costs = Dict((:x, o, r) => τ(o, r) for o in regions, r in regions if o != r),
         armington = [Armington(product = :x, sigma = 3.0, nests = nests,
@@ -1311,9 +1314,9 @@ end
     bought(r) = sum(x for ((_, d), x) in flows if d == r)
     unit_value(r) = sum(x * delivered[k] for (k, x) in flows if k[2] == r) / bought(r)
     rebuilt = MarketData(regions = regions, products = [:x],
-        demand = [DemandSpec(product = :x, region = r, p0 = unit_value(S(r)), q0 = bought(S(r)),
+        demand = [DemandCurve(product = :x, region = r, p0 = unit_value(S(r)), q0 = bought(S(r)),
                              elasticity = 0.8) for r in regions],
-        supply = [SupplySpec(product = :x, region = r, p0 = received[S(r)], q0 = made[S(r)],
+        supply = [SupplyCurve(product = :x, region = r, p0 = received[S(r)], q0 = made[S(r)],
                              elasticity = 1.2) for r in regions],
         transport_costs = truth.transport_costs, armington = [arm])
     res = solve_market(rebuilt; solver_options = (tol = 1e-12,))
@@ -1340,9 +1343,9 @@ end
     # the calibration does not depend on the shape of the curves: rebuilt with
     # the tangent lines at the same base year, the economy gives it back too
     lines = MarketData(regions = regions, products = [:x],
-        demand = [DemandSpec(product = :x, region = r, p0 = unit_value(S(r)), q0 = bought(S(r)),
+        demand = [DemandCurve(product = :x, region = r, p0 = unit_value(S(r)), q0 = bought(S(r)),
                              elasticity = 0.8, form = :linear) for r in regions],
-        supply = [SupplySpec(product = :x, region = r, p0 = received[S(r)], q0 = made[S(r)],
+        supply = [SupplyCurve(product = :x, region = r, p0 = received[S(r)], q0 = made[S(r)],
                              elasticity = 1.2, form = :linear) for r in regions],
         transport_costs = truth.transport_costs, armington = [arm])
     straight = solve_market(lines; solver_options = (tol = 1e-12,))
@@ -1376,12 +1379,12 @@ end
     # with scrap, a homogeneous one, in a CES bundle
     res = solve_market(MarketData(
         regions = [:A, :B], products = [:wood, :scrap, :board],
-        demand  = [DemandSpec(product = :wood, region = :A, p0 = 60, q0 = 8, elasticity = 0.8),
-                   DemandSpec(product = :wood, region = :B, p0 = 60, q0 = 6, elasticity = 0.8),
-                   DemandSpec(product = :board, region = :A, p0 = 300, q0 = 3, elasticity = 1.2)],
-        supply  = [SupplySpec(product = :wood, region = :A, p0 = 40, q0 = 12, elasticity = 1.0),
-                   SupplySpec(product = :wood, region = :B, p0 = 45, q0 = 10, elasticity = 1.0),
-                   SupplySpec(product = :scrap, region = :A, p0 = 30, q0 = 4, elasticity = 1.0)],
+        demand  = [DemandCurve(product = :wood, region = :A, p0 = 60, q0 = 8, elasticity = 0.8),
+                   DemandCurve(product = :wood, region = :B, p0 = 60, q0 = 6, elasticity = 0.8),
+                   DemandCurve(product = :board, region = :A, p0 = 300, q0 = 3, elasticity = 1.2)],
+        supply  = [SupplyCurve(product = :wood, region = :A, p0 = 40, q0 = 12, elasticity = 1.0),
+                   SupplyCurve(product = :wood, region = :B, p0 = 45, q0 = 10, elasticity = 1.0),
+                   SupplyCurve(product = :scrap, region = :A, p0 = 30, q0 = 4, elasticity = 1.0)],
         processes = [Process(name = :mill, regions = [:A], vacost = 50,
                              inputs = [ces(composite = 2.0, products = [:wood, :scrap],
                                            shares = [0.6, 0.4], sigma = 2.0)],
@@ -1429,10 +1432,10 @@ end
     # are homogeneous and traded
     economy = MarketData(
         regions = [:A, :B], products = [:logs, :chips, :board, :pulp],
-        demand  = [DemandSpec(product = p, region = r, p0 = p0, q0 = q0, elasticity = 1.0)
+        demand  = [DemandCurve(product = p, region = r, p0 = p0, q0 = q0, elasticity = 1.0)
                    for (p, p0, q0) in ((:board, 300, 4), (:pulp, 500, 2)) for r in (:A, :B)],
-        supply  = [SupplySpec(product = :logs, region = :A, p0 = 40, q0 = 20, elasticity = 1.0),
-                   SupplySpec(product = :logs, region = :B, p0 = 45, q0 = 12, elasticity = 1.0)],
+        supply  = [SupplyCurve(product = :logs, region = :A, p0 = 40, q0 = 20, elasticity = 1.0),
+                   SupplyCurve(product = :logs, region = :B, p0 = 45, q0 = 12, elasticity = 1.0)],
         processes = [Process(name = :sawmill, regions = [:A], vacost = 30,
                              inputs = [leontief(product = :logs, coeff = 1.0)],
                              outputs = [:board => 0.5, :chips => 0.3]),
@@ -1612,7 +1615,7 @@ end
 
     # supply curves through the base-year points, demand from the calibration:
     # the equilibrium must be the base year itself
-    supply_at(names, q, p) = [SupplySpec(product = n, region = :A, p0 = p[i], q0 = q[i],
+    supply_at(names, q, p) = [SupplyCurve(product = n, region = :A, p0 = p[i], q0 = q[i],
                                          elasticity = 1.0) for (i, n) in enumerate(names)]
     function reproduces(res, names, q, p)
         @test solved(res)
@@ -1628,7 +1631,7 @@ end
         names = [:a, :b, :c]
         c = ces_calibration(quantities = q, prices = p, sigma = σ)
         res = solve_market(MarketData(regions = [:A], products = names,
-            demand = [DemandSpec(region = :A, p0 = c.price, q0 = c.quantity, elasticity = 0.6,
+            demand = [DemandCurve(region = :A, p0 = c.price, q0 = c.quantity, elasticity = 0.6,
                                  form = form,
                                  product = DemandNest(sigma = σ, products = names,
                                                       shares = c.shares))],
@@ -1643,7 +1646,7 @@ end
         outer = ces_calibration(quantities = [q[1], inner.quantity],
                                 prices = [p[1], inner.price], sigma = σout)
         res = solve_market(MarketData(regions = [:A], products = names,
-            demand = [DemandSpec(region = :A, p0 = outer.price, q0 = outer.quantity,
+            demand = [DemandCurve(region = :A, p0 = outer.price, q0 = outer.quantity,
                                  elasticity = 0.6,
                                  product = DemandNest(sigma = σout, products = [:a],
                                                       shares = [outer.shares[1]],
@@ -1662,10 +1665,10 @@ end
     economy(arm) = MarketData(
         regions   = [:A, :B],
         products  = [:x],
-        demand    = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5),
-                     DemandSpec(product = :x, region = :B, p0 = 100, q0 = 10, elasticity = 1.5)],
-        supply    = [SupplySpec(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 1.0),
-                     SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 1.0)],
+        demand    = [DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5),
+                     DemandCurve(product = :x, region = :B, p0 = 100, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplyCurve(product = :x, region = :A, p0 = 50,  q0 = 30, elasticity = 1.0),
+                     SupplyCurve(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 1.0)],
         transport_costs = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
         armington = arm)
 
@@ -1743,8 +1746,8 @@ end
             regions   = [:A, :B],
             products  = [:x],
             demand    = economy(spec).demand,
-            supply    = [SupplySpec(product = :x, region = :A, p0 = 50, q0 = 39, elasticity = 1.0),
-                         SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],
+            supply    = [SupplyCurve(product = :x, region = :A, p0 = 50, q0 = 39, elasticity = 1.0),
+                         SupplyCurve(product = :x, region = :B, p0 = 150, q0 = 5, elasticity = 1.0)],
             transport_costs = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
             armington = spec))
         @test solved(shocked)
@@ -1759,10 +1762,10 @@ end
         d = MarketData(
             regions   = [:A, :B],
             products  = [:w, :f],
-            demand    = [DemandSpec(product = :f, region = :A, p0 = 400, q0 = 10, elasticity = 1.4),
-                         DemandSpec(product = :f, region = :B, p0 = 400, q0 = 10, elasticity = 1.4)],
-            supply    = [SupplySpec(product = :w, region = :A, p0 = 60, q0 = 30, elasticity = 0.7),
-                         SupplySpec(product = :w, region = :B, p0 = 90, q0 = 15, elasticity = 0.7)],
+            demand    = [DemandCurve(product = :f, region = :A, p0 = 400, q0 = 10, elasticity = 1.4),
+                         DemandCurve(product = :f, region = :B, p0 = 400, q0 = 10, elasticity = 1.4)],
+            supply    = [SupplyCurve(product = :w, region = :A, p0 = 60, q0 = 30, elasticity = 0.7),
+                         SupplyCurve(product = :w, region = :B, p0 = 90, q0 = 15, elasticity = 0.7)],
             processes = [Process(name = :mill, vacost = 50,
                                  inputs  = [leontief(product = :w, coeff = 2.0)],
                                  outputs = [:f => 1.0])],
@@ -1819,11 +1822,11 @@ end
                      (:AS, :AS) => 0.55, (:EU, :AS) => 0.2,  (:NA, :AS) => 0.25)
     economy(arm) = MarketData(
         regions  = regions, products = [:x],
-        demand   = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
+        demand   = [DemandCurve(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
                     for r in regions],
-        supply   = [SupplySpec(product = :x, region = :EU, p0 = 60, q0 = 20, elasticity = 1.0),
-                    SupplySpec(product = :x, region = :NA, p0 = 55, q0 = 25, elasticity = 1.0),
-                    SupplySpec(product = :x, region = :AS, p0 = 70, q0 = 15, elasticity = 1.0)],
+        supply   = [SupplyCurve(product = :x, region = :EU, p0 = 60, q0 = 20, elasticity = 1.0),
+                    SupplyCurve(product = :x, region = :NA, p0 = 55, q0 = 25, elasticity = 1.0),
+                    SupplyCurve(product = :x, region = :AS, p0 = 70, q0 = 15, elasticity = 1.0)],
         transport_costs = transport_costs, armington = arm)
 
     @testset "a group as substitutable as its parent changes nothing" begin
@@ -1919,9 +1922,9 @@ end
         # :y is manufactured from :x, but only EU and NA have the process
         d = MarketData(
             regions   = regions, products = [:x, :y],
-            demand    = [DemandSpec(product = :y, region = r, p0 = 200, q0 = 5, elasticity = 1.4)
+            demand    = [DemandCurve(product = :y, region = r, p0 = 200, q0 = 5, elasticity = 1.4)
                          for r in regions],
-            supply    = [SupplySpec(product = :x, region = r, p0 = 60, q0 = 20, elasticity = 0.8)
+            supply    = [SupplyCurve(product = :x, region = r, p0 = 60, q0 = 20, elasticity = 0.8)
                          for r in regions],
             processes = [Process(name = :mill, regions = [:EU, :NA], vacost = 30,
                                  inputs  = [leontief(product = :x, coeff = 1.5)],
@@ -1941,9 +1944,9 @@ end
         # C neither consumes :y nor processes it, but it does produce it
         d = MarketData(
             regions   = regions, products = [:x],
-            demand    = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
+            demand    = [DemandCurve(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
                          for r in (:EU, :NA)],                      # nothing in AS
-            supply    = [SupplySpec(product = :x, region = r, p0 = 60, q0 = 15, elasticity = 1.0)
+            supply    = [SupplyCurve(product = :x, region = r, p0 = 60, q0 = 15, elasticity = 1.0)
                          for r in regions],
             transport_costs = transport_costs,
             armington = [Armington(product = :x, sigma = 3)])
@@ -1998,9 +2001,9 @@ end
     processes(σ) = MarketData(
         regions   = [:R],
         products  = [:in1, :in2, :mid, :out],
-        demand    = [DemandSpec(product = :out, region = :R, p0 = 500, q0 = 10, elasticity = 1.5)],
-        supply    = [SupplySpec(product = :in1, region = :R, p0 = 50, q0 = 10, elasticity = 0.8),
-                     SupplySpec(product = :in2, region = :R, p0 = 50, q0 = 3,  elasticity = 0.8)],
+        demand    = [DemandCurve(product = :out, region = :R, p0 = 500, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplyCurve(product = :in1, region = :R, p0 = 50, q0 = 10, elasticity = 0.8),
+                     SupplyCurve(product = :in2, region = :R, p0 = 50, q0 = 3,  elasticity = 0.8)],
         processes = [Process(name = :stage1, vacost = 20,
                              inputs  = [ces(composite = 2.0, products = [:in1, :in2],
                                             shares = [0.6, 0.4], sigma = σ)],
@@ -2014,10 +2017,10 @@ end
     trade(σ; qA = 30) = MarketData(
         regions   = [:A, :B],
         products  = [:x],
-        demand    = [DemandSpec(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5),
-                     DemandSpec(product = :x, region = :B, p0 = 100, q0 = 10, elasticity = 1.5)],
-        supply    = [SupplySpec(product = :x, region = :A, p0 = 50,  q0 = qA, elasticity = 1.0),
-                     SupplySpec(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 1.0)],
+        demand    = [DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5),
+                     DemandCurve(product = :x, region = :B, p0 = 100, q0 = 10, elasticity = 1.5)],
+        supply    = [SupplyCurve(product = :x, region = :A, p0 = 50,  q0 = qA, elasticity = 1.0),
+                     SupplyCurve(product = :x, region = :B, p0 = 150, q0 = 5,  elasticity = 1.0)],
         transport_costs = Dict((:x, :A, :B) => τ, (:x, :B, :A) => τ),
         armington = [Armington(product = :x, sigma = σ, shares = δ)])
     home(res, r) = getq(res.production, r, :x) - flow(res, :x, r, r == :A ? :B : :A)
@@ -2046,9 +2049,9 @@ end
         nest = DemandNest(sigma = σ, products = [:pellets, :firewood], shares = [0.6, 0.4])
         res = solve_market(MarketData(
             regions = [:A], products = [:pellets, :firewood],
-            demand  = [DemandSpec(product = nest, region = :A, p0 = 100, q0 = 20, elasticity = 0.5)],
-            supply  = [SupplySpec(product = :pellets,  region = :A, p0 = 100, q0 = 12, elasticity = 0.8),
-                       SupplySpec(product = :firewood, region = :A, p0 = 100, q0 = 8,
+            demand  = [DemandCurve(product = nest, region = :A, p0 = 100, q0 = 20, elasticity = 0.5)],
+            supply  = [SupplyCurve(product = :pellets,  region = :A, p0 = 100, q0 = 12, elasticity = 0.8),
+                       SupplyCurve(product = :firewood, region = :A, p0 = 100, q0 = 8,
                                   elasticity = 0.8, shift = 0.5)]))
         @test solved(res)
         qp, qf = getq(res.consumption, :A, :pellets), getq(res.consumption, :A, :firewood)
@@ -2094,11 +2097,11 @@ end
                        (:AS, :AS) => 0.55, (:EU, :AS) => 0.2,  (:NA, :AS) => 0.25)
         res = solve_market(MarketData(
             regions  = regions, products = [:x],
-            demand   = [DemandSpec(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
+            demand   = [DemandCurve(product = :x, region = r, p0 = 100, q0 = 10, elasticity = 1.5)
                         for r in regions],
-            supply   = [SupplySpec(product = :x, region = :EU, p0 = 60, q0 = 20, elasticity = 1.0),
-                        SupplySpec(product = :x, region = :NA, p0 = 55, q0 = 25, elasticity = 1.0),
-                        SupplySpec(product = :x, region = :AS, p0 = 70, q0 = 15, elasticity = 1.0)],
+            supply   = [SupplyCurve(product = :x, region = :EU, p0 = 60, q0 = 20, elasticity = 1.0),
+                        SupplyCurve(product = :x, region = :NA, p0 = 55, q0 = 25, elasticity = 1.0),
+                        SupplyCurve(product = :x, region = :AS, p0 = 70, q0 = 15, elasticity = 1.0)],
             transport_costs = Dict((:x, o, r) => 6.0 for o in regions, r in regions if o != r),
             armington = [Armington(product = :x, sigma = 0, shares = shares,
                                    nests = [OriginNest(sigma = 1, origins = [:EU, :NA])])]))
@@ -2126,13 +2129,13 @@ end
     build(n) = MarketData(
         regions   = [n("A"), n("B")],
         products  = [n("logs"), n("board")],
-        supply    = [SupplySpec(product = n("logs"), region = n("A"), p0 = 40, q0 = 35,
+        supply    = [SupplyCurve(product = n("logs"), region = n("A"), p0 = 40, q0 = 35,
                                 elasticity = 0.6),
-                     SupplySpec(product = n("logs"), region = n("B"), p0 = 90, q0 = 35,
+                     SupplyCurve(product = n("logs"), region = n("B"), p0 = 90, q0 = 35,
                                 elasticity = 0.6)],
-        demand    = [DemandSpec(product = n("board"), region = n("A"), p0 = 300, q0 = 10,
+        demand    = [DemandCurve(product = n("board"), region = n("A"), p0 = 300, q0 = 10,
                                 elasticity = 1.2),
-                     DemandSpec(product = n("board"), region = n("B"), p0 = 300, q0 = 20,
+                     DemandCurve(product = n("board"), region = n("B"), p0 = 300, q0 = 20,
                                 elasticity = 1.2)],
         processes = [Process(name = n("mill"), vacost = 20, regions = [n("A"), n("B")],
                              inputs = [leontief(product = n("logs"), coeff = 2)],
@@ -2191,7 +2194,7 @@ end
     @test Markets.matches(Markets.selector(:), "anything")
     @test !Markets.matches(Markets.selector("all"), "anything")
     # anything that is not a name is refused where a name is wanted
-    @test_throws ArgumentError SupplySpec(product = 7, region = "A", p0 = 1, q0 = 1,
+    @test_throws ArgumentError SupplyCurve(product = 7, region = "A", p0 = 1, q0 = 1,
                                           elasticity = 1)
     @test_throws ArgumentError Tax(name = "t", on = "nowhere", rate = 1.0)
     @test_throws ArgumentError solve_market(strung; on_failure = "shrug")
@@ -2387,6 +2390,180 @@ end
         gap = maximum(abs(ex.original.price[c] / ex.exact.price[c] - 1) for c in ex.marketed)
         @test 1e-4 < gap < 0.05
     end
+end
+
+@testset "One Curve type, two sides" begin
+    dem = DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.2)
+    sup = SupplyCurve(product = :x, region = :A, alpha = -5, beta = 0.5)
+    @test dem isa Markets.Curve{:demand} && sup isa Markets.Curve{:supply}
+    @test !(dem isa SupplyCurve) && !(sup isa DemandCurve)
+    @test typeof([dem]) == Vector{DemandCurve}
+    @test sprint(show, dem) == "DemandCurve(product = \"x\", region = \"A\", p0 = 100.0, q0 = 10.0, elasticity = 1.2)"
+    @test sprint(show, sup) == "SupplyCurve(product = \"x\", region = \"A\", alpha = -5.0, beta = 0.5)"
+    # the same calibration, moved: the alias keeps its side
+    @test DemandCurve(dem; shift = 2.0) isa DemandCurve
+    @test Markets.curve_price(DemandCurve(dem; shift = 2.0), 20.0) ≈ 100
+    @test Markets.curve_price(sup, 5.0) ≈ 20       # S = -5 + 0.5 p  →  p = (S + 5) / 0.5
+    # the sign of the elasticity in the exponent is the whole difference
+    @test Markets.curve_price(dem, 20.0) ≈ 100 * 2^(-1 / 1.2)
+    @test Markets.curve_price(SupplyCurve(product = :x, region = :A, p0 = 100, q0 = 10,
+                                          elasticity = 1.2), 20.0) ≈ 100 * 2^(1 / 1.2)
+    # the integral of the inverse curve is what the objective holds
+    @test Markets.curve_integral(sup, 5.0) ≈ (5^2 / 2 + 5 * 5) / 0.5
+    @test Markets.curve_integral(dem, 20.0) ≈ 100 * 10^(1 / 1.2) / (1 - 1 / 1.2) * 20^(1 - 1 / 1.2)
+    # a supply curve describes one product, never a group
+    @test_throws ArgumentError SupplyCurve(product = DemandNest(sigma = 2, products = [:a, :b]),
+                                           region = :A, p0 = 1, q0 = 1, elasticity = 1)
+    @test_throws ArgumentError Markets.Curve{:sideways}(:x, :A, :isoelastic, 1.0, 1.0, 1.0, NaN, NaN, 1.0)
+end
+
+@testset "Corner cases of the groups, the balances and the bounds" begin
+    two(; kw...) = MarketData(regions = [:A, :B], products = [:w],
+        supply = [SupplyCurve(product = :w, region = :A, p0 = 10, q0 = 100, elasticity = 1),
+                  SupplyCurve(product = :w, region = :B, p0 = 12, q0 = 100, elasticity = 1)],
+        demand = [DemandCurve(product = :w, region = :A, p0 = 10, q0 = 100, elasticity = 1),
+                  DemandCurve(product = :w, region = :B, p0 = 12, q0 = 100, elasticity = 1)],
+        transport_costs = Dict((:w, :A, :B) => 1.0, (:w, :B, :A) => 1.0); kw...)
+
+    @testset "every origin in one finite group is a group with shares" begin
+        grouped = two(armington = [Armington(product = :w, sigma = 2,
+                                             nests = [OriginNest(sigma = 5, origins = [:A, :B])])])
+        flat    = two(armington = [Armington(product = :w, sigma = 5)])
+        rg, rf = solve_market(grouped), solve_market(flat)
+        @test solved(rg)
+        # a group holding every origin is the flat CES at the group's elasticity
+        @test rg.prices.price ≈ rf.prices.price rtol = 1e-6
+        @test rg.trade.quantity ≈ rf.trade.quantity rtol = 1e-6
+    end
+
+    @testset "a group of one product keeps the floor of the curve over it" begin
+        d = MarketData(regions = [:A], products = [:w],
+            supply = [SupplyCurve(product = :w, region = :A, p0 = 10, q0 = 100, elasticity = 1)],
+            demand = [DemandCurve(product = DemandNest(sigma = Inf, products = [:w]), region = :A,
+                                  p0 = 10, q0 = 100, elasticity = 0.5)])
+        plain = MarketData(regions = d.regions, products = d.products, supply = d.supply,
+            demand = [DemandCurve(product = :w, region = :A, p0 = 10, q0 = 100, elasticity = 0.5)])
+        floor_of(m) = JuMP.lower_bound(JuMP.variable_by_name(m, "D[A,w]"))
+        @test floor_of(jump_model(d)) == floor_of(jump_model(plain)) > 0
+        # and no composite or group constraint is written for it
+        @test !occursin("demand_group", sprint(print, jump_model(d)))
+    end
+
+    @testset "a product nothing touches is allowed, and has no price" begin
+        spare = MarketData(regions = [:A, :B], products = [:w, :v],
+            supply = [SupplyCurve(product = :w, region = :A, p0 = 10, q0 = 100, elasticity = 1)],
+            demand = [DemandCurve(product = :w, region = :B, p0 = 12, q0 = 100, elasticity = 1)],
+            transport_costs = Dict((:w, :A, :B) => 1.0))
+        res = solve_market(spare)
+        @test solved(res)
+        @test all(ismissing, res.prices.price[res.prices.product .== "v"])
+        @test all(!ismissing, res.prices.price[res.prices.product .== "w"])
+        @test !occursin("balance[A,v]", sprint(print, res.model))
+    end
+
+    @testset "a cap below the floor is refused with a reason" begin
+        d = MarketData(regions = [:A], products = [:w],
+            supply = [SupplyCurve(product = :w, region = :A, p0 = 10, q0 = 100, elasticity = 1)],
+            demand = [DemandCurve(product = :w, region = :A, p0 = 10, q0 = 100, elasticity = 0.5)],
+            limits = [@limit "zero" consumption(region = :A, product = :w) <= 0])
+        @test_throws ArgumentError solve_market(d)
+        err = try solve_market(d) catch e; e end
+        @test occursin("below the floor", err.msg)
+    end
+
+    @testset "two CES nests of one process get distinct names" begin
+        d = MarketData(regions = [:A], products = [:a, :b, :c],
+            supply = [SupplyCurve(product = p, region = :A, p0 = 10, q0 = 100, elasticity = 1) for p in [:a, :b]],
+            demand = [DemandCurve(product = :c, region = :A, p0 = 60, q0 = 50, elasticity = 1)],
+            processes = [Process(name = :q, outputs = [:c => 1.0], vacost = 1,
+                                 inputs = [ces(composite = 1, products = [:a, :b], sigma = 2),
+                                           ces(composite = 1, products = [:a, :b], sigma = 3)])])
+        m = jump_model(d)
+        names = [name(c) for c in JuMP.all_constraints(m; include_variable_in_set_constraints = false)]
+        @test allunique(filter(!isempty, names))
+        @test "input_nest[A,q,1]" in names && "input_nest[A,q,2]" in names
+    end
+
+    @testset "a single-product ces nest cannot carry a scale" begin
+        @test_throws ArgumentError ces(composite = 1.0, products = [:a], sigma = 2, phi = 2.0)
+        @test ces(composite = 1.0, products = [:a], sigma = 2).phi == 1.0
+    end
+
+    @testset "exports and imports with no region are every flow" begin
+        d = two(limits = [@limit "world trade" exports(product = :w) <= 5])
+        res = solve_market(d)
+        @test only(res.limits.value) ≈ sum(res.trade.quantity) rtol = 1e-6
+        @test Markets.scope(d.limits[1], d).variables == ["flow[w, A, B]", "flow[w, B, A]"]
+        @test Markets.scope(@limit("in", imports(product = :w) <= 5), d).variables ==
+              ["flow[w, A, B]", "flow[w, B, A]"]
+    end
+
+    @testset "validate is the whole verdict" begin
+        # what used to surface only while the model was built
+        @test_throws ArgumentError validate(two(armington = [Armington(product = :w, sigma = 2),
+                                                             Armington(product = :w, sigma = 3)]))
+        @test_throws ArgumentError validate(two(armington = [Armington(product = :w, sigma = 2,
+                                                                       destination = :A)]))
+        @test_throws ArgumentError validate(two(limits = [@limit "none" activity(process = :mill) <= 1]))
+        @test_throws ArgumentError validate(MarketData(regions = [:A, :B], products = [:w],
+            supply = two().supply[1:1], demand = two().demand[2:2],
+            transport_costs = Dict((:w, :A, :B) => 1.0),
+            limits = [@limit "none" supply(region = :B, product = :w) <= 5]))
+        # a tax that selects nothing it could fall on
+        @test_throws ArgumentError validate(two(taxes = [Tax(on = :supply, product = :w, region = :C, rate = 1)]))
+        err = try validate(MarketData(regions = [:A, :B], products = [:w, :v],
+            supply = two().supply, demand = two().demand, transport_costs = two().transport_costs,
+            taxes = [Tax(name = :t, on = :supply, product = :v, rate = 1)])) catch e; e end
+        @test err isa ArgumentError && occursin("selects no supply curve", err.msg)
+        @test_throws ArgumentError validate(two(taxes = [Tax(on = :trade, product = :w, from = :A, to = :A, rate = 1)]))
+        @test_throws ArgumentError validate(two(taxes = [Tax(on = :process, process = :mill, rate = 1)]))
+        # a free process is held back by a ceiling, not by a floor
+        free(limit) = MarketData(regions = [:A], products = [:w],
+            demand = [DemandCurve(product = :w, region = :A, p0 = 12, q0 = 100, elasticity = 1)],
+            processes = [Process(name = :magic, inputs = Nest[], outputs = [:w => 1.0])],
+            limits = [limit])
+        @test_throws ArgumentError validate(free(@limit "floor" activity(process = :magic) >= 1))
+        @test validate(free(@limit "cap" activity(process = :magic) <= 1)) === nothing
+        @test validate(free(@limit "cap" -activity(process = :magic) >= -1)) === nothing
+        # members of one demand group carry one ad valorem rate
+        grouped = MarketData(regions = [:A], products = [:a, :b],
+            supply = [SupplyCurve(product = p, region = :A, p0 = 10, q0 = 100, elasticity = 1) for p in [:a, :b]],
+            demand = [DemandCurve(product = DemandNest(sigma = 2, products = [:a, :b]), region = :A,
+                                  p0 = 10, q0 = 200, elasticity = 1)],
+            taxes = [Tax(on = :demand, product = :a, rate = 0.2, relative = true)])
+        @test_throws ArgumentError validate(grouped)
+    end
+end
+
+@testset "jump_model refuses the keywords of the solve" begin
+    d = MarketData(regions = [:A], products = [:w],
+                   supply = [SupplyCurve(product = :w, region = :A, p0 = 10, q0 = 100, elasticity = 1)],
+                   demand = [DemandCurve(product = :w, region = :A, p0 = 10, q0 = 100, elasticity = 1)])
+    err = try jump_model(d; tol = 1e-3) catch e; e end
+    @test err isa ArgumentError && occursin("tol", err.msg) && occursin("qfloor", err.msg)
+    @test jump_model(d; qfloor = 1e-9) isa JuMP.Model
+end
+
+@testset "validate warns about Armington shares the model will drop" begin
+    three(; shares, routes = [(o, r) for o in [:A, :B, :C] for r in [:A, :B, :C] if o != r]) =
+        MarketData(regions = [:A, :B, :C], products = [:w],
+                   supply = [SupplyCurve(product = :w, region = r, p0 = 10, q0 = 100, elasticity = 1)
+                             for r in [:A, :B]],
+                   demand = [DemandCurve(product = :w, region = r, p0 = 12, q0 = 60, elasticity = 1)
+                             for r in [:A, :B, :C]],
+                   transport_costs = Dict((:w, o, r) => 1.0 for (o, r) in routes),
+                   armington = [Armington(product = :w, sigma = 2, shares = shares)])
+    every = Dict((o, r) => 1.0 for o in [:A, :B, :C] for r in [:A, :B, :C])
+    # C makes no w, so its shares fall on a variety that does not exist
+    @test_logs (:warn, r"C → A \(C produces no w\).*C → C") validate(three(shares = every))
+    # a pair with no route is said too
+    @test_logs (:warn, r"A → C \(no route from A to C\)") validate(
+        three(shares = Dict(k => v for (k, v) in every if k[1] != :C),
+              routes = [(:A, :B), (:B, :A), (:B, :C), (:C, :A), (:C, :B)]))
+    # shares on the varieties the model has give no warning, and the economy solves
+    fine = three(shares = Dict(k => v for (k, v) in every if k[1] != :C))
+    @test_logs validate(fine)
+    @test solve_market(fine).status in (Markets.MOI.OPTIMAL, Markets.MOI.LOCALLY_SOLVED)
 end
 
 end

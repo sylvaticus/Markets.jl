@@ -2,8 +2,8 @@
 
 Using Markets.jl takes three steps:
 
-1. **Describe the economy** with the data types [`DemandSpec`](@ref),
-   [`SupplySpec`](@ref), [`Process`](@ref) (built from [`leontief`](@ref) and
+1. **Describe the economy** with the data types [`DemandCurve`](@ref),
+   [`SupplyCurve`](@ref), [`Process`](@ref) (built from [`leontief`](@ref) and
    [`ces`](@ref) nests), collected in a [`MarketData`](@ref).
 2. **Solve** it with [`solve_market`](@ref).
 3. **Read the results** from the `DataFrame`s in the returned [`Results`](@ref).
@@ -33,29 +33,35 @@ economy, and a field read off a specification compares to the string that built
 it:
 
 ```julia
-SupplySpec(product = :crude, region = :EU, p0 = 550, q0 = 60, elasticity = 0.4).region == "EU"
+SupplyCurve(product = :crude, region = :EU, p0 = 550, q0 = 60, elasticity = 0.4).region == "EU"
 ```
 
-Every product gets a material balance in every region, whether or not it is
-produced, consumed or traded there.
+Every product gets a material balance in every region that makes, uses or
+carries it. A product declared but touched by nothing is allowed, and simply
+has no price anywhere.
+
+[`DemandCurve`](@ref) and [`SupplyCurve`](@ref) below are the two sides of one
+type, `Curve{:demand}` and `Curve{:supply}`: the same fields, the same two ways
+of giving the curve, and the same shifter, with the sign of the elasticity the
+only difference between them.
 
 ### Final demand
 
-A [`DemandSpec`](@ref) gives a constant-elasticity demand curve for one
+A [`DemandCurve`](@ref) gives a constant-elasticity demand curve for one
 product in one region, calibrated to pass through a reference point: at price
 `p0` the quantity demanded is `q0`. `elasticity` is the own-price elasticity
 ``\eta``, which need only be positive — **inelastic demand, ``\eta < 1``, is
 allowed and is what most fuels, foods and basic materials call for**:
 
 ```julia
-DemandSpec(product = "gasoline", region = "EU", p0 = 900, q0 = 80, elasticity = 0.3)
+DemandCurve(product = "gasoline", region = "EU", p0 = 900, q0 = 80, elasticity = 0.3)
 ```
 
 With ``\eta \le 1`` the objective value is no longer an absolute measure of
 welfare, only a basis for comparing scenarios; quantities and prices are
 unaffected. See [Demand and supply curves](@ref).
 
-Only products with a `DemandSpec` in a region are consumed there; other
+Only products with a `DemandCurve` in a region are consumed there; other
 products are intermediates in that region.
 
 #### Products that substitute for each other
@@ -66,7 +72,7 @@ belong to the composite, while the nest says how its members trade off against
 each other.
 
 ```julia
-DemandSpec(region = "EU", p0 = 30000, q0 = 12, elasticity = 0.5,
+DemandCurve(region = "EU", p0 = 30000, q0 = 12, elasticity = 0.5,
            product = DemandNest(sigma = 1.6, products = ["electric_car"], shares = [0.25],
                        nests = [DemandNest(sigma = 5.0, share = 0.75,
                                            products = ["petrol_car", "diesel_car"],
@@ -83,7 +89,7 @@ base-year prices the model buys exactly the base-year quantities:
 
 ```julia
 fuel = ces_calibration(quantities = [7.0, 1.4], prices = [55.0, 250.0], sigma = 3)
-DemandSpec(region = "FR", p0 = fuel.price, q0 = fuel.quantity, elasticity = 0.35,
+DemandCurve(region = "FR", p0 = fuel.price, q0 = fuel.quantity, elasticity = 0.35,
            product = DemandNest(sigma = 3, products = ["firewood", "pellets"],
                                 shares = fuel.shares))
 ```
@@ -107,19 +113,19 @@ price of a substitute outside the model — goes in `shift`, which scales the
 whole curve and leaves `p0` and `q0` holding the calibration:
 
 ```julia
-DemandSpec(product = "electricity", region = "EU", p0 = 90, q0 = 2700, elasticity = 0.3,
+DemandCurve(product = "electricity", region = "EU", p0 = 90, q0 = 2700, elasticity = 0.3,
            shift = exogenous_shift(income = (level = 112.0, reference = 100.0,
                                              elasticity = 0.8)))
 ```
 
 ### Primary supply
 
-A [`SupplySpec`](@ref) gives a constant-elasticity supply curve for a product
+A [`SupplyCurve`](@ref) gives a constant-elasticity supply curve for a product
 that enters the economy from outside the modelled processes — crude oil from a
 field, ore from a mine, fish from the sea, crops from land:
 
 ```julia
-SupplySpec(product = "crude", region = "US", p0 = 550, q0 = 600, elasticity = 0.4)
+SupplyCurve(product = "crude", region = "US", p0 = 550, q0 = 600, elasticity = 0.4)
 ```
 
 A further field, `shift`, carries the conditions of production: it scales the
@@ -132,7 +138,7 @@ it truncates the curve rather than scaling it, and the price then rises above
 the marginal cost on the curve by the **scarcity rent** of the resource.
 
 ```julia
-supply = [SupplySpec(product = "cod", region = "EU", p0 = 3000, q0 = 300, elasticity = 0.40,
+supply = [SupplyCurve(product = "cod", region = "EU", p0 = 3000, q0 = 300, elasticity = 0.40,
                      shift = exogenous_shift(stock = (level = 118.0, reference = 100.0,
                                                       elasticity = 0.6)))]
 limits = [@limit "cod quota" supply(region = "EU", product = "cod") <= 350]
@@ -149,11 +155,11 @@ straight line instead, given in one of two ways:
 
 ```julia
 # through a reference point, with the elasticity there: the tangent line
-DemandSpec(product = "wheat", region = "EG", p0 = 88, q0 = 7634, elasticity = 0.55,
+DemandCurve(product = "wheat", region = "EG", p0 = 88, q0 = 7634, elasticity = 0.55,
            form = :linear)
 # by its coefficients, D = alpha + beta·p and S = alpha + beta·p
-DemandSpec(product = "wheat", region = "A", alpha = 200, beta = -9)
-SupplySpec(product = "wheat", region = "A", alpha = -50, beta = 10.5)
+DemandCurve(product = "wheat", region = "A", alpha = 200, beta = -9)
+SupplyCurve(product = "wheat", region = "A", alpha = -50, beta = 10.5)
 ```
 
 The coefficients carry their signs as a regression would estimate them:
@@ -173,7 +179,7 @@ return a reference point, which serves either form.
 A scenario moves a curve by giving it a new shifter, whatever its form:
 
 ```julia
-salvage = SupplySpec(logs; shift = 3.0)     # the same curve, three times the quantity
+salvage = SupplyCurve(logs; shift = 3.0)     # the same curve, three times the quantity
 ```
 
 An `elasticity` of `Inf` makes the curve flat, in either form: a price given
@@ -182,8 +188,8 @@ country meets the world market, the region `"world"` selling at the import
 price and buying at the export price:
 
 ```julia
-supply = [SupplySpec(product = "wheat", region = "world", p0 = 96.8, q0 = 1, elasticity = Inf)]
-demand = [DemandSpec(product = "wheat", region = "world", p0 = 88.0, q0 = 1, elasticity = Inf)]
+supply = [SupplyCurve(product = "wheat", region = "world", p0 = 96.8, q0 = 1, elasticity = Inf)]
+demand = [DemandCurve(product = "wheat", region = "world", p0 = 88.0, q0 = 1, elasticity = Inf)]
 ```
 
 `q0` plays no role on a flat curve but must still be positive, and a flat
@@ -295,8 +301,9 @@ every flow it covers carries in `Results.trade`, and the price gap across the
 route it throttles becomes transport **plus** that rent.
 
 By default a traded product is **homogeneous**: the same good wherever it comes
-from. Regional prices then differ by at most the transport cost and no region
-imports and exports it at once.
+from. Regional prices then differ by at most the transport cost, and two regions
+never ship it to each other both ways; a region on the cheapest path between two
+others may carry it through, importing and exporting the same quantity.
 
 ### Imperfect substitution between origins (optional)
 
@@ -472,8 +479,8 @@ colon `:` for every one, which is also what a selector left out means:
 | `activity(; region, process)` | process activity levels |
 | `inputs(; region, process, product)` | what processes draw of their inputs |
 | `flow(; product, from, to)` | shipments between regions |
-| `exports(; region, product)` | shipments leaving the region, or the group of regions |
-| `imports(; region, product)` | shipments entering it |
+| `exports(; region, product)` | shipments leaving the region, or the group of regions; every flow when no region is named |
+| `imports(; region, product)` | shipments entering it; every flow when no region is named |
 
 Quantities may be added, subtracted, multiplied or divided by numbers, put on
 either side of the comparison, and mixed with constants, which end up in the
@@ -603,8 +610,9 @@ The [forest example](@ref "What the forest holds") uses it for its stands.
 ## Looking at an economy
 
 Typing the name of a `MarketData` in the REPL gives one line, such as
-`MarketData(3 regions, 7 products, 4 processes)`. Printing it, with
-`print(market)`, gives a summary: what is supplied, consumed, made and used of
+`MarketData(3 regions, 7 products, 4 processes)`, as do `repr` and a vector or
+dictionary holding it. Printing it, with `print(market)` or by interpolating
+it into a string, gives a summary: what is supplied, consumed, made and used of
 each product, the processes in the order they chain into one another (stage 1
 uses only primary products, stage 2 also the outputs of stage 1, and so on),
 the trade routes and their costs, the Armington specifications, the trade
@@ -669,7 +677,11 @@ economy. That check is not a formality: the model has one balance per declared
 region and product, so a name outside those lists would get variables and no
 balance — a mistyped process input would become a *free* input and the solver
 would report success. Every name, duplicate and selector is therefore checked
-first, and a problem is an `ArgumentError` saying which entry is at fault.
+first, and so is everything else that cannot be built as written: a tax or a
+limit that selects nothing, two Armington specifications for one destination.
+A problem is an `ArgumentError` saying
+which entry is at fault, and `validate(economy)` on its own gives the whole
+verdict.
 
 If the solver then returns anything but an optimal or locally optimal solution,
 `solve_market` **throws**. An infeasible or unbounded economy comes back with
@@ -702,7 +714,8 @@ limits") are taken back out, and twelve `DataFrame`s:
 | `limits`      | limit, lower, upper, penalty, value, excess, rent, regions, variables | every [`Limit`](@ref), how far a soft one was crossed, the rent of the bound that binds, and what it applies to |
 | `taxes`       | tax, on, revenue | what each instrument raises |
 
-Either price column is `missing` where it has no meaning: a region that cannot
+Either price column is `missing` where it has no meaning: a product that a
+region neither makes, uses nor carries has no price there, a region that cannot
 produce an Armington product has no `producer_price` for it, and a region that
 uses none of one has no `price`. Prices are signed, so a by-product that must
 be disposed of at a cost shows a negative one.
@@ -786,8 +799,8 @@ compared line by line with a JuMP transcription of the original.
 
 ## How to amend an economy
 
-* **Add a product**: add its name to `products`; give it a `DemandSpec` and/or
-  `SupplySpec` where it is consumed or produced; wire it into processes;
+* **Add a product**: add its name to `products`; give it a `DemandCurve` and/or
+  `SupplyCurve` where it is consumed or produced; wire it into processes;
   add `transport_costs` entries if it can be shipped.
 * **Add or change a process**: add a `Process`. Chains of any length are built by
   making the output of one process an input of another (e.g.

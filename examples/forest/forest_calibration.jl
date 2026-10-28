@@ -313,7 +313,7 @@ nothing # hide
 # Each forest supply curve runs through the observed harvest at the observed
 # producer price:
 
-supply = [SupplySpec(product = p, region = r, p0 = πˢ[(r, p)], q0 = made[(r, p)],
+supply = [SupplyCurve(product = p, region = r, p0 = πˢ[(r, p)], q0 = made[(r, p)],
                      elasticity = supply_elasticity[p][r])
           for p in keys(supply_elasticity) for r in regions]
 nothing # hide
@@ -333,7 +333,7 @@ function construction_demand(r)
     outer = ces_calibration(quantities = [consumed[(r, "sawn_hw")], inner.quantity],
                             prices     = [πᶜ[(r, "sawn_hw")], inner.price],
                             sigma = σ_construction)
-    return DemandSpec(region = r, p0 = outer.price, q0 = outer.quantity,
+    return DemandCurve(region = r, p0 = outer.price, q0 = outer.quantity,
         elasticity = η_construction,
         product = DemandNest(sigma = σ_construction,
             products = ["sawn_hw"], shares = [outer.shares[1]],
@@ -344,7 +344,7 @@ end
 function fuel_demand(r, gas = gas_reference)
     fuel = ces_calibration(quantities = [consumed[(r, p)] for p in fuels],
                            prices     = [πᶜ[(r, p)] for p in fuels], sigma = σ_fuel)
-    return DemandSpec(region = r, p0 = fuel.price, q0 = fuel.quantity, elasticity = η_fuel,
+    return DemandCurve(region = r, p0 = fuel.price, q0 = fuel.quantity, elasticity = η_fuel,
         shift = exogenous_shift(gas = (level = gas, reference = gas_reference,
                                        elasticity = gas_cross_elasticity)),
         product = DemandNest(sigma = σ_fuel, products = fuels, shares = fuel.shares))
@@ -353,7 +353,7 @@ end
 build_demand(gas = gas_reference) =
     [[construction_demand(r) for r in regions];
      [fuel_demand(r, gas) for r in regions];
-     [DemandSpec(product = "paper", region = r, p0 = πᶜ[(r, "paper")],
+     [DemandCurve(product = "paper", region = r, p0 = πᶜ[(r, "paper")],
                  q0 = consumed[(r, "paper")], elasticity = η_paper) for r in regions]]
 
 demand = build_demand()
@@ -486,7 +486,7 @@ DataFrame((observed = name, entries = length(observed),
 reconfigure(d; kwargs...) =
     MarketData(; (f => get(kwargs, f, getfield(d, f)) for f in fieldnames(MarketData))...)
 salvage = [s.region == "SWF" && s.product == "swr" ?
-               SupplySpec(s; shift = 3.0) : s
+               SupplyCurve(s; shift = 3.0) : s
            for s in supply]
 storm = solve_market(reconfigure(calibrated, supply = salvage))
 gas   = solve_market(reconfigure(calibrated, demand = build_demand(60.0)))

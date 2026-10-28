@@ -6,7 +6,63 @@ breaking changes.
 
 ## [Unreleased]
 
+### Changed (API)
+- **`DemandSpec` and `SupplySpec` are `DemandCurve` and `SupplyCurve`**, and
+  they are one type: `Curve{:demand}` and `Curve{:supply}`. The two sides have
+  the same fields, the same two ways of giving a curve, the same shifter and
+  the same `show`; only the sign of the elasticity in the exponent differs, so
+  there is now one constructor, one `curve_price` (which replaces
+  `demand_price` and `supply_price`) and one `curve_integral`, the term each
+  curve contributes to the objective. `Vector{DemandCurve}` and
+  `isa SupplyCurve` work as before, and a supply curve still refuses a
+  `DemandNest`.
+- **`validate` is the whole verdict.** It now also catches what used to
+  surface only while the model was built: duplicate or incomplete Armington
+  specifications, a limit term or a tax that selects no quantity of the
+  economy, and differing ad valorem rates inside one demand group.
+- `exports` and `imports` with no region named now count every cross-border
+  flow, as "a selector left out means every one" says; they used to select
+  nothing, since nothing leaves the group of all regions.
+- A process with no inputs and no cost is held back only by a *ceiling* on its
+  activity; a floor under it no longer satisfies `validate`.
+- A single-product `ces(...)` nest with a `phi` other than 1 is refused: a
+  fixed coefficient has no scale, and the value was being ignored.
+- `Results.solution` carries `production`, and `material_accounts` reads it
+  from there.
+- **`show` and `print` follow the Julia convention.** The one-line count is the
+  two-argument `show`, so the REPL, `repr` and containers give it as before,
+  and the summary is `print`, so `string(d)` and `"$d"` now give the summary
+  rather than the one line. `print(d)` and `println(d)` are unchanged.
+- `validate` warns about an `Armington` share given to an origin that cannot
+  produce the product or to a pair with no route. The engine drops such shares
+  as before; it now says so.
+
 ### Fixed
+- An `Armington` specification whose available origins all sat in one group
+  of finite elasticity failed with a `BoundsError`: the lone root node never
+  had its shares filled in. Groups of origins and groups of substitutes in
+  final demand are now read into one normalised tree, in which a node of one
+  child is replaced by that child at every level, and built by one function.
+- A `DemandNest` of a single product lost the quantity floor on its
+  consumption variable when its own elasticity was 0 or `Inf`, although the
+  curve over it was raised to a power. The floor now follows the curve.
+- A product declared in `products` but made, used and carried by nothing
+  gave the solver a balance `0 == 0` in every region, which Ipopt counts as an
+  equality constraint: a small economy with one spare product came back
+  `INVALID_MODEL` (`Too_Few_Degrees_Of_Freedom`). Such balances are no longer
+  written, and the product's price is `missing` where it has none.
+- A limit that caps one floored quantity below its floor — `consumption(...)
+  <= 0` on an inelastic demand — gave `INVALID_MODEL` with no explanation. It
+  is now an `ArgumentError` saying which quantity cannot be held at zero.
+- A process with two CES nests gave both the same constraint name; the names
+  of the input nests, the demand groups and the origin groups are now unique.
+- The `Tax` docstring and the economy summary described an ad valorem rate on
+  demand as a fraction of the price consumers pay; it is, and was, a fraction
+  of the market price, so that a rate of 0.25 puts the consumer price a
+  quarter above it.
+- `jump_model` given a keyword of the solve that does not shape the model,
+  such as `tol`, failed with a bare `MethodError`; it is now an `ArgumentError`
+  naming the keywords it takes.
 - A process restricted to a single region given as a bare name,
   `Process(regions = "B", ...)`, was read as the letters of that name and
   rejected by `validate`. It is now that one region.

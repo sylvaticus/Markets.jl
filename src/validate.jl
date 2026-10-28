@@ -5,30 +5,42 @@
 #  name that is not in `regions` or `products` gets variables and objective
 #  terms but no balance: a mistyped input becomes a free input, a mistyped
 #  consumed product becomes an unbounded one, and the solver reports success.
-#  Everything that could happen that way is checked here instead.
+#  Everything that could happen that way is checked here instead, together
+#  with every other way an economy can be inconsistent with itself, so that
+#  `validate` alone is the whole verdict on a specification.
 # ----------------------------------------------------------------------------
 
 """
 $(TYPEDSIGNATURES)
 
-Check that an economy refers only to names it declares, and that nothing in it
-is declared twice.  Throws an `ArgumentError` naming the offending entry on the
-first problem found; returns `nothing` when the economy is well formed.
+Check that an economy refers only to names it declares, that nothing in it is
+declared twice, and that every part of it can be built as written.  Throws an
+`ArgumentError` naming the offending entry on the first problem found; returns
+`nothing` when the economy is well formed.
 
-[`solve_market`](@ref) calls it before building anything, so it rarely has to
-be called directly.  The checks are:
+[`solve_market`](@ref) and [`jump_model`](@ref) call it before building
+anything, so it rarely has to be called directly.  The checks are:
 
 * `regions` and `products` are non-empty and free of duplicates;
 * every product and region named anywhere — in a curve, a process, a transport
   route, an [`Armington`](@ref) specification, a [`Limit`](@ref) or a
   [`Tax`](@ref) — is one of those declared;
-* no two [`SupplySpec`](@ref)s and no two [`DemandSpec`](@ref)s describe the
+* no two [`SupplyCurve`](@ref)s and no two [`DemandCurve`](@ref)s describe the
   same product in the same region, and no two [`Process`](@ref)es share a name;
 * a transport route goes between two different regions;
-* a selector of a tax or a limit names something the economy declares, and no
-  two limits share a name;
+* the [`Armington`](@ref) specifications are consistent: at most one per
+  product and destination, and a product imperfectly substitutable everywhere
+  or nowhere;
+* a selector of a [`Tax`](@ref) or a [`Limit`](@ref) names something the
+  economy declares **and** selects at least one quantity of it, no two limits
+  share a name, and the members of one demand group carry one ad valorem rate;
 * no process produces out of nothing at no cost, which would make the economy
   unbounded.
+
+It also **warns**, without failing, about an [`Armington`](@ref) share given to
+an origin that cannot produce the product, or to a pair with no route: the
+engine drops such a share, so the pattern of trade differs from the one written
+down.
 """
 function validate(d::MarketData)
     fail(msg) = throw(ArgumentError(msg))
@@ -47,7 +59,7 @@ function validate(d::MarketData)
     check_region(r, what) = r in regions ||
         fail("$what names the region $r, which the economy does not declare")
     check_selector(field, set, what, kind) =
-        field isa Colon || for x in (field isa AbstractString ? [field] : field)
+        field isa Colon || for x in each(field)
             x in set || fail("$what selects the $kind $x, which the economy does " *
                              "not declare")
         end
@@ -56,7 +68,7 @@ function validate(d::MarketData)
     seen_demand = Set{Tuple{String,String}}()
     for s in d.demand
         check_region(s.region, "a demand curve")
-        for p in nest_products(s.product)
+        for p in leaves(s.product)
             check_product(p, "the demand curve in $(s.region)")
             (p, s.region) in seen_demand &&
                 fail("$p has more than one demand curve in region $(s.region)")
@@ -98,9 +110,10 @@ function validate(d::MarketData)
         end
         # a process with nothing to buy and nothing to pay is a free source of
         # its outputs, and the economy around it has no finite optimum unless a
-        # limit holds its activity back
-        held = any(q.kind == :activity && matches(q.selection.process, proc.name)
-                   for l in d.limits for (q, _) in l.expression.terms)
+        # limit holds its activity back — a ceiling on it, not a floor under it
+        held = any((isfinite(l.upper) && w > 0 || isfinite(l.lower) && w < 0) &&
+                   q.kind == :activity && matches(q.selection.process, proc.name)
+                   for l in d.limits for (q, w) in l.expression.terms)
         isempty(proc.inputs) && maximum_vacost(proc) <= 0 && !held &&
             fail("process $(proc.name) has no inputs, no value-added cost and no " *
                  "limit on its activity, so it would produce without limit; give it " *
@@ -124,11 +137,33 @@ function validate(d::MarketData)
             check_region(o, "the Armington shares of $(a.product)")
             check_region(r, "the Armington shares of $(a.product)")
         end
-        for o in collect_origins!(String[], a.nests)
+        for o in leaves(a.nests)
             check_region(o, "an origin group of $(a.product)")
         end
         a.scale isa Dict && for r in keys(a.scale)
             check_region(r, "the Armington scale of $(a.product)")
+        end
+    end
+    specs = armington_of(d) # one specification per destination, Armington everywhere or nowhere
+    # A share on an origin that cannot produce the product, or on a pair with
+    # no route, falls on a variety the model will not have, and is dropped. A
+    # share matrix written for every pair is a reasonable way to give the
+    # shares, so this is not an error; but the pattern of trade would then
+    # differ silently from the one written down, so it is said.
+    let can = producible(d), uses = consumed(d), dropped = Dict{String,Vector{String}}()
+        for ((p, r), a) in specs
+            (p, r) in uses || continue
+            for ((o, dest), s) in a.shares
+                (dest == r && s > 0) || continue
+                why = !((p, o) in can) ? "$o produces no $p" :
+                      o != r && !haskey(d.transport_costs, (p, o, r)) ? "no route from $o to $r" :
+                      nothing
+                why === nothing || push!(get!(dropped, p, String[]), "$o → $r ($why)")
+            end
+        end
+        for p in sort!(collect(keys(dropped)))
+            @warn "Armington shares of $p fall on varieties the model will not have, " *
+                  "and are dropped: $(join(sort!(dropped[p]), ", "))"
         end
     end
 
@@ -142,6 +177,11 @@ function validate(d::MarketData)
     for limit in d.limits, (q, _) in limit.expression.terms, (f, value) in pairs(q.selection)
         set, kind = fields[f]
         check_selector(value, set, "limit $(limit.name)", kind)
+    end
+    # a selector may name only declared things and still select no quantity
+    # the model has: a supply the economy does not curve, a flow with no route
+    isempty(d.limits) || let cat = model_catalogue(d)
+        foreach(limit -> limit_terms(limit, d, cat), d.limits)
     end
     for t in d.taxes
         what = "tax $(t.name)"
@@ -158,7 +198,19 @@ function validate(d::MarketData)
         check_selector(t.process, Set(names), what, "process")
         check_selector(t.from, regions, what, "region")
         check_selector(t.to, regions, what, "region")
+        bites = t.on == "supply"  ? any(matches(t.product, s.product) && matches(t.region, s.region)
+                                        for s in d.supply) :
+                t.on == "demand"  ? any(matches(t.product, p) && matches(t.region, s.region)
+                                        for s in d.demand for p in leaves(s.product)) :
+                t.on == "process" ? any(matches(t.process, proc.name) && matches(t.region, r)
+                                        for proc in d.processes for r in regions_of(proc, d)) :
+                                    any(matches(t.product, p) && matches(t.from, o) && matches(t.to, r)
+                                        for (p, o, r) in keys(d.transport_costs))
+        bites || fail("$what falls on $(t.on) but selects no $(t.on == "trade" ? "route" :
+                      t.on == "process" ? "process" : "$(t.on) curve") of this economy")
     end
+    # the members of one demand group share one curve, hence one ad valorem rate
+    foreach(s -> demand_relative_tax(d, s), d.demand)
     return nothing
 end
 

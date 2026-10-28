@@ -26,8 +26,8 @@ nothing # hide
 # the Pasture sold 2000 at €400 the tonne. The City keeps a few herds at its
 # edges, where land is dear.
 
-supply = [SupplySpec(product = "milk", region = "Pasture", p0 = 400, q0 = 2000, elasticity = 0.6),
-          SupplySpec(product = "milk", region = "City",    p0 = 450, q0 =  300, elasticity = 0.6)]
+supply = [SupplyCurve(product = "milk", region = "Pasture", p0 = 400, q0 = 2000, elasticity = 0.6),
+          SupplyCurve(product = "milk", region = "City",    p0 = 450, q0 =  300, elasticity = 0.6)]
 nothing # hide
 
 # Now the part that makes this more than an arithmetic exercise: **milk is both
@@ -35,10 +35,10 @@ nothing # hide
 # cheese. Each use has its own demand, and neither is told how much milk it may
 # have.
 
-demand = [DemandSpec(product = "milk",   region = "Pasture", p0 =  400, q0 = 200, elasticity = 0.3),
-          DemandSpec(product = "milk",   region = "City",    p0 =  450, q0 = 600, elasticity = 0.3),
-          DemandSpec(product = "cheese", region = "Pasture", p0 = 5300, q0 =  30, elasticity = 0.5),
-          DemandSpec(product = "cheese", region = "City",    p0 = 5350, q0 = 120, elasticity = 0.5)]
+demand = [DemandCurve(product = "milk",   region = "Pasture", p0 =  400, q0 = 200, elasticity = 0.3),
+          DemandCurve(product = "milk",   region = "City",    p0 =  450, q0 = 600, elasticity = 0.3),
+          DemandCurve(product = "cheese", region = "Pasture", p0 = 5300, q0 =  30, elasticity = 0.5),
+          DemandCurve(product = "cheese", region = "City",    p0 = 5350, q0 = 120, elasticity = 0.5)]
 nothing # hide
 
 # One transformation, and it may run in either region. Cheesemaking is a fixed
@@ -345,7 +345,7 @@ price(r, p) = only(result.prices[(result.prices.region .== r) .&
 # the curve was fitted to stays exactly where it was.
 
 thirsty = [d.product == "milk" && d.region == "City" ?
-               DemandSpec(d; shift = 1.2) : d
+               DemandCurve(d; shift = 1.2) : d
            for d in demand]
 thirst = solve_market(MarketData(; regions, products, demand = thirsty, supply,
                                    processes, transport_costs))

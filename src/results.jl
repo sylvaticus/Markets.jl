@@ -108,7 +108,8 @@ Base.@kwdef struct Results
     recipes::DataFrame
     """
     Every solved quantity, unrounded and unfiltered, as dictionaries keyed as in
-    the model: `supply` and `consumption` by `(region, product)`, `activity` by
+    the model: `supply`, `production` (supply plus process output) and
+    `consumption` by `(region, product)`, `activity` by
     `(region, process)`, `flows` by `(product, from, to)` — a region's own
     deliveries of an Armington product included — `drawn` by
     `(region, process, nest, product)`, and `composite` and `ratio` by
@@ -345,28 +346,33 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
     # price.  (`shadow_price` must not be used here: for an equality constraint
     # it reports the gain from relaxing it in whichever direction helps, which
     # discards that sign.)
-    prices = DataFrame(region = String[], product = String[])
-    user = Any[]
-    producer = Any[]
+    # `missing` where a price has no meaning: a product the region neither
+    # makes, uses nor carries, or an Armington product the region cannot make
+    # (no producer price) or does not use (no user price)
+    user     = Dict{Tuple{String,String},Float64}()
+    producer = Dict{Tuple{String,String},Float64}()
     if has_duals(m)
         arm = Set(a.product for a in d.armington if isfinite(a.sigma))
-        for r in d.regions, p in d.products
-            push!(prices, (r, p))
-            # what local users pay, `missing` where the region uses none of it
-            push!(user, haskey(balance, (r, p)) ? dual(balance[(r, p)]) : missing)
+        for ((r, p), c) in balance
+            user[(r, p)] = dual(c)
             # what local producers get: the same, unless the product is an
-            # Armington one, and `missing` where the region has no variety of
-            # it to sell
-            push!(producer, haskey(origin_balance, (r, p)) ? dual(origin_balance[(r, p)]) :
-                            p in arm ? missing : user[end])
+            # Armington one, whose producers sell their own variety
+            p in arm || (producer[(r, p)] = user[(r, p)])
         end
-        prices.price          = identity.(user)       # Float64 unless any is missing
-        prices.producer_price = identity.(producer)
-        sort!(prices, [:region, :product])
-    else
-        prices.price          = Float64[]
-        prices.producer_price = Float64[]
+        for ((r, p), c) in origin_balance
+            producer[(r, p)] = dual(c)
+        end
     end
+    at(dict, r, p) = get(dict, (r, p), missing)
+    prices = DataFrame(region = String[], product = String[],
+                       price = Union{Float64,Missing}[], producer_price = Union{Float64,Missing}[])
+    has_duals(m) && for r in d.regions, p in d.products
+        push!(prices, (r, p, at(user, r, p), at(producer, r, p)))
+    end
+    # Float64 columns where nothing is missing, as before
+    prices.price          = identity.(prices.price)
+    prices.producer_price = identity.(prices.producer_price)
+    sort!(prices, [:region, :product])
 
     activity = DataFrame(region = String[], process = String[], level = Float64[],
                          capacity = Float64[], rent = Float64[])
@@ -380,33 +386,31 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
     # what each tax raises, so that the transfer the objective treats as a
     # cost can be added back
     taxes = DataFrame(tax = String[], on = String[], revenue = Float64[])
-    price_at(r, p) = (rows = prices[(prices.region .== r) .& (prices.product .== p), :];
-                      isempty(rows) ? 0.0 : coalesce(only(rows.price), 0.0))
-    producer_at(r, p) = (rows = prices[(prices.region .== r) .& (prices.product .== p), :];
-                         isempty(rows) ? 0.0 : coalesce(only(rows.producer_price), 0.0))
+    price_at(r, p)    = get(user, (r, p), 0.0)
+    producer_at(r, p) = get(producer, (r, p), 0.0)
     for t in d.taxes
         revenue = 0.0
         if t.on == "supply"
             for spec in d.supply
-                selects(t.product, spec.product) && selects(t.region, spec.region) || continue
+                matches(t.product, spec.product) && matches(t.region, spec.region) || continue
                 q  = val(S[(spec.region, spec.product)])
-                mc = supply_price(spec, q)        # the untaxed marginal cost
+                mc = curve_price(spec, q)        # the untaxed marginal cost
                 revenue += (t.relative ? t.rate * mc : t.rate) * q
             end
         elseif t.on == "demand"
-            for spec in d.demand, p in nest_products(spec.product)
-                selects(t.product, p) && selects(t.region, spec.region) || continue
+            for spec in d.demand, p in leaves(spec.product)
+                matches(t.product, p) && matches(t.region, spec.region) || continue
                 q = val(D[(spec.region, p)])
                 revenue += (t.relative ? t.rate * price_at(spec.region, p) : t.rate) * q
             end
         elseif t.on == "process"
             for proc in d.processes, r in regions_of(proc, d)
-                selects(t.process, proc.name) && selects(t.region, r) || continue
+                matches(t.process, proc.name) && matches(t.region, r) || continue
                 revenue += (t.relative ? t.rate * vacost_of(proc, r) : t.rate) * val(z[(r, proc.name)])
             end
         else
             for ((p, o, r), v) in flows
-                selects(t.product, p) && selects(t.from, o) && selects(t.to, r) || continue
+                matches(t.product, p) && matches(t.from, o) && matches(t.to, r) || continue
                 revenue += (t.relative ? t.rate * producer_at(o, p) : t.rate) * val(v)
             end
         end
@@ -414,6 +418,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
     end
 
     solution = (supply      = Dict(k => val(v) for (k, v) in S),
+                production  = prod,
                 consumption = Dict(k => val(v) for (k, v) in D),
                 activity    = Dict(k => val(v) for (k, v) in z),
                 flows       = Dict{Tuple{String,String,String},Float64}(

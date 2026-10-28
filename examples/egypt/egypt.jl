@@ -130,7 +130,7 @@ nothing # hide
 # | `landb`, `waterb`, `vegetb`, `xcrop.up`  | [`Limit`](@ref)s on the activities                        |
 # | `nutb`, `anut`                           | fodder fed to a herd whose size is fixed, or concentrates bought in |
 # | `gfodb`                                  | a limit on the fodder produced and carried                |
-# | demand on a grid of ten points           | a linear [`DemandSpec`](@ref) through the same base point |
+# | demand on a grid of ten points           | a linear [`DemandCurve`](@ref) through the same base point |
 # | `pe`, `pm`, `tlimit`                     | a flat world demand and supply, limits on the flows       |
 # | `trans`, `stran`                         | trade in straw at its transfer cost                       |
 #
@@ -221,7 +221,7 @@ nothing # hide
 # 1.666 times the base price, which bounds consumption: a limit below keeps
 # that range.
 
-demand = [DemandSpec(product = c, region = "egypt", p0 = demdat[(c, "base-p")],
+demand = [DemandCurve(product = c, region = "egypt", p0 = demdat[(c, "base-p")],
                      q0 = demdat[(c, "domes-cons")], elasticity = -demdat[(c, "elas")],
                      form = :linear)
           for c in marketed]
@@ -232,9 +232,9 @@ demand[1]
 
 importable = [c for c in marketed if get(trade_limits, (c, "imports"), 0.0) > 0]
 exportable = [c for c in marketed if get(trade_limits, (c, "exports"), 0.0) > 0]
-supply = [SupplySpec(product = c, region = "world", p0 = demdat[(c, "import-p")], q0 = 1,
+supply = [SupplyCurve(product = c, region = "world", p0 = demdat[(c, "import-p")], q0 = 1,
                      elasticity = Inf) for c in importable]
-append!(demand, [DemandSpec(product = c, region = "world", p0 = demdat[(c, "export-p")], q0 = 1,
+append!(demand, [DemandCurve(product = c, region = "world", p0 = demdat[(c, "export-p")], q0 = 1,
                             elasticity = Inf) for c in exportable])
 nothing # hide
 
