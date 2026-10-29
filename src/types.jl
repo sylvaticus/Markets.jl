@@ -1221,7 +1221,8 @@ unit of activity, per tonne shipped — and a fraction of it when `relative` is
 — so a rate of 0.25 puts what consumers pay a quarter above the market price —
 of the value-added cost for `"process"`, of the price at the origin for `"trade"`.
 Selectors left at `:` match everything, and several taxes may fall on the
-same base, in which case the absolute rates add and so do the relative ones.
+same base, in which case the absolute rates add and so do the relative ones,
+whose sum must stay above -1 as each rate does.
 
 !!! warning "A taxed equilibrium is not a welfare maximum"
     The quantities and prices a taxed model returns are the right ones: the
@@ -1287,11 +1288,19 @@ $(TYPEDSIGNATURES)
 The absolute and relative rates of the taxes of `taxes` that fall on a base,
 summed. `kind` is the `on` field to match and the keywords are the selectors to
 check, each against the field of the same name.
+
+Each relative rate is above -1 on its own, but several can add up past it, and
+the model multiplies the base by `1 + relative`: at or below zero a cost turns
+into a gain, or the benefit of consumers into a loss, and the solver may still
+report success. That is an `ArgumentError` here, where every summed rate the
+model uses is computed, and [`validate`](@ref) asks for the rates of every base
+so that it is reported before anything is built.
 """
 function tax_rates(taxes, kind::AbstractString; product = nothing, region = nothing,
                    process = nothing, from = nothing, to = nothing)
     absolute = 0.0
     relative = 0.0
+    relative_taxes = String[]
     for t in taxes
         t.on == kind || continue
         product === nothing || matches(t.product, product) || continue
@@ -1299,7 +1308,14 @@ function tax_rates(taxes, kind::AbstractString; product = nothing, region = noth
         process === nothing || matches(t.process, process) || continue
         from    === nothing || matches(t.from, from)       || continue
         to      === nothing || matches(t.to, to)           || continue
-        t.relative ? (relative += t.rate) : (absolute += t.rate)
+        t.relative ? (relative += t.rate; push!(relative_taxes, "$(t.name) ($(t.rate))")) :
+                     (absolute += t.rate)
+    end
+    relative > -1 || let base = join(("$k $v" for (k, v) in pairs((; product, region,
+                                     process, from, to)) if v !== nothing), ", ")
+        throw(ArgumentError("the relative rates of the taxes $(join(relative_taxes, ", ")) " *
+                            "on $kind ($base) add up to $relative; together they must " *
+                            "stay above -1, as each does on its own"))
     end
     return (absolute = absolute, relative = relative)
 end

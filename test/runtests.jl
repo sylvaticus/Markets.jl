@@ -1119,6 +1119,29 @@ end
     @testset "specification errors" begin
         @test_throws ArgumentError Tax(on = :nonsense, rate = 1.0)
         @test_throws ArgumentError Tax(on = :demand, rate = -1.5, relative = true)
+        # each relative rate is above -1, but together they may not be: the
+        # base would be multiplied by a negative number, and a demand taxed so
+        # was reported solved
+        twice(on; kw...) = [Tax(name = "t$i", on = on, rate = -0.6, relative = true; kw...)
+                            for i in 1:2]
+        for taxes in (twice(:supply; region = :A), twice(:demand; region = :B),
+                      twice(:trade; from = :A, to = :B))
+            @test_throws ArgumentError validate(economy(taxes))
+            @test_throws ArgumentError solve_market(economy(taxes))
+        end
+        err = try validate(economy(twice(:supply; region = :A))) catch e e end
+        @test occursin("t1 (-0.6), t2 (-0.6)", err.msg) && occursin("region A", err.msg)
+        # on different bases they do not add
+        @test solved(solve_market(economy([twice(:supply; region = :A)[1],
+                                           twice(:supply; region = :B)[2]])))
+        milling(taxes) = MarketData(regions = [:A], products = [:w, :g],
+            demand    = [DemandCurve(product = :g, region = :A, p0 = 300, q0 = 10, elasticity = 1.2)],
+            supply    = [SupplyCurve(product = :w, region = :A, p0 = 40, q0 = 40, elasticity = 0.8)],
+            processes = [Process(name = :mill, vacost = 50,
+                                 inputs = [leontief(product = :w, coeff = 2.0)],
+                                 outputs = [:g => 1.0])],
+            taxes = taxes)
+        @test_throws ArgumentError validate(milling(twice(:process; process = :mill)))
         # a group of substitutes shares one curve, so it must share its tax
         nest = DemandNest(sigma = 3.0, products = [:a, :b])
         d = MarketData(regions = [:A], products = [:a, :b],

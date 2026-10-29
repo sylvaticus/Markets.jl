@@ -209,6 +209,19 @@ function validate(d::MarketData)
         bites || fail("$what falls on $(t.on) but selects no $(t.on == "trade" ? "route" :
                       t.on == "process" ? "process" : "$(t.on) curve") of this economy")
     end
+    # several relative rates on one base must not add up to -1 or below, which
+    # `tax_rates` checks when asked for the rates of that base: ask for every
+    # base the model taxes (the demand ones are asked for just below)
+    if !isempty(d.taxes)
+        foreach(s -> tax_rates(d.taxes, "supply"; product = s.product, region = s.region),
+                d.supply)
+        for proc in d.processes, r in regions_of(proc, d)
+            tax_rates(d.taxes, "process"; process = proc.name, region = r)
+        end
+        for (p, o, r) in keys(d.transport_costs)
+            tax_rates(d.taxes, "trade"; product = p, from = o, to = r)
+        end
+    end
     # the members of one demand group share one curve, hence one ad valorem rate
     foreach(s -> demand_relative_tax(d, s), d.demand)
     return nothing
