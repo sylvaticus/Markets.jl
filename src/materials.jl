@@ -1,4 +1,5 @@
 # Part of Markets.jl package [https://github.com/sylvaticus/Markets.jl] - MIT Licence
+# validated 20261029 Antonello Lobianco but to double check the sweep!() function TODO
 
 # ----------------------------------------------------------------------------
 #  Material accounts: what the goods of a solved economy are made of

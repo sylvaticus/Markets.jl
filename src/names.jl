@@ -1,4 +1,5 @@
 # Part of Markets.jl package [https://github.com/sylvaticus/Markets.jl] - MIT Licence
+# verified 20261029 Antonello LOBIANCO
 
 # ----------------------------------------------------------------------------
 #  Names
