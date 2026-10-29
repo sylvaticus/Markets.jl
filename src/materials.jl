@@ -1,3 +1,5 @@
+# Part of Markets.jl package [https://github.com/sylvaticus/Markets.jl] - MIT Licence
+
 # ----------------------------------------------------------------------------
 #  Material accounts: what the goods of a solved economy are made of
 # ----------------------------------------------------------------------------

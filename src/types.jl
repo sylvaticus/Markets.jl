@@ -1,3 +1,6 @@
+# Part of Markets.jl package [https://github.com/sylvaticus/Markets.jl] - MIT Licence
+# File verified 20261029 Antonello LOBIANCO
+
 # ----------------------------------------------------------------------------
 #  Data schema  (this is all a user touches to describe an economy)
 #
