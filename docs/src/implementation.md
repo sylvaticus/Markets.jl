@@ -309,10 +309,19 @@ rates and ``t_r`` for the summed relative ones on a given base:
 | trade | ``\tau \to \tau + t_a + \text{(ad valorem equivalent)}`` |
 
 The first three are exact in one solve. The fourth is exact for ``t_a``; the ad
-valorem part is a fraction of ``\pi^s_{p,o}``, a dual, so `solve_market` runs
-`solve_once` repeatedly, each pass holding the tariff at the money equivalent
+valorem part is a fraction of ``\pi^s_{p,o}``, a dual, so `solve_market`
+solves repeatedly, each pass holding the tariff at the money equivalent
 implied by the previous pass's producer prices, until successive passes agree
-to within `tax_tolerance`. At the fixed point the wedge equals the rate times the
+to within `tax_tolerance`. The model is built once: a pass
+changes only the tariff coefficients of the flows in the objective, and starts
+from the previous solution, primal and dual, with Ipopt told to stay there
+(`warm_start_init_point`, and a small initial barrier parameter) rather than
+move back into the interior. A pass after the first then takes a handful of
+iterations: on a 60-country version of the forest example
+(`test/benchmarks/sixty_countries.jl`), 5 to 18 against about 80 for a model
+built and solved from scratch, so that the whole loop with a tariff on every
+route costs little more than the untaxed solve. A warm start that fails is
+repeated from scratch. At the fixed point the wedge equals the rate times the
 origin price by construction, which is what a tariff means.
 
 That loop is successive substitution, and it converges only where the map
@@ -420,8 +429,8 @@ of it.
 ## Seeing the model
 
 `build_model` (internal) builds the JuMP model and returns it with the
-variables and constraints the results are read from; `solve_once` solves what
-it returns, and [`jump_model`](@ref) hands it to the user unsolved. Every
+variables and constraints the results are read from; `solve_market` solves
+what it returns, and [`jump_model`](@ref) hands it to the user unsolved. Every
 variable and every constraint is named — the balances `balance[r,p]` and
 `origin_balance[r,p]`, the CES aggregators `input_nest[r,k,n]` for the
 ``n``-th nest of a process, `demand_group[r][i]` and `origin_group[p,r][i]`

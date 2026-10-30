@@ -531,14 +531,15 @@ end
 """
 $(TYPEDSIGNATURES)
 
-Build the JuMP model for `d`, with the ad valorem trade tariffs held at the
-money equivalents given in `tariff`, and return it with the variables and
-constraints the result tables are read from.
+Build the JuMP model for `d`, with no ad valorem trade tariff, and return it
+with the variables and constraints the result tables are read from, the
+objective without tariffs, the flows a tariff falls on, and what is needed to
+warm-start it: [`set_tariffs!`](@ref) changes the tariffs of the model in place.
 
 Internal: [`jump_model`](@ref) is what a user calls to see the model, and
-[`solve_once`](@ref) what solves it.
+[`solve_market`](@ref) what solves it.
 """
-function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Float64};
+function build_model(d::MarketData;
                      solver = Ipopt.Optimizer, solver_options = (;),
                      silent::Bool = true, qfloor::Union{Nothing,Real} = nothing)
     # The floor exists so that a variable raised to a power below 1 is never
@@ -557,7 +558,13 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     # below are defaults: whatever the caller passed in the wrapper is set
     # already, and is left alone.
     wrapped = solver isa MOI.OptimizerWithAttributes
-    if (wrapped ? solver.optimizer_constructor : solver) === Ipopt.Optimizer
+    ipopt = (wrapped ? solver.optimizer_constructor : solver) === Ipopt.Optimizer
+    # the options the caller set, by name, which no default may override
+    own = Set{String}(string(o isa MOI.RawOptimizerAttribute ? o.name : o)
+                      for o in [wrapped ? first.(solver.params) : [];
+                                collect(keys(solver_options isa NamedTuple ?
+                                             pairs(solver_options) : Dict(solver_options)))])
+    if ipopt
         chosen = wrapped ? Set(first(p) for p in solver.params) : Set()
         default(name, value) = MOI.RawOptimizerAttribute(name) in chosen ||
                                set_attribute(m, name, value)
@@ -854,7 +861,9 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
         let t = tax_rates(d.taxes, "process"; process = proc.name, region = r)
             ((1 + t.relative) * vacost_of(proc, r) + t.absolute) * z[(r, proc.name)]
         end for proc in d.processes for r in regions_of(proc, d)))
-    route_cost(key) = d.transport_costs[key] + get(tariff, key, 0.0) +
+    # an ad valorem tariff is added by `set_tariffs!`, once its money
+    # equivalent is known
+    route_cost(key) = d.transport_costs[key] +
         tax_rates(d.taxes, "trade"; product = key[1], from = key[2], to = key[3]).absolute
     trans_cost = @expression(m,
         sum(route_cost(key) * T[key] for key in keys(T); init = 0.0) +
@@ -862,7 +871,12 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
 
     # crossing a soft limit costs its penalty: a device of the model, which
     # the results report apart from welfare
-    @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost - penalised)
+    objective = @expression(m, cons_benefit - supply_cost - conv_cost - trans_cost - penalised)
+    @objective(m, Max, objective)
+    # the flows between two regions, which an ad valorem tariff falls on
+    shipped = Dict{Tuple{String,String,String},VariableRef}()
+    foreach(((k, x),) -> shipped[k] = x, T)
+    foreach(((k, x),) -> k[2] == k[3] || (shipped[k] = x), X)
 
     # Welfare is the same surplus with every tax left out, a tax being a
     # transfer, and no penalty. Adding the revenue back to the objective would
@@ -877,26 +891,77 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
         sum(d.transport_costs[key] * X[key] for key in keys(X) if key[2] != key[3]; init = 0.0))
 
     return m, (D = D, S = S, z = z, T = T, X = X, A = A, drawn = drawn, balance = balance,
-               origin_balance = origin_balance, limits = limits, surplus = surplus)
+               origin_balance = origin_balance, limits = limits, surplus = surplus,
+               objective = objective, shipped = shipped, ipopt = ipopt, own = own)
 end
 
 """
 $(TYPEDSIGNATURES)
 
-Build the JuMP model for `d` and solve it once, with the ad valorem trade
-tariffs held at the money equivalents given in `tariff`.
+Hold the ad valorem trade tariffs of the model `m`, built by
+[`build_model`](@ref) with variables `v`, at the money equivalents in `tariff`,
+per unit shipped on each route: the objective becomes the one without
+tariffs less their cost. Nothing else in the model changes, so it can be
+solved again from where it was.
+"""
+set_tariffs!(m, v, tariff) =
+    @objective(m, Max, v.objective - sum(t * v.shipped[k] for (k, t) in tariff
+                                         if t != 0 && haskey(v.shipped, k); init = 0.0))
+
+"""
+$(TYPEDSIGNATURES)
+
+Solve the model `m` as it stands and read its results.
 
 Internal: [`solve_market`](@ref) is the entry point, and is what validates the
-economy, acts on the solver's verdict and iterates this function when an ad
-valorem rate on trade has to be found by fixed point.
+economy and acts on the solver's verdict.
 """
-function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Float64};
-                    tol::Real = 1e-3 * quantity_scale(d), model_options...)
-    m, v = build_model(d, tariff; model_options...)
+function solve_built(d::MarketData, m, v, tol::Real)
     wall_time = @elapsed optimize!(m)
     return build_results(d, m, v.D, v.S, v.z, v.T, v.X, v.balance, v.origin_balance,
-                         v.limits, tariff, tol, wall_time; A = v.A, drawn = v.drawn,
+                         v.limits, tol, wall_time; A = v.A, drawn = v.drawn,
                          surplus = v.surplus)
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+The solution of `m` just found, kept so that the next solve can start from it
+once the model has changed — changing it discards the solution in JuMP. The
+function returned sets the values as start values, and for Ipopt the duals as
+well, with the options that make it start there instead of moving into the
+interior first: a solve after a small change of the tariffs then takes a few
+iterations instead of tens. Options the caller set are left as they are.
+"""
+function warm_start(m, v)
+    has_values(m) || return () -> nothing
+    x = all_variables(m)
+    values = value.(x)
+    constraints = v.ipopt && has_duals(m) ?
+        all_constraints(m; include_variable_in_set_constraints = true) : ConstraintRef[]
+    duals = dual.(constraints)
+    return function ()
+        set_start_value.(x, values)
+        isempty(constraints) && return
+        set_dual_start_value.(constraints, duals)
+        for (option, value) in (("warm_start_init_point", "yes"), ("mu_init", 1e-6),
+                                ("warm_start_bound_push", 1e-9),
+                                ("warm_start_mult_bound_push", 1e-9))
+            option in v.own || set_attribute(m, option, value)
+        end
+    end
+end
+
+"""
+$(TYPEDSIGNATURES)
+
+Undo what [`warm_start`](@ref) set, for a solve from scratch: Ipopt's own
+starting point and initial barrier parameter, unless the caller chose them.
+"""
+function cold_start!(m, v)
+    v.ipopt || return
+    "warm_start_init_point" in v.own || set_attribute(m, "warm_start_init_point", "no")
+    "mu_init" in v.own || set_attribute(m, "mu_init", 0.1)
 end
 
 """
@@ -930,7 +995,7 @@ function jump_model(d::MarketData; kwargs...)
         "$(join(unknown, ", ")): the model has no solution yet, so only the keywords " *
         "that shape it apply — solver, solver_options, silent and qfloor"))
     validate(d)
-    return first(build_model(d, Dict{Tuple{String,String,String},Float64}(); kwargs...))
+    return first(build_model(d; kwargs...))
 end
 
 """
@@ -964,8 +1029,15 @@ An **ad valorem tax on trade** is a fraction of the price at the origin, which
 is a dual of the problem and so cannot be written into its objective. When `d`
 has one, the equilibrium is found by repeated solves: each holds the tariff at
 the money equivalent implied by the previous solution's producer prices, and
-the loop stops when the two agree to `tax_tolerance` (relative), or warns after
-`max_tax_iterations`. Everything else is solved exactly, once.
+the loop stops when the two agree to `tax_tolerance` (relative), or warns
+after `max_tax_iterations`. Everything else is solved exactly, once.
+
+The model is built once. Each solve after the first changes only the tariffs
+in its objective and starts from the solution before it, duals included for
+Ipopt, so that it takes a few iterations instead of a full solve; a warm start
+that fails is retried from scratch. With `ENV["JULIA_DEBUG"] = "Markets"` each
+solve logs the largest relative change of a tariff that preceded it, and its
+iterations and status.
 
 That iteration is successive substitution, which converges only where the map
 contracts — quickly in every case tried here, including rates of several
@@ -980,15 +1052,17 @@ function solve_market(d::MarketData; max_tax_iterations::Int = 50,
     on_failure in ("error", "warn", "ignore") || throw(ArgumentError(
         "on_failure is \"error\", \"warn\" or \"ignore\", got $on_failure"))
     validate(d)
+    tol = get(kwargs, :tol, 1e-3 * quantity_scale(d))
+    m, v = build_model(d; (k => x for (k, x) in kwargs if k != :tol)...)
+    res = solve_built(d, m, v, tol)
     advalorem = [t for t in d.taxes if t.on == "trade" && t.relative]
-    tariff = Dict{Tuple{String,String,String},Float64}()
-    res = solve_once(d, tariff; kwargs...)
     isempty(advalorem) && return report(res, on_failure)
 
     routes = collect(keys(d.transport_costs))
+    tariff = Dict{Tuple{String,String,String},Float64}()
     previous_gap = Inf
     step = 1.0
-    for _ in 1:max_tax_iterations
+    for solve in 2:max_tax_iterations + 1
         # the money a rate of `relative` comes to, at the prices just found:
         # the producer price at the origin, 0 where it has none (it then has
         # no variety to ship, so the route is empty whatever the tariff)
@@ -1007,7 +1081,18 @@ function solve_market(d::MarketData; max_tax_iterations::Int = 50,
         previous_gap = gap
         tariff = Dict(k => step * updated[k] + (1 - step) * get(tariff, k, 0.0)
                       for k in routes)
-        res = tally(solve_once(d, tariff; kwargs...), res)
+        # changing the objective discards the solution, so keep it first
+        restart = warm_start(m, v)
+        set_tariffs!(m, v, tariff)
+        restart()
+        next = solve_built(d, m, v, tol)
+        if !(next.status in (MOI.OPTIMAL, MOI.LOCALLY_SOLVED))
+            # a warm start can fail where a cold one does not
+            cold_start!(m, v)
+            next = tally(solve_built(d, m, v, tol), next)
+        end
+        @debug "ad valorem trade taxes" solve gap step next.iterations next.status
+        res = tally(next, res)
         gap <= tax_tolerance && return report(res, on_failure)
     end
     @warn "ad valorem trade taxes did not settle in $max_tax_iterations solves"

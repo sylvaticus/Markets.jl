@@ -1280,6 +1280,17 @@ end
         @test flow(choked, :x, :A, :B) <= 1e-3
         @test price(choked, :B, :x) - price(choked, :A, :x) <=
               1.0 + 40.0 * price(choked, :A, :x) + 1e-6
+        # each solve after the first changes only the tariffs of the model and
+        # starts from the solution before it. Told otherwise through options
+        # the caller sets, which are left alone, Ipopt moves back into the
+        # interior each time: the same equilibrium, the long way round
+        warm = solve_market(economy(1.0, 2.0))
+        cold = solve_market(economy(1.0, 2.0);
+                            solver_options = (warm_start_init_point = "no", mu_init = 0.1))
+        @test warm.solves == cold.solves
+        @test warm.objective ≈ cold.objective rtol = 1e-8
+        @test price(warm, :B, :x) ≈ price(cold, :B, :x) rtol = 1e-6
+        @test warm.iterations < cold.iterations
     end
 end
 

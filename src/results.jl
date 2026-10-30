@@ -200,7 +200,7 @@ function solver_attribute(m::Model, attr, fallback)
 end
 
 function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_built,
-                       tariff, tol, wall_time;
+                       tol, wall_time;
                        A = Dict{Tuple{String,String},VariableRef}(),
                        drawn = Dict{Tuple{String,String,Int,String},Any}(),
                        surplus = nothing)

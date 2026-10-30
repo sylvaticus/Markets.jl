@@ -1240,7 +1240,9 @@ whose sum must stay above -1 as each rate does.
     dual of the problem and so cannot be written into its objective. For those,
     and only those, [`solve_market`](@ref) solves repeatedly, each time holding
     the tariff at the money equivalent implied by the previous solution's
-    prices, until the two agree. Every other combination is exact in one solve.
+    prices, until the two agree. The model is built once and each solve starts
+    from the one before, so the repeats are short. Every other combination is
+    exact in one solve.
 
 # Fields
 $(TYPEDFIELDS)
