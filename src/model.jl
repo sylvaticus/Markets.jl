@@ -839,8 +839,20 @@ function build_model(d::MarketData, tariff::Dict{Tuple{String,String,String},Flo
     # the results report apart from welfare
     @objective(m, Max, cons_benefit - supply_cost - conv_cost - trans_cost - penalised)
 
+    # Welfare is the same surplus with every tax left out, a tax being a
+    # transfer, and no penalty. Adding the revenue back to the objective would
+    # recover it for per-unit rates only: a relative rate on supply or demand
+    # scales a whole curve integral, not what the tax raises.
+    surplus = @expression(m,
+        sum(curve_integral(s, C) for (s, C) in composites; init = 0.0) -
+        sum(curve_integral(supply_of[k], S[k]) for k in keys(S); init = 0.0) -
+        sum(vacost_of(proc, r) * z[(r, proc.name)]
+            for proc in d.processes for r in regions_of(proc, d); init = 0.0) -
+        sum(d.transport_costs[key] * T[key] for key in keys(T); init = 0.0) -
+        sum(d.transport_costs[key] * X[key] for key in keys(X) if key[2] != key[3]; init = 0.0))
+
     return m, (D = D, S = S, z = z, T = T, X = X, A = A, drawn = drawn, balance = balance,
-               origin_balance = origin_balance, limits = limits)
+               origin_balance = origin_balance, limits = limits, surplus = surplus)
 end
 
 """
@@ -858,7 +870,8 @@ function solve_once(d::MarketData, tariff::Dict{Tuple{String,String,String},Floa
     m, v = build_model(d, tariff; model_options...)
     wall_time = @elapsed optimize!(m)
     return build_results(d, m, v.D, v.S, v.z, v.T, v.X, v.balance, v.origin_balance,
-                         v.limits, tariff, tol, wall_time; A = v.A, drawn = v.drawn)
+                         v.limits, tariff, tol, wall_time; A = v.A, drawn = v.drawn,
+                         surplus = v.surplus)
 end
 
 """

@@ -1116,6 +1116,25 @@ end
         @test only(taxed.taxes.revenue) ≈ 15.0 * only(taxed.activity.level) rtol = 1e-5
     end
 
+    @testset "welfare counts a tax as a transfer, whatever its form" begin
+        # η > 1, so the areas from zero are finite and welfare has a level:
+        # ∫₀ᵠ 100 (x/10)^(-2/3) dx = 300·10^(2/3)·q^(1/3) and ∫₀ᵠ 10x dx = 5q²
+        alone(taxes) = MarketData(regions = [:A], products = [:x],
+            demand = [DemandCurve(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.5)],
+            supply = [SupplyCurve(product = :x, region = :A, p0 = 100, q0 = 10, elasticity = 1.0)],
+            taxes = taxes)
+        exact(q) = 300 * 10^(2 / 3) * q^(1 / 3) - 5q^2
+        untaxed = solve_market(alone(Tax[]); solver_options = (tol = 1e-10,))
+        @test untaxed.welfare ≈ exact(only(untaxed.consumption.quantity)) rtol = 1e-8
+        for on in (:supply, :demand), (rate, relative) in ((20.0, false), (0.2, true), (-0.2, true))
+            res = solve_market(alone([Tax(on = on, rate = rate, relative = relative)]);
+                               solver_options = (tol = 1e-10,))
+            @test res.welfare ≈ exact(only(res.consumption.quantity)) rtol = 1e-8
+            # a wedge either way costs the economy something
+            @test res.welfare < untaxed.welfare
+        end
+    end
+
     @testset "specification errors" begin
         @test_throws ArgumentError Tax(on = :nonsense, rate = 1.0)
         @test_throws ArgumentError Tax(on = :demand, rate = -1.5, relative = true)

@@ -327,8 +327,11 @@ the wedge rather than equal to it — which is the equilibrium, not a failure of
 the loop.
 
 Revenue is recomputed afterwards from the solution, instrument by instrument,
-and reported in `Results.taxes`; the objective does not include it as a
-transfer, so adding the total back is what returns it to welfare.
+and reported in `Results.taxes`. `Results.welfare` is the objective's terms
+evaluated at the solution with every tax left out. Adding the revenue back to
+the objective would give the same figure for per-unit rates only: a relative
+rate on supply or demand scales a whole curve integral, and the objective then
+differs from welfare by more, or less, than what the tax raises.
 
 ### Convexity
 

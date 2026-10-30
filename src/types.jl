@@ -1232,8 +1232,8 @@ whose sum must stay above -1 as each rate does.
     wedges enter the program exactly as a cost would, and its first-order
     conditions are the distorted market's. The **objective value** is not
     welfare any more, because it treats tax revenue as a cost consumed rather
-    than as a transfer received. To get back to welfare, add the revenue
-    reported in `Results.taxes` to the objective.
+    than as a transfer received. `Results.welfare` is welfare: the same
+    surplus evaluated at the solution without any tax.
 
 !!! note "Ad valorem rates on trade are solved by iteration"
     An ad valorem tariff is a fraction of the price at the origin, which is a

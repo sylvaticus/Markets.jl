@@ -675,12 +675,14 @@ opens a price gap of exactly 15; a value-added tax of 25% puts the consumer
 price 25% above the market price and moves the quantity accordingly.
 
 !!! warning "The objective is no longer welfare"
-    The program treats the revenue as a cost consumed, when it is a transfer
-    received. The objective of a taxed model is therefore **welfare minus the
-    revenue**, and comparing it with an untaxed one overstates the loss by the
-    whole amount raised. `Results.taxes` reports what each instrument raises
-    precisely so the transfer can be added back; who ultimately gets it is
-    outside the model.
+    The program treats the tax as a cost consumed, when it is a transfer
+    received, so the objective of a taxed model is not welfare and comparing
+    it with an untaxed one overstates the loss. With per-unit rates it falls
+    short by exactly the revenue; a relative rate on supply or demand scales a
+    whole curve, and the gap is then not the revenue. `Results.welfare` is
+    welfare in every case — the surplus at the solution, without the taxes —
+    and `Results.taxes` reports what each instrument raises; who ultimately
+    gets it is outside the model.
 
 ### Why ad valorem rates on trade are special
 

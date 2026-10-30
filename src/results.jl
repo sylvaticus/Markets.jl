@@ -45,14 +45,17 @@ Base.@kwdef struct Results
     """
     solves::Int = 1
     """
-    The value of the maximised objective: net social surplus, **less** any tax
-    revenue, which the program counts as a cost rather than a transfer
+    The value of the maximised objective: net social surplus, with taxes
+    counted as costs rather than transfers and the `penalties` of soft limits
+    taken out, so not welfare as soon as either is present
     """
     objective::Float64
     """
-    The objective with the tax revenue and the `penalties` added back, which
-    is the surplus the economy actually enjoys and the figure to compare
-    across policy scenarios
+    Net social surplus at the solution, taxes counted as the transfers they
+    are and no penalty: the objective's terms evaluated without any tax. The
+    figure to compare across policy scenarios. With a demand of elasticity
+    ``\\eta \\le 1`` its level is defined only up to a constant, so only
+    differences between runs on the same demand curves are meaningful
     """
     welfare::Float64
     """
@@ -159,9 +162,9 @@ Base.@kwdef struct Results
     limits::DataFrame
     """
     What each [`Tax`](@ref) raises: `tax`, what it falls `on`, and its
-    `revenue` (negative for a subsidy). Adding the total back to the objective
-    recovers welfare, which a taxed objective otherwise understates by exactly
-    this much
+    `revenue` (negative for a subsidy). For per-unit rates the objective falls
+    short of `welfare` by exactly this total; a relative rate on supply or
+    demand scales a whole curve integral, and the gap is then not the revenue
     """
     taxes::DataFrame
 end
@@ -195,7 +198,8 @@ end
 function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_built,
                        tariff, tol, wall_time;
                        A = Dict{Tuple{String,String},VariableRef}(),
-                       drawn = Dict{Tuple{String,String,Int,String},Any}())
+                       drawn = Dict{Tuple{String,String,Int,String},Any}(),
+                       surplus = nothing)
     val(x) = value(x)
     # bilateral flows: the trade variables of the homogeneous products and the
     # cross-border varieties of the Armington ones
@@ -438,7 +442,7 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
                    solve_time = solver_attribute(m, MOI.SolveTimeSec(), wall_time),
                    iterations = iterations,
                    objective = objective,
-                   welfare = objective + sum(taxes.revenue; init = 0.0) + penalties,
+                   welfare = surplus === nothing || !has_values(m) ? NaN : value(surplus),
                    penalties = penalties,
                    supply = supply, production = production,
                    consumption = consumption, composites = composites, inputs = inputs,

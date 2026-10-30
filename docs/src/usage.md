@@ -443,9 +443,9 @@ taxes = [Tax(name = "oil_royalty",  on = "supply",  product = "crude", region = 
 
 Selectors left at `:` — the colon, the default — match everything, and several
 taxes may fall on one
-base. `Results.taxes` reports what each raises — which matters, because a taxed
-objective counts the revenue as a cost rather than a transfer and so is no
-longer welfare. See [Taxes, subsidies and other wedges](@ref).
+base. `Results.taxes` reports what each raises. A taxed objective counts the
+tax as a cost rather than a transfer and so is no longer welfare;
+`Results.welfare` is. See [Taxes, subsidies and other wedges](@ref).
 
 ### Limits on any quantity
 
@@ -706,9 +706,9 @@ A [`Results`](@ref) carries the solver's verdict in `status` and its own
 message in `raw_status`, the `solve_time` in seconds and the `iterations` it
 took (summed over all `solves` when an ad valorem tariff is found by iteration,
 and `missing` for a solver that does not count them), the value of the
-maximised `objective`, the `welfare` that objective implies once tax revenue is
-counted as the transfer it is and the `penalties` of [soft limits](@ref "Soft
-limits") are taken back out, and twelve `DataFrame`s:
+maximised `objective`, the `welfare` — the same surplus with taxes counted as
+the transfers they are and without the `penalties` of [soft limits](@ref "Soft
+limits") — and twelve `DataFrame`s:
 
 | Field | Columns | Content |
 |:------|:--------|:--------|

@@ -1,4 +1,5 @@
 # Part of Markets.jl package [https://github.com/sylvaticus/Markets.jl] - MIT Licence
+# validated 20261030 Antonello Lobianco - still to double check well the two @limit and @limits macros TODO
 
 # ----------------------------------------------------------------------------
 #  Limits: linear constraints on the quantities of the model
