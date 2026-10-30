@@ -103,6 +103,13 @@ these inputs have an exogenous price and cannot substitute for the modelled
 inputs. It may differ by region, as wages and energy do, and a `vacost`
 calibrated on base-year margins always will.
 
+An input with an exogenous price that *should* substitute for the others — a
+chemical bought at a world price, say — is instead declared as a product with a
+flat supply curve, `SupplyCurve(...; elasticity = Inf)`, in each region that
+uses it, and put in the nest beside them. Its price is then `p0` whatever the
+quantity, and the quantity responds to the prices of the other inputs through
+the nest's ``\sigma``.
+
 ### Why processes, and not supply and demand per transformation
 
 There is another way to write the same economy. Instead of a transformation

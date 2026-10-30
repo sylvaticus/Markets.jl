@@ -346,9 +346,6 @@ for the reason given under [Dynamics are somebody else's job](@ref).
   domestic-versus-imported margin; and a CET nest on the export side, so that
   redirecting output between destinations is costly for producers too, which is
   the mirror image of the import-side nest built here.
-* **Inputs with an exogenous price** inside a nest (e.g. a chemical bought at a world
-  price). A `SupplyCurve` with a very high elasticity is an approximation
-  available today.
 * **Ad valorem taxes without iteration**, which would need the model restated
   as a complementarity problem rather than an optimisation.
 * **Estimation** of the parameters from data.
