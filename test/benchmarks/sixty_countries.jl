@@ -18,7 +18,7 @@
 #      julia --project=docs test/benchmarks/sixty_countries.jl [--cold]
 # ----------------------------------------------------------------------------
 
-using Markets, DataFrames, Random, Printf
+using Markets, DataFrames, Random, Printf, Logging
 
 # each solve of the tariff loop logs its gap, iterations and status
 ENV["JULIA_DEBUG"] = "Markets"
@@ -134,6 +134,29 @@ tariff20 = [Tax(name = "tariff", on = "trade", rate = 0.2, relative = true)]
 
 
 println("economy: ", repr(market(tariff20)), ", ", length(transport_costs), " routes")
+
+# A first solve compiles Markets, JuMP and Ipopt, which takes longer than the
+# solve itself: a small economy built from the same pieces — a demand group, a
+# CES process, Armington trade and an ad valorem tariff — pays for it here, so
+# that the timings below are of solving alone and can be compared.
+warmup = MarketData(regions = ["A", "B"], products = ["w", "g", "h"],
+    demand = [DemandCurve(product = DemandNest(sigma = 2.0, products = ["g", "h"]),
+                          region = r, p0 = 100, q0 = 10, elasticity = 0.5) for r in ("A", "B")],
+    supply = [SupplyCurve(product = p, region = r, p0 = 30, q0 = r == "A" ? 40 : 5,
+                          elasticity = 1.0) for p in ("w", "h") for r in ("A", "B")],
+    processes = [Process(name = "mill", outputs = ["g" => 1.0], vacost = 10,
+                         inputs = [ces(composite = 1.5, products = ["w", "h"],
+                                       shares = [0.7, 0.3], sigma = 2.0)])],
+    transport_costs = Dict((p, o, r) => 5.0 for p in ("w", "g", "h")
+                           for (o, r) in (("A", "B"), ("B", "A"))),
+    armington = [Armington(product = p, sigma = 4.0,
+                           shares = Dict((o, r) => o == r ? 3.0 : 1.0
+                                         for o in ("A", "B"), r in ("A", "B")))
+                 for p in ("w", "g", "h")],
+    taxes = tariff20)
+with_logger(NullLogger()) do
+    solve_market(warmup)
+end
 
 GC.gc()
 wall = @elapsed free = solve_market(market(Tax[]))
