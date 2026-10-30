@@ -1,4 +1,5 @@
 # Part of Markets.jl package [https://github.com/sylvaticus/Markets.jl] - MIT Licence
+# 20261030 verified Antonello Lobianco. Still to fully grasp ces_trees! and armington_of functions TODO 
 
 # ----------------------------------------------------------------------------
 #  Model construction
@@ -465,21 +466,45 @@ function regions_in_order(keys, d::MarketData, order = Dict(r => i for (i, r) in
     return sort(found; by = r -> order[r])
 end
 
+# The products of the variables `keys`, once each, in the order the economy
+# declares them. The activity of a process stands for what it makes, or, for
+# one that makes nothing, such as a disposal, for what it takes in.
+function products_in_order(keys, d::MarketData)
+    process = Dict(p.name => p for p in d.processes)
+    function of(key)
+        key[1] == :flow  && return [key[2]]
+        key[1] == :input && return [key[5]]
+        key[1] == :activity || return [key[3]]
+        proc = process[key[3]]
+        return isempty(proc.outputs) ? [p for n in proc.inputs for p in n.products] :
+                                       first.(proc.outputs)
+    end
+    order = Dict(p => i for (i, p) in enumerate(d.products))
+    return sort(unique(p for k in keys for p in of(k)); by = p -> order[p])
+end
+
+# The kinds of the variables `keys`, once each: `supply`, `consumption`,
+# `activity`, `inputs`, `flow`.
+kinds_of(keys) = unique(k[1] == :input ? "inputs" : string(k[1]) for k in keys)
+
 """
     Markets.scope(limit, d)
 
 What `limit` applies to in the economy `d`: the `variables` of the model its
-expression involves — `supply[region, product]`, `consumption[region, product]`,
-`activity[region, process]`, `inputs[region, process, product]` and
-`flow[product, from, to]`, production and fixed-coefficient inputs being
-expressed through the activities — and the `regions` those variables belong
-to, in the order the economy declares them. It is what `Results.limits`
-reports for each limit.
+expression involves, one by one — `supply[region, product]`,
+`consumption[region, product]`, `activity[region, process]`,
+`inputs[region, process, product]` and `flow[product, from, to]`, production
+and fixed-coefficient inputs being expressed through the activities — and the
+`regions` and `products` those variables belong to, in the order the economy
+declares them, the activity of a process standing for what it makes.
+`Results.limits` reports the same regions and products, and only the kinds of
+the variables.
 """
 function scope(limit::Limit, d::MarketData)
     terms = limit_terms(limit, d)
     keys = sort(collect(Base.keys(terms)); by = describe_key)
-    return (regions = regions_in_order(keys, d), variables = describe_key.(keys))
+    return (regions = regions_in_order(keys, d), products = products_in_order(keys, d),
+            variables = describe_key.(keys))
 end
 
 """

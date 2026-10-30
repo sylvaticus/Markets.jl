@@ -2,7 +2,7 @@
 # verified 20261030 Antonello LOBIANCO
 
 # ----------------------------------------------------------------------------
-#  Displaying an economy
+#  Displaying an economy, and the results of solving it
 #
 #  A `MarketData` holds its curves, recipes and routes as vectors and a
 #  dictionary, which the default display prints as one unreadable line. What
@@ -11,10 +11,11 @@
 #  goods may move and at what cost, and which taxes and limits bite.
 # ----------------------------------------------------------------------------
 
-# A number as briefly as it can be read: integers without a decimal point.
+# A number as briefly as it can be read, to four significant digits: integers,
+# and numbers that round to one, without a decimal point.
 fmt(x::Real) = isinf(x) ? (x > 0 ? "∞" : "-∞") :
                isinteger(x) && abs(x) < 1e15 ? string(Int(x)) :
-               string(round(x; sigdigits = 4))
+               (y = round(x; sigdigits = 4); isinteger(y) && abs(y) < 1e15 ? string(Int(y)) : string(y))
 
 plural(n, one, many = one * "s") = string(n, " ", n == 1 ? one : many)
 
@@ -299,5 +300,51 @@ function Base.print(io::IO, d::MarketData)
         heading("Taxes and subsidies")
         foreach(line, columns(tax_row.(d.taxes)))
     end
+    return nothing
+end
+
+# --- results ------------------------------------------------------------------
+#  A `Results` holds the economy, the JuMP model and a dozen tables, which the
+#  default display prints in full. Typing one gives how the solve went, and
+#  printing it what is in it.
+
+# time, iterations and, when a tariff was found by iteration, the solves
+solve_line(r::Results) = join(filter(!isempty, [
+    string(fmt(r.solve_time), " s"),
+    r.iterations === missing ? "" : plural(r.iterations, "iteration"),
+    r.solves == 1 ? "" : plural(r.solves, "solve")]), ", ")
+
+# The solve in one line: what the REPL shows when a `Results` is typed, and
+# what stands for it inside another structure, as for `MarketData`.
+Base.show(io::IO, r::Results) = print(io, "Results(", r.status, ", ", solve_line(r), ")")
+
+"""
+$(TYPEDSIGNATURES)
+
+A summary of the results `r`: the economy solved, how the solve went, the
+objective and the welfare, and every table with its number of rows and its
+columns. Shown by `print(r)` and `println(r)`, while typing `r` in the REPL
+gives only its one line; printed to a terminal, lines wider than it are cut.
+"""
+function Base.print(io::IO, r::Results)
+    limit = get(io, :limit, false) || io isa Base.TTY
+    width = limit ? displaysize(io)[2] : typemax(Int)
+    line(s) = println(io, clip(s, width))
+    heading(s) = (println(io); printstyled(io, clip(s, width); bold = true); println(io))
+
+    printstyled(io, "Results"; bold = true)
+    println(io, clip(" of " * repr(r.data), width - textwidth("Results")))
+    rows = [["status", string(r.status, " (", r.raw_status, ")")],
+            ["solve", solve_line(r)],
+            ["objective", fmt(r.objective)],
+            ["welfare", fmt(r.welfare)]]
+    r.penalties == 0 || push!(rows, ["penalties", fmt(r.penalties)])
+    foreach(line, columns(rows))
+
+    heading("Tables")
+    tables = [f for f in fieldnames(Results) if fieldtype(Results, f) == DataFrame]
+    foreach(line, columns([[string(f), plural(nrow(getfield(r, f)), "row"),
+                            join(names(getfield(r, f)), ", ")] for f in tables]; right = 2:2))
+    line("  (and `data`, `model` and `solution`: the economy, the JuMP model and its raw values)")
     return nothing
 end

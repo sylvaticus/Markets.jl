@@ -592,9 +592,10 @@ limits = [@limit("$r: " * join(C, " + "),
 `Results.limits` reports each limit with its bounds, the `value` its
 expression takes, its `rent` — the gain in the objective from relaxing the
 bound that binds by one unit, positive for an upper bound and negative for a
-lower one, zero for a limit that does not bind — and the `regions` and model
-`variables` it applies to, which `Markets.scope(limit, economy)` also gives
-before anything is solved. The rent reaches the quantities too: the `supply`,
+lower one, zero for a limit that does not bind — and what it applies to: its
+`regions` and `products`, and the kinds of model `variables` it involves, such
+as `supply` or `flow`. `Markets.scope(limit, economy)` gives the same before
+anything is solved, with the variables one by one, such as `supply[SEF, swr]`. The rent reaches the quantities too: the `supply`,
 `activity` and `trade` tables give each row the `rent` the limits it is part
 of charge per unit of it — the whole rent for a ceiling on that quantity
 alone, the rent times its weight for a share of a wider one — and the
@@ -702,6 +703,11 @@ them anyway, and read `res.status` to see what happened.
 
 ## Reading the results
 
+Typing a result in the REPL gives one line, how the solve went:
+`Results(LOCALLY_SOLVED, 0.42 s, 35 iterations)`. Printing it, with
+`print(res)`, adds the economy, the objective and the welfare, and lists every
+table with its rows and columns.
+
 A [`Results`](@ref) carries the solver's verdict in `status` and its own
 message in `raw_status`, the `solve_time` in seconds and the `iterations` it
 took (summed over all `solves` when an ad valorem tariff is found by iteration,
@@ -722,7 +728,7 @@ limits") — and twelve `DataFrame`s:
 | `net_trade`   | region, product, exports, imports, net | net = exports − imports |
 | `prices`      | region, product, price, producer\_price | what local users pay, and what local producers get |
 | `activity`    | region, process, level, capacity, rent | process activity, with its capacity and the quasi-rent it earns, as for `supply` |
-| `limits`      | limit, lower, upper, penalty, value, excess, rent, regions, variables | every [`Limit`](@ref), how far a soft one was crossed, the rent of the bound that binds, and what it applies to |
+| `limits`      | limit, lower, upper, penalty, value, excess, rent, regions, products, variables | every [`Limit`](@ref), how far a soft one was crossed, the rent of the bound that binds, and what it applies to |
 | `taxes`       | tax, on, revenue | what each instrument raises |
 
 Either price column is `missing` where it has no meaning: a product that a

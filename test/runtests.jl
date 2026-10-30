@@ -205,6 +205,24 @@ end
         # a process in one region is in that region, not in its letters
         @test occursin(r"in B$"m, text)
     end
+
+    @testset "results: one line typed, what is in them printed" begin
+        res = solve_market(d)
+        oneline = sprint(show, MIME"text/plain"(), res)
+        @test occursin(r"^Results\(LOCALLY_SOLVED, [\d.e-]+ s, \d+ iterations(, \d+ solves)?\)$", oneline)
+        @test repr(res) == oneline
+        text = sprint(print, res)
+        @test string(res) == text && text != oneline
+        @test startswith(text, "Results of MarketData(3 regions, 4 products, 3 processes)")
+        @test occursin(r"welfare\s+" * Markets.fmt(res.welfare), text)
+        # every table, with its rows and its columns
+        @test occursin(r"prices\s+\d+ rows\s+region, product, price, producer_price", text)
+        @test occursin(r"taxes\s+2 rows\s+tax, on, revenue", text)
+        @test count(occursin(" row", l) for l in split(text, "\n")) == 12
+        narrow = sprint(print, res; context = (:limit => true, :displaysize => (24, 40)))
+        @test all(textwidth(l) <= 40 for l in split(narrow, "\n"))
+        @test Markets.fmt(-710555.3) == "-710600" && Markets.fmt(0.4213) == "0.4213"
+    end
 end
 
 @testset "A product may be supplied, consumed and used as an input at once" begin
@@ -553,7 +571,8 @@ end
         @test only(res.supply.rent) ≈ price(res, :A, :x) - on_curve(economy().supply[1], S) rtol = 1e-5
         @test only(res.supply.capacity) == cap
         @test only(res.limits.rent) ≈ only(res.supply.rent) rtol = 1e-10
-        @test only(res.limits.regions) == ["A"] && only(res.limits.variables) == ["supply[A, x]"]
+        @test only(res.limits.regions) == ["A"] && only(res.limits.products) == ["x"]
+        @test only(res.limits.variables) == ["supply"]
         # a ceiling above what would be produced anyway changes nothing
         loose = solve_market(ceiling(10 * cap))
         @test getq(loose.production, :A, :x) ≈ getq(free.production, :A, :x) rtol = 1e-6
@@ -732,7 +751,8 @@ end
         row = only(res.activity[res.activity.region .== "A", :])
         @test row.rent > 0 && row.capacity == cap      # a quasi-rent, on the activity ...
         @test row.rent ≈ only(res.limits.rent) rtol = 1e-10   # ... and on the limit
-        @test only(res.limits.variables) == ["activity[A, mill]"]
+        # the activity of a process stands for what it makes
+        @test only(res.limits.variables) == ["activity"] && only(res.limits.products) == ["g"]
         # a limit in one region bounds that region only
         @test isinf(only(res.activity[res.activity.region .== "B", :capacity]))
         @test iszero(only(res.activity[res.activity.region .== "B", :rent]))
@@ -826,8 +846,11 @@ end
         sc = Markets.scope(shared, economy())
         @test sc.regions == ["A", "B"]
         @test sc.variables == ["activity[A, mill]", "supply[B, w]"]
+        @test sc.products == ["w", "g"]                 # in the order declared
         res = with(shared)
-        @test only(res.limits.regions) == sc.regions && only(res.limits.variables) == sc.variables
+        @test only(res.limits.regions) == sc.regions && only(res.limits.products) == sc.products
+        # the results name only the kinds of variable, the scope each one
+        @test only(res.limits.variables) == ["activity", "supply"]
         # a group exports only what leaves it
         @test_throws ArgumentError with(@limit "inside" exports(region = [:A, :B], product = :g) <= 1)
         # it is part of the economy's summary
@@ -923,7 +946,7 @@ end
         moved_g = only(res.trade[res.trade.product .== "g", :])
         @test moved_g.rent ≈ row.rent rtol = 1e-10
         @test moved_g.capacity == quota
-        @test row.regions == ["A", "B"] && row.variables == ["flow[g, A, B]"]
+        @test row.regions == ["A", "B"] && row.products == ["g"] && row.variables == ["flow"]
     end
 
     @testset "a ceiling over several products uses its weights" begin
@@ -937,7 +960,7 @@ end
         # that cross carry all of it — and none has a ceiling of its own
         rent = only(res.limits.rent)
         @test only(res.trade[res.trade.product .== "g", :rent]) ≈ rent rtol = 1e-8
-        @test only(res.limits.variables) == ["flow[g, A, B]", "flow[w, A, B]"]
+        @test only(res.limits.variables) == ["flow"] && only(res.limits.products) == ["w", "g"]
         @test all(isinf, res.trade.capacity)
         # and the region's slice holds it
         @test nrow(for_region(res, :A).limits) == 1

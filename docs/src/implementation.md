@@ -588,7 +588,8 @@ equilibrium:
   duplicate names and anything not linear are refused; a limit on one variable
   becomes a bound on it, the supply, activity and trade tables carry the rents
   of the limits their quantities are part of, `Markets.scope` names the same
-  regions and variables before the solve as `Results.limits` after it, a
+  regions, products and kinds of variable before the solve as `Results.limits`
+  after it, a
   family from `@limits` has one member per combination of its indices, named
   after them, and the colon selects every region or product while `"all"` is a
   name like any other;

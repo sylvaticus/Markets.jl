@@ -1,4 +1,5 @@
 # Part of Markets.jl package [https://github.com/sylvaticus/Markets.jl] - MIT Licence
+# verified 20261030 Antonello Lobianco
 
 # ----------------------------------------------------------------------------
 #  Results & retrieval
@@ -155,9 +156,12 @@ Base.@kwdef struct Results
     the gain in the objective from relaxing the bound that binds by one unit,
     positive for an upper bound, like a congestion rent or a quota price,
     negative for a lower one, the subsidy that would get agents to meet it
-    unaided, and zero for a limit that does not bind — and the `regions` and
-    model `variables` it applies to, as `Markets.scope` gives them. Empty when
-    there are none
+    unaided, and zero for a limit that does not bind — and what it applies to:
+    its `regions` and `products`, and the kinds of model `variables` it
+    involves (`supply`, `consumption`, `activity`, `inputs`, `flow`), the
+    activity of a process standing for the products it makes.
+    `Markets.scope` gives the same before the solve, with the variables one by
+    one. Empty when there are none
     """
     limits::DataFrame
     """
@@ -231,7 +235,8 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
     # from the variable to the expression where the limit is a variable bound
     limits = DataFrame(limit = String[], lower = Float64[], upper = Float64[],
                        penalty = Float64[], value = Float64[], excess = Float64[],
-                       rent = Float64[], regions = Vector{String}[], variables = Vector{String}[])
+                       rent = Float64[], regions = Vector{String}[], products = Vector{String}[],
+                       variables = Vector{String}[])
     penalties = 0.0
     # what the limits charge per unit of each variable they involve, and the
     # tightest ceiling a limit puts on a variable alone
@@ -257,9 +262,9 @@ function build_results(d, m, D, S, z, T, X, balance, origin_balance, limits_buil
                  0.0 : excess
         penalties += isfinite(L.limit.penalty) ? L.limit.penalty * excess : 0.0
         keys_l = sort(collect(keys(L.terms)); by = describe_key)
-        regions_l = regions_in_order(keys_l, d, order)
         push!(limits, (L.limit.name, L.limit.lower, L.limit.upper, L.limit.penalty, value,
-                       excess, rent, regions_l, describe_key.(keys_l)))
+                       excess, rent, regions_in_order(keys_l, d, order),
+                       products_in_order(keys_l, d), kinds_of(keys_l)))
         for (key, w) in L.terms
             wedge[key] = get(wedge, key, 0.0) + rent * w
         end
