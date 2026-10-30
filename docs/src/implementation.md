@@ -319,8 +319,9 @@ from the previous solution, primal and dual, with Ipopt told to stay there
 move back into the interior. A pass after the first then takes a handful of
 iterations: on a 60-country version of the forest example
 (`test/benchmarks/sixty_countries.jl`), 5 to 18 against about 80 for a model
-built and solved from scratch, so that the whole loop with a tariff on every
-route costs little more than the untaxed solve. A warm start that fails is
+built and solved from scratch. With a tariff on every route and a
+`tax_tolerance` of 1e-8, the whole loop spent 27.6 s in Ipopt against 11.2 s
+for the untaxed solve, where rebuilding for every pass spent 154 s. A warm start that fails is
 repeated from scratch. At the fixed point the wedge equals the rate times the
 origin price by construction, which is what a tariff means.
 

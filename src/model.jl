@@ -1046,7 +1046,7 @@ whenever an iteration increases the error rather than reducing it, which
 rescues an oscillating case and leaves a well-behaved one at full speed.
 """
 function solve_market(d::MarketData; max_tax_iterations::Int = 50,
-                      tax_tolerance::Real = 1e-8, on_failure::Name = "error",
+                      tax_tolerance::Real = 1e-6, on_failure::Name = "error",
                       kwargs...)
     on_failure = nm(on_failure)
     on_failure in ("error", "warn", "ignore") || throw(ArgumentError(
