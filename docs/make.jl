@@ -49,7 +49,13 @@ makedocs(
                 "Egyptian agriculture (GAMS egypt)" => "generated/egypt.md",
             ],
         ],
-        "Modelling choices"   => "modelling.md",
+        "Modelling choices"   => [
+            "modelling/index.md",
+            "Equilibrium, curves and welfare" => "modelling/equilibrium.md",
+            "Processes and substitution"      => "modelling/processes.md",
+            "Taxes and trade"                 => "modelling/trade.md",
+            "Accounts, calibration and scope" => "modelling/scope.md",
+        ],
         "Code implementation" => [
             "implementation.md",
             "API reference" => "api.md",

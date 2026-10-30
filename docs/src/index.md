@@ -62,10 +62,10 @@ using Pkg
 Pkg.add(url = "https://github.com/sylvaticus/Markets.jl")   # this model
 ```
 
-`Pkg.add("Markets")` would install the registered v0.0.1 instead, which is the
-older and entirely different formulation described in
-[Previous formulation (v0.0.1)](@ref); its documentation is kept under the
-`v0.0.2` entry of the version selector.
+`Pkg.add("Markets")` would install the registered v0.0.1 instead: an older and
+entirely different formulation, which solved price–quantity equations under a
+least-squares objective and never converged. Its documentation is kept under
+the `v0.0.2` entry of the version selector.
 
 ## Quick start
 
